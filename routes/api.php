@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\Dashboard\TasksController;
 use App\Http\Controllers\Api\Dashboard\ContactsController;
 use App\Http\Controllers\Api\Dashboard\CampaignsController;
 use App\Http\Controllers\Api\ContactsController as ApiContactsController;
+use App\Http\Controllers\Api\CompaniesController;
+use App\Http\Controllers\Api\MetadataController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -35,6 +37,26 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('contacts/{id}', [ApiContactsController::class, 'update'])->whereNumber('id');
     Route::delete('contacts/{id}', [ApiContactsController::class, 'destroy'])->whereNumber('id');
     Route::post('contacts/import', [ApiContactsController::class, 'import']);
+
+    // Companies resource
+    Route::get('companies', [CompaniesController::class, 'index']);
+    Route::post('companies', [CompaniesController::class, 'store']);
+    Route::get('companies/deleted', [CompaniesController::class, 'deleted']);
+    Route::post('companies/check-duplicates', [CompaniesController::class, 'checkDuplicates']);
+    Route::post('companies/bulk-create', [CompaniesController::class, 'bulkCreate']);
+    Route::post('companies/import', [CompaniesController::class, 'import']);
+    Route::get('companies/{id}', [CompaniesController::class, 'show'])->whereNumber('id');
+    Route::put('companies/{id}', [CompaniesController::class, 'update'])->whereNumber('id');
+    Route::delete('companies/{id}', [CompaniesController::class, 'destroy'])->whereNumber('id');
+    Route::post('companies/{id}/restore', [CompaniesController::class, 'restore'])->whereNumber('id');
+    Route::post('companies/{id}/contacts', [CompaniesController::class, 'attachContacts'])->whereNumber('id');
+    Route::delete('companies/{id}/contacts/{contact_id}', [CompaniesController::class, 'detachContact'])->whereNumber(['id', 'contact_id']);
+    Route::get('companies/{id}/activity-log', [CompaniesController::class, 'activityLog'])->whereNumber('id');
+
+    // Metadata endpoints
+    Route::get('metadata/industries', [MetadataController::class, 'industries']);
+    Route::get('metadata/company-types', [MetadataController::class, 'companyTypes']);
+    Route::get('metadata/owners', [MetadataController::class, 'owners']);
 });
 
 
