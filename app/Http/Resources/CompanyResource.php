@@ -27,6 +27,9 @@ class CompanyResource extends JsonResource
             'timezone' => $this->timezone,
             'description' => $this->description,
             'linkedin_page' => $this->linkedin_page,
+            'phone' => $this->phone,
+            'email' => $this->email,
+            'status' => $this->status,
             'owner_id' => $this->owner_id,
             'owner' => $this->whenLoaded('owner', function () {
                 return [

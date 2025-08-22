@@ -24,8 +24,12 @@ class ContactsController extends Controller
         $this->authorize('viewAny', Contact::class);
 
         $tenantId = (int) $request->header('X-Tenant-ID');
+        $userId = $request->user()->id;
 
         $query = Contact::query()->where('tenant_id', $tenantId);
+
+        // Filter by owner_id to ensure users only see their own contacts
+        $query->where('owner_id', $userId);
 
         if ($ownerId = $request->query('owner_id')) {
             $query->where('owner_id', $ownerId);
@@ -54,8 +58,12 @@ class ContactsController extends Controller
         return response()->json([
             'data' => $contacts->items(),
             'meta' => [
-                'page' => $contacts->currentPage(),
+                'current_page' => $contacts->currentPage(),
+                'last_page' => $contacts->lastPage(),
+                'per_page' => $contacts->perPage(),
                 'total' => $contacts->total(),
+                'from' => $contacts->firstItem(),
+                'to' => $contacts->lastItem(),
             ],
         ]);
     }
@@ -107,7 +115,10 @@ class ContactsController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         $tenantId = (int) $request->header('X-Tenant-ID');
-        $contact = Contact::where('tenant_id', $tenantId)->findOrFail($id);
+        $userId = $request->user()->id;
+        $contact = Contact::where('tenant_id', $tenantId)
+                         ->where('owner_id', $userId)
+                         ->findOrFail($id);
         $this->authorize('view', $contact);
 
         return response()->json([
@@ -122,7 +133,10 @@ class ContactsController extends Controller
     public function update(UpdateContactRequest $request, int $id): JsonResponse
     {
         $tenantId = (int) $request->header('X-Tenant-ID');
-        $contact = Contact::where('tenant_id', $tenantId)->findOrFail($id);
+        $userId = $request->user()->id;
+        $contact = Contact::where('tenant_id', $tenantId)
+                         ->where('owner_id', $userId)
+                         ->findOrFail($id);
         $this->authorize('update', $contact);
 
         $contact->fill($request->validated());
@@ -137,7 +151,10 @@ class ContactsController extends Controller
     public function destroy(Request $request, int $id): JsonResponse
     {
         $tenantId = (int) $request->header('X-Tenant-ID');
-        $contact = Contact::where('tenant_id', $tenantId)->findOrFail($id);
+        $userId = $request->user()->id;
+        $contact = Contact::where('tenant_id', $tenantId)
+                         ->where('owner_id', $userId)
+                         ->findOrFail($id);
         $this->authorize('delete', $contact);
 
         $contact->delete();

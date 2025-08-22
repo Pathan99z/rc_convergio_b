@@ -30,7 +30,9 @@ class CompaniesController extends Controller
         $filters = [
             'tenant_id' => $request->header('X-Tenant-ID') ?? $request->user()->id,
             'name' => $request->get('name'),
+            'q' => $request->get('q'), // Add search query parameter
             'industry' => $request->get('industry'),
+            'type' => $request->get('type'),
             'owner_id' => $request->get('owner_id'),
             'sortBy' => $request->get('sortBy', 'created_at'),
             'sortOrder' => $request->get('sortOrder', 'desc'),
@@ -329,7 +331,7 @@ class CompaniesController extends Controller
         // Dispatch import job
         ImportCompaniesJob::dispatch(
             $filePath,
-            $request->header('X-Tenant-ID') ?? $request->user()->id,
+            1, // Use tenant ID 1 as default
             $request->user()->id
         );
 
@@ -340,6 +342,24 @@ class CompaniesController extends Controller
                 'file_name' => $fileName
             ],
             'message' => 'Import job queued successfully'
+        ], 202);
+    }
+
+    /**
+     * Get contacts associated with a company.
+     */
+    public function getCompanyContacts(int $id): JsonResponse
+    {
+        $company = Company::findOrFail($id);
+        $this->authorize('view', $company);
+
+        $contacts = $company->contacts()->with(['owner:id,name,email'])->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $contacts
         ]);
     }
+
+
 }

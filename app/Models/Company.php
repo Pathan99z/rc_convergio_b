@@ -26,6 +26,9 @@ class Company extends Model
         'description',
         'linkedin_page',
         'owner_id',
+        'phone',
+        'email',
+        'status',
     ];
 
     protected $casts = [

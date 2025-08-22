@@ -10,7 +10,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use League\Csv\Reader;
 
 class ImportCompaniesJob implements ShouldQueue
 {
@@ -33,50 +32,56 @@ class ImportCompaniesJob implements ShouldQueue
     public function handle(CompanyService $companyService): void
     {
         try {
-            $csv = Reader::createFromPath($this->filePath, 'r');
-            $csv->setHeaderOffset(0);
+            Log::info('ImportCompaniesJob: Starting import', [
+                'file' => $this->filePath,
+                'tenant_id' => $this->tenantId,
+                'user_id' => $this->userId
+            ]);
 
-            $records = $csv->getRecords();
+            if (!file_exists($this->filePath)) {
+                Log::error('ImportCompaniesJob: File not found', ['path' => $this->filePath]);
+                return;
+            }
+
+            $content = file_get_contents($this->filePath);
+            $lines = explode("\n", $content);
+            
+            // Skip header
+            $headers = str_getcsv(array_shift($lines));
             $imported = 0;
             $errors = [];
 
-            foreach ($records as $index => $record) {
+            foreach ($lines as $index => $line) {
+                if (empty(trim($line))) continue;
+                
                 try {
-                    // Clean and validate the data
-                    $data = $this->cleanRecord($record);
+                    $record = str_getcsv($line);
+                    if (count($record) < count($headers)) continue;
                     
-                    // Check for duplicates
-                    $duplicates = $companyService->checkDuplicates($data, $this->tenantId);
-                    if ($duplicates->isNotEmpty()) {
-                        $errors[] = [
-                            'row' => $index + 2, // +2 because of header and 0-based index
-                            'data' => $data,
-                            'error' => 'Duplicate company found: ' . $duplicates->first()->name
-                        ];
-                        continue;
-                    }
-
+                    $data = array_combine($headers, $record);
+                    $data = $this->cleanRecord($data);
+                    
                     // Create the company
                     $data['tenant_id'] = $this->tenantId;
-                    $companyService->createCompany($data);
+                    $data['owner_id'] = $this->userId;
+                    
+                    Company::create($data);
                     $imported++;
-
+                    
+                    Log::info('ImportCompaniesJob: Company created', ['name' => $data['name']]);
+                    
                 } catch (\Exception $e) {
                     $errors[] = [
                         'row' => $index + 2,
-                        'data' => $record,
                         'error' => $e->getMessage()
                     ];
+                    Log::error('ImportCompaniesJob: Row error', ['row' => $index + 2, 'error' => $e->getMessage()]);
                 }
             }
 
-            // Log results
-            Log::info('Company import completed', [
-                'tenant_id' => $this->tenantId,
-                'user_id' => $this->userId,
+            Log::info('ImportCompaniesJob: Import completed', [
                 'imported' => $imported,
-                'errors' => count($errors),
-                'file' => $this->filePath
+                'errors' => count($errors)
             ]);
 
             // Clean up the file
@@ -85,11 +90,9 @@ class ImportCompaniesJob implements ShouldQueue
             }
 
         } catch (\Exception $e) {
-            Log::error('Company import failed', [
-                'tenant_id' => $this->tenantId,
-                'user_id' => $this->userId,
-                'file' => $this->filePath,
-                'error' => $e->getMessage()
+            Log::error('ImportCompaniesJob: Import failed', [
+                'error' => $e->getMessage(),
+                'file' => $this->filePath
             ]);
 
             // Clean up the file on error too
@@ -120,7 +123,7 @@ class ImportCompaniesJob implements ShouldQueue
             'timezone' => ['timezone', 'time_zone'],
             'description' => ['description', 'about', 'notes'],
             'linkedin_page' => ['linkedin_page', 'linkedin', 'linkedin_url'],
-            'owner_id' => ['owner_id', 'owner', 'assigned_to'],
+            'status' => ['status'],
         ];
 
         foreach ($mapping as $field => $possibleNames) {
@@ -149,6 +152,11 @@ class ImportCompaniesJob implements ShouldQueue
             throw new \Exception('Company name is required');
         }
 
+        // Set default status if not provided
+        if (empty($data['status'])) {
+            $data['status'] = 'prospect';
+        }
+
         // Clean up data types
         if (isset($data['size']) && is_numeric($data['size'])) {
             $data['size'] = (int) $data['size'];
@@ -156,10 +164,6 @@ class ImportCompaniesJob implements ShouldQueue
 
         if (isset($data['annual_revenue']) && is_numeric($data['annual_revenue'])) {
             $data['annual_revenue'] = (float) $data['annual_revenue'];
-        }
-
-        if (isset($data['owner_id']) && is_numeric($data['owner_id'])) {
-            $data['owner_id'] = (int) $data['owner_id'];
         }
 
         return $data;

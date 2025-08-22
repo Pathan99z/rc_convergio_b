@@ -41,14 +41,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Companies resource
     Route::get('companies', [CompaniesController::class, 'index']);
     Route::post('companies', [CompaniesController::class, 'store']);
-    Route::get('companies/deleted', [CompaniesController::class, 'deleted']);
     Route::post('companies/check-duplicates', [CompaniesController::class, 'checkDuplicates']);
     Route::post('companies/bulk-create', [CompaniesController::class, 'bulkCreate']);
     Route::post('companies/import', [CompaniesController::class, 'import']);
+    Route::get('companies/deleted', [CompaniesController::class, 'deleted']);
     Route::get('companies/{id}', [CompaniesController::class, 'show'])->whereNumber('id');
     Route::put('companies/{id}', [CompaniesController::class, 'update'])->whereNumber('id');
     Route::delete('companies/{id}', [CompaniesController::class, 'destroy'])->whereNumber('id');
     Route::post('companies/{id}/restore', [CompaniesController::class, 'restore'])->whereNumber('id');
+    Route::get('companies/{id}/contacts', [CompaniesController::class, 'getCompanyContacts'])->whereNumber('id');
     Route::post('companies/{id}/contacts', [CompaniesController::class, 'attachContacts'])->whereNumber('id');
     Route::delete('companies/{id}/contacts/{contact_id}', [CompaniesController::class, 'detachContact'])->whereNumber(['id', 'contact_id']);
     Route::get('companies/{id}/activity-log', [CompaniesController::class, 'activityLog'])->whereNumber('id');

@@ -24,8 +24,28 @@ class CompanyService
             $query->searchByName($filters['name']);
         }
 
+        // Handle search query
+        if (!empty($filters['q'])) {
+            $searchTerm = $filters['q'];
+            \Log::info('Searching for companies with term: ' . $searchTerm);
+            
+            $query->where(function($q) use ($searchTerm) {
+                // Primary search on company name (exact match first, then partial)
+                $q->where('name', 'like', $searchTerm . '%')  // Starts with
+                  ->orWhere('name', 'like', '%' . $searchTerm . '%')  // Contains
+                  ->orWhere('domain', 'like', '%' . $searchTerm . '%')  // Domain contains
+                  ->orWhere('website', 'like', '%' . $searchTerm . '%'); // Website contains
+            });
+            
+            \Log::info('Search query built, will execute with filters: ' . json_encode($filters));
+        }
+
         if (!empty($filters['industry'])) {
             $query->byIndustry($filters['industry']);
+        }
+
+        if (!empty($filters['type'])) {
+            $query->where('type', $filters['type']);
         }
 
         if (!empty($filters['owner_id'])) {
@@ -156,12 +176,32 @@ class CompanyService
      */
     public function getIndustries(int $tenantId): Collection
     {
-        return Company::forTenant($tenantId)
+        $industries = Company::forTenant($tenantId)
             ->whereNotNull('industry')
             ->distinct()
             ->pluck('industry')
             ->sort()
             ->values();
+        
+        // If no industries found, return default options
+        if ($industries->isEmpty()) {
+            return collect([
+                'Technology',
+                'Healthcare',
+                'Finance',
+                'Education',
+                'Manufacturing',
+                'Retail',
+                'Consulting',
+                'Real Estate',
+                'Transportation',
+                'Entertainment',
+                'Non-Profit',
+                'Other'
+            ]);
+        }
+        
+        return $industries;
     }
 
     /**
@@ -169,12 +209,32 @@ class CompanyService
      */
     public function getCompanyTypes(int $tenantId): Collection
     {
-        return Company::forTenant($tenantId)
+        $types = Company::forTenant($tenantId)
             ->whereNotNull('type')
             ->distinct()
             ->pluck('type')
             ->sort()
             ->values();
+        
+        // If no types found, return default options
+        if ($types->isEmpty()) {
+            return collect([
+                'Corporation',
+                'LLC',
+                'Partnership',
+                'Sole Proprietorship',
+                'Startup',
+                'Non-Profit',
+                'Government',
+                'Educational',
+                'Healthcare',
+                'Financial',
+                'Technology',
+                'Other'
+            ]);
+        }
+        
+        return $types;
     }
 
     /**
@@ -218,5 +278,26 @@ class CompanyService
             'created' => $created,
             'errors' => $errors
         ];
+    }
+
+    /**
+     * Attach a contact to a company
+     */
+    public function attachContact(Company $company, int $contactId): bool
+    {
+        // Check if contact exists and is not already attached
+        $contact = Contact::find($contactId);
+        if (!$contact) {
+            return false;
+        }
+
+        // Check if already attached
+        if ($company->contacts()->where('id', $contactId)->exists()) {
+            return false;
+        }
+
+        // Attach the contact by updating its company_id
+        $contact->update(['company_id' => $company->id]);
+        return true;
     }
 }

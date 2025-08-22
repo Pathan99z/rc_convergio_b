@@ -27,11 +27,12 @@ class ContactsController extends Controller
                 ->orderByDesc('updated_at')
                 ->orderByDesc('created_at')
                 ->limit($limit)
-                ->get(['id', 'name', 'email', 'phone', 'created_at', 'updated_at']);
+                ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'created_at', 'updated_at']);
 
             return $rows->map(fn ($r) => [
                 'id' => (int) $r->id,
-                'name' => $r->name,
+                'first_name' => $r->first_name,
+                'last_name' => $r->last_name,
                 'email' => $r->email,
                 'phone' => $r->phone,
                 'created_at' => optional($r->created_at)?->toIso8601String(),
