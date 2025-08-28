@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Pipelines\StorePipelineRequest;
 use App\Http\Requests\Pipelines\UpdatePipelineRequest;
 use App\Http\Resources\PipelineResource;
+use App\Http\Resources\StageResource;
 use App\Models\Pipeline;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -109,5 +110,68 @@ class PipelinesController extends Controller
         $pipeline->delete();
 
         return response()->json(['message' => 'Pipeline deleted successfully']);
+    }
+
+    public function stages(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        $pipeline = Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $this->authorize('view', $pipeline);
+
+        $stages = $pipeline->stages()->orderBy('sort_order')->get();
+
+        return response()->json([
+            'data' => StageResource::collection($stages),
+        ]);
+    }
+
+    public function kanban(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        $pipeline = Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $this->authorize('view', $pipeline);
+
+        // Load stages with their deals and owner relationship, ordered by sort_order
+        $stages = $pipeline->stages()
+            ->with(['deals' => function ($query) use ($tenantId) {
+                $query->where('tenant_id', $tenantId)
+                      ->with('owner')
+                      ->orderBy('created_at', 'desc');
+            }])
+            ->orderBy('sort_order')
+            ->get();
+
+        // Transform the data to match the required format
+        $kanbanData = [
+            'id' => $pipeline->id,
+            'name' => $pipeline->name,
+            'stages' => $stages->map(function ($stage) {
+                return [
+                    'id' => $stage->id,
+                    'name' => $stage->name,
+                    'deals' => $stage->deals->map(function ($deal) {
+                        return [
+                            'id' => $deal->id,
+                            'title' => $deal->title,
+                            'owner' => $deal->owner ? [
+                                'id' => $deal->owner->id,
+                                'name' => $deal->owner->name,
+                                'email' => $deal->owner->email,
+                            ] : null,
+                            'value' => $deal->value,
+                            'currency' => $deal->currency,
+                            'status' => $deal->status,
+                            'expected_close_date' => $deal->expected_close_date,
+                            'created_at' => $deal->created_at?->toISOString(),
+                            'updated_at' => $deal->updated_at?->toISOString(),
+                        ];
+                    })->toArray(),
+                ];
+            })->toArray(),
+        ];
+
+        return response()->json($kanbanData);
     }
 }

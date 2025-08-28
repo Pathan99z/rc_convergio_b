@@ -78,6 +78,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('pipelines/{id}', [PipelinesController::class, 'show'])->whereNumber('id');
     Route::put('pipelines/{id}', [PipelinesController::class, 'update'])->whereNumber('id');
     Route::delete('pipelines/{id}', [PipelinesController::class, 'destroy'])->whereNumber('id');
+    Route::get('pipelines/{id}/stages', [PipelinesController::class, 'stages'])->whereNumber('id');
+    Route::get('pipelines/{id}/kanban', [PipelinesController::class, 'kanban'])->whereNumber('id');
 
     // Stages resource
     Route::get('stages', [StagesController::class, 'index']);

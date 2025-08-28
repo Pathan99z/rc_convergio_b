@@ -19,6 +19,7 @@ use App\Policies\ActivityPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\CampaignPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
+use Illuminate\Auth\Notifications\ResetPassword;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -36,6 +37,11 @@ class AuthServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->registerPolicies();
+
+        // Customize reset password URL to point to frontend
+        ResetPassword::createUrlUsing(function ($user, string $token) {
+            return config('app.frontend_url')."/reset-password?token=$token&email={$user->email}";
+        });
     }
 }
 

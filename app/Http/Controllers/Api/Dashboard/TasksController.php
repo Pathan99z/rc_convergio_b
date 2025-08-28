@@ -30,15 +30,21 @@ class TasksController extends Controller
             $today = Carbon::today();
 
             $todayCount = $this->db->table('tasks')
-                ->where('user_id', $userId)
+                ->where(function($query) use ($userId) {
+                    $query->where('owner_id', $userId)
+                          ->orWhere('assigned_to', $userId);
+                })
                 ->whereDate('due_date', $today)
-                ->where('completed', false)
+                ->where('status', '!=', 'completed')
                 ->count();
 
             $overdueCount = $this->db->table('tasks')
-                ->where('user_id', $userId)
+                ->where(function($query) use ($userId) {
+                    $query->where('owner_id', $userId)
+                          ->orWhere('assigned_to', $userId);
+                })
                 ->whereDate('due_date', '<', $today)
-                ->where('completed', false)
+                ->where('status', '!=', 'completed')
                 ->count();
 
             return [

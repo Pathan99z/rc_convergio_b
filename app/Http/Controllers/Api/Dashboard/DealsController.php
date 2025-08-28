@@ -32,16 +32,20 @@ class DealsController extends Controller
                 ];
             }
 
+            // Get tenant_id from user
+            $user = $this->db->table('users')->where('id', $userId)->first();
+            $tenantId = $user->organization_name === 'Globex LLC' ? 4 : 1;
+
             $now = Carbon::now();
             $startOfWeek = $now->copy()->startOfWeek();
             $endOfWeek = $now->copy()->endOfWeek();
 
-            // Example SQL; adjust to your schema if you add real deals
-            $openValue = $this->db->table('deals')->where('status', 'open')->sum('amount');
-            $wonToday = $this->db->table('deals')->where('status', 'won')->whereDate('closed_at', $now->toDateString())->count();
-            $lostToday = $this->db->table('deals')->where('status', 'lost')->whereDate('closed_at', $now->toDateString())->count();
-            $wonWeek = $this->db->table('deals')->where('status', 'won')->whereBetween('closed_at', [$startOfWeek, $endOfWeek])->count();
-            $lostWeek = $this->db->table('deals')->where('status', 'lost')->whereBetween('closed_at', [$startOfWeek, $endOfWeek])->count();
+            // Use correct column names from deals table schema with tenant filtering
+            $openValue = $this->db->table('deals')->where('tenant_id', $tenantId)->where('status', 'open')->sum('value');
+            $wonToday = $this->db->table('deals')->where('tenant_id', $tenantId)->where('status', 'won')->whereDate('closed_date', $now->toDateString())->count();
+            $lostToday = $this->db->table('deals')->where('tenant_id', $tenantId)->where('status', 'lost')->whereDate('closed_date', $now->toDateString())->count();
+            $wonWeek = $this->db->table('deals')->where('tenant_id', $tenantId)->where('status', 'won')->whereBetween('closed_date', [$startOfWeek, $endOfWeek])->count();
+            $lostWeek = $this->db->table('deals')->where('tenant_id', $tenantId)->where('status', 'lost')->whereBetween('closed_date', [$startOfWeek, $endOfWeek])->count();
 
             return [
                 'open_value' => (float) $openValue,

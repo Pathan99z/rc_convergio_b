@@ -20,7 +20,7 @@ class CampaignsController extends Controller
         $cacheKey = "campaigns:metrics:user:{$userId}:range:{$range}";
 
         $data = $this->cache->remember($cacheKey, 60, function () use ($range) {
-            if (! $this->db->connection()->getSchemaBuilder()->hasTable('campaign_events')) {
+            if (! $this->db->connection()->getSchemaBuilder()->hasTable('campaigns')) {
                 return [
                     'delivered' => 0,
                     'opens' => 0,
@@ -37,11 +37,12 @@ class CampaignsController extends Controller
                 default => $now->copy()->subDays(14),
             };
 
-            $q = $this->db->table('campaign_events')->where('created_at', '>=', $since);
-            $delivered = (clone $q)->where('type', 'delivered')->count();
-            $opens = (clone $q)->where('type', 'open')->count();
-            $clicks = (clone $q)->where('type', 'click')->count();
-            $bounces = (clone $q)->where('type', 'bounce')->count();
+            // Use the campaigns table which has metrics columns directly
+            $q = $this->db->table('campaigns')->where('created_at', '>=', $since);
+            $delivered = (clone $q)->sum('delivered_count');
+            $opens = (clone $q)->sum('opened_count');
+            $clicks = (clone $q)->sum('clicked_count');
+            $bounces = (clone $q)->sum('bounced_count');
 
             return compact('delivered', 'opens', 'clicks', 'bounces') + ['range' => $range];
         });
