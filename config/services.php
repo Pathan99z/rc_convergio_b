@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'clearbit' => [
+        'key' => env('CLEARBIT_API_KEY'),
+    ],
+
 ];

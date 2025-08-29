@@ -11,6 +11,8 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\Response;
 
 class ActivitiesController extends Controller
 {
@@ -250,5 +252,483 @@ class ActivitiesController extends Controller
         $activity->delete();
 
         return response()->json(['message' => 'Activity deleted successfully']);
+    }
+
+    public function complete(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        
+        $activity = Activity::where('tenant_id', $tenantId)->findOrFail($id);
+        $this->authorize('update', $activity);
+
+        $activity->update([
+            'status' => 'completed',
+            'completed_at' => now(),
+        ]);
+
+        return response()->json([
+            'data' => new ActivityResource($activity->load(['owner', 'related'])),
+            'message' => 'Activity marked as completed',
+        ]);
+    }
+
+    public function timeline(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Activity::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $userId = $request->user()->id;
+
+        $query = Activity::query()->where('tenant_id', $tenantId);
+
+        // Apply filters
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        } else {
+            $query->where('owner_id', $userId);
+        }
+        if ($relatedType = $request->query('related_type')) {
+            $query->where('related_type', $relatedType);
+        }
+        if ($relatedId = $request->query('related_id')) {
+            $query->where('related_id', $relatedId);
+        }
+        if ($type = $request->query('type')) {
+            $query->where('type', $type);
+        }
+
+        $activities = $query->with(['owner', 'related'])
+            ->orderBy('scheduled_at', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->paginate(min((int) $request->query('per_page', 50), 100));
+
+        return response()->json([
+            'data' => ActivityResource::collection($activities->items()),
+            'meta' => [
+                'current_page' => $activities->currentPage(),
+                'last_page' => $activities->lastPage(),
+                'per_page' => $activities->perPage(),
+                'total' => $activities->total(),
+            ],
+        ]);
+    }
+
+    public function upcoming(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Activity::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $userId = $request->user()->id;
+        $days = (int) $request->query('days', 7);
+
+        $query = Activity::query()->where('tenant_id', $tenantId);
+
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        } else {
+            $query->where('owner_id', $userId);
+        }
+
+        $query->where('status', '!=', 'completed')
+            ->where('scheduled_at', '>=', now())
+            ->where('scheduled_at', '<=', now()->addDays($days))
+            ->orderBy('scheduled_at', 'asc');
+
+        $activities = $query->with(['owner', 'related'])->get();
+
+        return response()->json([
+            'data' => ActivityResource::collection($activities),
+            'meta' => [
+                'days_ahead' => $days,
+                'count' => $activities->count(),
+            ],
+        ]);
+    }
+
+    public function entityActivities(Request $request, string $entityType, int $entityId): JsonResponse
+    {
+        $this->authorize('viewAny', Activity::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $query = Activity::query()
+            ->where('tenant_id', $tenantId)
+            ->where('related_type', $entityType)
+            ->where('related_id', $entityId);
+
+        $activities = $query->with(['owner', 'related'])
+            ->orderBy('scheduled_at', 'desc')
+            ->paginate(min((int) $request->query('per_page', 15), 100));
+
+        return response()->json([
+            'data' => ActivityResource::collection($activities->items()),
+            'meta' => [
+                'current_page' => $activities->currentPage(),
+                'last_page' => $activities->lastPage(),
+                'per_page' => $activities->perPage(),
+                'total' => $activities->total(),
+                'entity_type' => $entityType,
+                'entity_id' => $entityId,
+            ],
+        ]);
+    }
+
+    public function search(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Activity::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $userId = $request->user()->id;
+        $searchTerm = $request->query('q');
+
+        if (!$searchTerm) {
+            return response()->json([
+                'data' => [],
+                'meta' => ['message' => 'Search term is required'],
+            ]);
+        }
+
+        $query = Activity::query()->where('tenant_id', $tenantId);
+
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        } else {
+            $query->where('owner_id', $userId);
+        }
+
+        $query->where(function($q) use ($searchTerm) {
+            $q->where('subject', 'like', "%{$searchTerm}%")
+              ->orWhere('notes', 'like', "%{$searchTerm}%")
+              ->orWhere('type', 'like', "%{$searchTerm}%");
+        });
+
+        $activities = $query->with(['owner', 'related'])
+            ->orderBy('scheduled_at', 'desc')
+            ->paginate(min((int) $request->query('per_page', 15), 100));
+
+        return response()->json([
+            'data' => ActivityResource::collection($activities->items()),
+            'meta' => [
+                'current_page' => $activities->currentPage(),
+                'last_page' => $activities->lastPage(),
+                'per_page' => $activities->perPage(),
+                'total' => $activities->total(),
+                'search_term' => $searchTerm,
+            ],
+        ]);
+    }
+
+    public function bulkUpdate(Request $request): JsonResponse
+    {
+        $this->authorize('updateAny', Activity::class);
+
+        $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:activities,id',
+            'status' => 'sometimes|string|in:pending,in_progress,completed,cancelled',
+            'due_date' => 'sometimes|date',
+            'owner_id' => 'sometimes|integer|exists:users,id',
+        ]);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $updateData = $request->only(['status', 'due_date', 'owner_id']);
+        if (isset($updateData['due_date'])) {
+            $updateData['scheduled_at'] = $updateData['due_date'];
+            unset($updateData['due_date']);
+        }
+
+        $updated = Activity::where('tenant_id', $tenantId)
+            ->whereIn('id', $request->ids)
+            ->update($updateData);
+
+        return response()->json([
+            'message' => "Successfully updated {$updated} activities",
+            'updated_count' => $updated,
+        ]);
+    }
+
+    public function bulkComplete(Request $request): JsonResponse
+    {
+        $this->authorize('updateAny', Activity::class);
+
+        $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:activities,id',
+        ]);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $updated = Activity::where('tenant_id', $tenantId)
+            ->whereIn('id', $request->ids)
+            ->update([
+                'status' => 'completed',
+                'completed_at' => now(),
+            ]);
+
+        return response()->json([
+            'message' => "Successfully completed {$updated} activities",
+            'completed_count' => $updated,
+        ]);
+    }
+
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        $this->authorize('deleteAny', Activity::class);
+
+        $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:activities,id',
+        ]);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $deleted = Activity::where('tenant_id', $tenantId)
+            ->whereIn('id', $request->ids)
+            ->delete();
+
+        return response()->json([
+            'message' => "Successfully deleted {$deleted} activities",
+            'deleted_count' => $deleted,
+        ]);
+    }
+
+    public function stats(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Activity::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $userId = $request->user()->id;
+
+        $query = Activity::query()->where('tenant_id', $tenantId);
+
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        } else {
+            $query->where('owner_id', $userId);
+        }
+
+        $stats = $query->select('type', DB::raw('count(*) as count'))
+            ->groupBy('type')
+            ->get()
+            ->pluck('count', 'type')
+            ->toArray();
+
+        return response()->json([
+            'data' => $stats,
+            'meta' => [
+                'total_activities' => array_sum($stats),
+            ],
+        ]);
+    }
+
+    public function metrics(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Activity::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $userId = $request->user()->id;
+        $period = $request->query('period', 'weekly');
+
+        $query = Activity::query()->where('tenant_id', $tenantId);
+
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        } else {
+            $query->where('owner_id', $userId);
+        }
+
+        if ($period === 'weekly') {
+            $metrics = $query->select(
+                DB::raw('DATE(scheduled_at) as date'),
+                DB::raw('count(*) as count')
+            )
+            ->where('scheduled_at', '>=', now()->subWeeks(4))
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get();
+        } else {
+            $metrics = $query->select(
+                DB::raw('YEAR(scheduled_at) as year'),
+                DB::raw('MONTH(scheduled_at) as month'),
+                DB::raw('count(*) as count')
+            )
+            ->where('scheduled_at', '>=', now()->subMonths(6))
+            ->groupBy('year', 'month')
+            ->orderBy('year')
+            ->orderBy('month')
+            ->get();
+        }
+
+        return response()->json([
+            'data' => $metrics,
+            'meta' => [
+                'period' => $period,
+            ],
+        ]);
+    }
+
+    public function export(Request $request): Response
+    {
+        $this->authorize('viewAny', Activity::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $userId = $request->user()->id;
+
+        $query = Activity::query()->where('tenant_id', $tenantId);
+
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        } else {
+            $query->where('owner_id', $userId);
+        }
+
+        // Apply filters
+        if ($type = $request->query('type')) {
+            $query->where('type', $type);
+        }
+        if ($status = $request->query('status')) {
+            $query->where('status', $status);
+        }
+        if ($relatedType = $request->query('related_type')) {
+            $query->where('related_type', $relatedType);
+        }
+        if ($relatedId = $request->query('related_id')) {
+            $query->where('related_id', $relatedId);
+        }
+        if ($from = $request->query('scheduled_from')) {
+            $query->where('scheduled_at', '>=', Carbon::parse($from)->startOfDay());
+        }
+        if ($to = $request->query('scheduled_to')) {
+            $query->where('scheduled_at', '<=', Carbon::parse($to)->endOfDay());
+        }
+
+        $activities = $query->with(['owner', 'related'])
+            ->orderBy('scheduled_at', 'desc')
+            ->get();
+
+        $filename = 'activities_export_' . now()->format('Y-m-d_H-i-s') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function() use ($activities) {
+            $file = fopen('php://output', 'w');
+            
+            // CSV Headers
+            fputcsv($file, [
+                'ID', 'Subject', 'Type', 'Status', 'Owner', 'Related Entity',
+                'Scheduled Date', 'Completed Date', 'Created Date'
+            ]);
+
+            // CSV Data
+            foreach ($activities as $activity) {
+                fputcsv($file, [
+                    $activity->id,
+                    $activity->subject,
+                    $activity->type,
+                    $activity->status,
+                    $activity->owner?->name ?? '',
+                    $activity->related ? ($activity->related_type . ' #' . $activity->related_id) : '',
+                    $activity->scheduled_at?->format('Y-m-d H:i:s'),
+                    $activity->completed_at?->format('Y-m-d H:i:s'),
+                    $activity->created_at?->format('Y-m-d H:i:s'),
+                ]);
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

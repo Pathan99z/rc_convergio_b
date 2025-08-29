@@ -39,4 +39,19 @@ class TaskPolicy
     {
         return true; // Allow all authenticated users to complete tasks
     }
+
+    public function updateAny(User $user): bool
+    {
+        return true; // Allow bulk update operations
+    }
+
+    public function deleteAny(User $user): bool
+    {
+        return true; // Allow bulk delete operations
+    }
+
+    public function createAny(User $user): bool
+    {
+        return true; // Allow bulk create operations
+    }
 }

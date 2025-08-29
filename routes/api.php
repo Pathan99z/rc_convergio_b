@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\PipelinesController;
 use App\Http\Controllers\Api\StagesController;
 use App\Http\Controllers\Api\ActivitiesController;
 use App\Http\Controllers\Api\CampaignWebhookController;
+use App\Http\Controllers\Api\EnrichmentController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -49,6 +50,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('companies/bulk-create', [CompaniesController::class, 'bulkCreate']);
     Route::post('companies/import', [CompaniesController::class, 'import']);
     Route::get('companies/deleted', [CompaniesController::class, 'deleted']);
+    Route::get('companies/enrich', [EnrichmentController::class, 'enrich']);
     Route::get('companies/{id}', [CompaniesController::class, 'show'])->whereNumber('id');
     Route::put('companies/{id}', [CompaniesController::class, 'update'])->whereNumber('id');
     Route::delete('companies/{id}', [CompaniesController::class, 'destroy'])->whereNumber('id');
@@ -67,6 +69,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('deals', [\App\Http\Controllers\Api\DealsController::class, 'index']);
     Route::post('deals', [\App\Http\Controllers\Api\DealsController::class, 'store']);
     Route::get('deals/summary', [\App\Http\Controllers\Api\DealsController::class, 'summary']);
+    Route::get('deals/export', [\App\Http\Controllers\Api\DealsController::class, 'export']);
     Route::get('deals/{id}', [\App\Http\Controllers\Api\DealsController::class, 'show'])->whereNumber('id');
     Route::put('deals/{id}', [\App\Http\Controllers\Api\DealsController::class, 'update'])->whereNumber('id');
     Route::delete('deals/{id}', [\App\Http\Controllers\Api\DealsController::class, 'destroy'])->whereNumber('id');
@@ -91,13 +94,30 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Activities resource
     Route::get('activities', [ActivitiesController::class, 'index']);
     Route::post('activities', [ActivitiesController::class, 'store']);
+    Route::get('activities/timeline', [ActivitiesController::class, 'timeline']);
+    Route::get('activities/upcoming', [ActivitiesController::class, 'upcoming']);
+    Route::get('activities/search', [ActivitiesController::class, 'search']);
+    Route::get('activities/stats', [ActivitiesController::class, 'stats']);
+    Route::get('activities/metrics', [ActivitiesController::class, 'metrics']);
+    Route::get('activities/export', [ActivitiesController::class, 'export']);
+    Route::patch('activities/bulk-update', [ActivitiesController::class, 'bulkUpdate']);
+    Route::post('activities/bulk-complete', [ActivitiesController::class, 'bulkComplete']);
+    Route::delete('activities/bulk-delete', [ActivitiesController::class, 'bulkDelete']);
+    Route::get('activities/{entityType}/{entityId}', [ActivitiesController::class, 'entityActivities'])->whereNumber('entityId');
     Route::get('activities/{id}', [ActivitiesController::class, 'show'])->whereNumber('id');
     Route::put('activities/{id}', [ActivitiesController::class, 'update'])->whereNumber('id');
     Route::delete('activities/{id}', [ActivitiesController::class, 'destroy'])->whereNumber('id');
+    Route::patch('activities/{id}/complete', [ActivitiesController::class, 'complete'])->whereNumber('id');
 
     // Tasks resource
     Route::get('tasks', [\App\Http\Controllers\Api\TasksController::class, 'index']);
     Route::post('tasks', [\App\Http\Controllers\Api\TasksController::class, 'store']);
+    Route::get('tasks/assignee/{assigneeId}', [\App\Http\Controllers\Api\TasksController::class, 'assigneeTasks'])->whereNumber('assigneeId');
+    Route::get('tasks/owner/{ownerId}', [\App\Http\Controllers\Api\TasksController::class, 'ownerTasks'])->whereNumber('ownerId');
+    Route::get('tasks/overdue', [\App\Http\Controllers\Api\TasksController::class, 'overdue']);
+    Route::get('tasks/upcoming', [\App\Http\Controllers\Api\TasksController::class, 'upcoming']);
+    Route::patch('tasks/bulk-update', [\App\Http\Controllers\Api\TasksController::class, 'bulkUpdate']);
+    Route::post('tasks/bulk-complete', [\App\Http\Controllers\Api\TasksController::class, 'bulkComplete']);
     Route::get('tasks/{id}', [\App\Http\Controllers\Api\TasksController::class, 'show'])->whereNumber('id');
     Route::put('tasks/{id}', [\App\Http\Controllers\Api\TasksController::class, 'update'])->whereNumber('id');
     Route::delete('tasks/{id}', [\App\Http\Controllers\Api\TasksController::class, 'destroy'])->whereNumber('id');
@@ -106,10 +126,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Campaigns resource
     Route::get('campaigns', [\App\Http\Controllers\Api\CampaignsController::class, 'index']);
     Route::post('campaigns', [\App\Http\Controllers\Api\CampaignsController::class, 'store']);
+    Route::get('campaigns/templates', [\App\Http\Controllers\Api\CampaignsController::class, 'templates']);
     Route::get('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'show'])->whereNumber('id');
     Route::put('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'update'])->whereNumber('id');
     Route::delete('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'destroy'])->whereNumber('id');
     Route::post('campaigns/{id}/send', [\App\Http\Controllers\Api\CampaignsController::class, 'send'])->whereNumber('id');
+    Route::post('campaigns/{id}/pause', [\App\Http\Controllers\Api\CampaignsController::class, 'pause'])->whereNumber('id');
+    Route::post('campaigns/{id}/resume', [\App\Http\Controllers\Api\CampaignsController::class, 'resume'])->whereNumber('id');
+    Route::post('campaigns/{id}/duplicate', [\App\Http\Controllers\Api\CampaignsController::class, 'duplicate'])->whereNumber('id');
+    Route::get('campaigns/{id}/recipients', [\App\Http\Controllers\Api\CampaignsController::class, 'recipients'])->whereNumber('id');
+    Route::post('campaigns/{id}/recipients', [\App\Http\Controllers\Api\CampaignsController::class, 'addRecipients'])->whereNumber('id');
+    Route::delete('campaigns/{id}/recipients', [\App\Http\Controllers\Api\CampaignsController::class, 'removeRecipients'])->whereNumber('id');
     Route::get('campaigns/{id}/metrics', [\App\Http\Controllers\Api\CampaignsController::class, 'metrics'])->whereNumber('id');
 
     // Campaign webhook (no auth required)

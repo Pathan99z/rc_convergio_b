@@ -10,6 +10,7 @@ use App\Models\Task;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class TasksController extends Controller
 {
@@ -270,6 +271,227 @@ class TasksController extends Controller
         return response()->json([
             'data' => new TaskResource($task->load(['owner', 'assignee', 'related'])),
             'message' => 'Task completed successfully',
+        ]);
+    }
+
+    public function assigneeTasks(Request $request, int $assigneeId): JsonResponse
+    {
+        $this->authorize('viewAny', Task::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $query = Task::query()
+            ->where('tenant_id', $tenantId)
+            ->where('assigned_to', $assigneeId);
+
+        $tasks = $query->with(['owner', 'assignee', 'related'])
+            ->orderBy('due_date', 'asc')
+            ->paginate(min((int) $request->query('per_page', 15), 100));
+
+        return response()->json([
+            'data' => TaskResource::collection($tasks->items()),
+            'meta' => [
+                'current_page' => $tasks->currentPage(),
+                'last_page' => $tasks->lastPage(),
+                'per_page' => $tasks->perPage(),
+                'total' => $tasks->total(),
+                'assignee_id' => $assigneeId,
+            ],
+        ]);
+    }
+
+    public function ownerTasks(Request $request, int $ownerId): JsonResponse
+    {
+        $this->authorize('viewAny', Task::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $query = Task::query()
+            ->where('tenant_id', $tenantId)
+            ->where('owner_id', $ownerId);
+
+        $tasks = $query->with(['owner', 'assignee', 'related'])
+            ->orderBy('due_date', 'asc')
+            ->paginate(min((int) $request->query('per_page', 15), 100));
+
+        return response()->json([
+            'data' => TaskResource::collection($tasks->items()),
+            'meta' => [
+                'current_page' => $tasks->currentPage(),
+                'last_page' => $tasks->lastPage(),
+                'per_page' => $tasks->perPage(),
+                'total' => $tasks->total(),
+                'owner_id' => $ownerId,
+            ],
+        ]);
+    }
+
+    public function overdue(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Task::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $userId = $request->user()->id;
+
+        $query = Task::query()
+            ->where('tenant_id', $tenantId)
+            ->where('status', '!=', 'completed')
+            ->where('due_date', '<', now());
+
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        } else {
+            $query->where(function ($q) use ($userId) {
+                $q->where('owner_id', $userId)->orWhere('assigned_to', $userId);
+            });
+        }
+
+        $tasks = $query->with(['owner', 'assignee', 'related'])
+            ->orderBy('due_date', 'asc')
+            ->paginate(min((int) $request->query('per_page', 15), 100));
+
+        return response()->json([
+            'data' => TaskResource::collection($tasks->items()),
+            'meta' => [
+                'current_page' => $tasks->currentPage(),
+                'last_page' => $tasks->lastPage(),
+                'per_page' => $tasks->perPage(),
+                'total' => $tasks->total(),
+            ],
+        ]);
+    }
+
+    public function upcoming(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Task::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $userId = $request->user()->id;
+        $days = (int) $request->query('days', 7);
+
+        $query = Task::query()
+            ->where('tenant_id', $tenantId)
+            ->where('status', '!=', 'completed')
+            ->where('due_date', '>=', now())
+            ->where('due_date', '<=', now()->addDays($days));
+
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        } else {
+            $query->where(function ($q) use ($userId) {
+                $q->where('owner_id', $userId)->orWhere('assigned_to', $userId);
+            });
+        }
+
+        $tasks = $query->with(['owner', 'assignee', 'related'])
+            ->orderBy('due_date', 'asc')
+            ->get();
+
+        return response()->json([
+            'data' => TaskResource::collection($tasks),
+            'meta' => [
+                'days_ahead' => $days,
+                'count' => $tasks->count(),
+            ],
+        ]);
+    }
+
+    public function bulkUpdate(Request $request): JsonResponse
+    {
+        $this->authorize('updateAny', Task::class);
+
+        $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:tasks,id',
+            'status' => 'sometimes|string|in:pending,in_progress,completed,cancelled',
+            'priority' => 'sometimes|string|in:low,medium,high,urgent',
+            'due_date' => 'sometimes|date',
+            'assigned_to' => 'sometimes|integer|exists:users,id',
+        ]);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $updateData = $request->only(['status', 'priority', 'due_date', 'assigned_to']);
+
+        $updated = Task::where('tenant_id', $tenantId)
+            ->whereIn('id', $request->ids)
+            ->update($updateData);
+
+        return response()->json([
+            'message' => "Successfully updated {$updated} tasks",
+            'updated_count' => $updated,
+        ]);
+    }
+
+    public function bulkComplete(Request $request): JsonResponse
+    {
+        $this->authorize('updateAny', Task::class);
+
+        $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:tasks,id',
+        ]);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $updated = Task::where('tenant_id', $tenantId)
+            ->whereIn('id', $request->ids)
+            ->update([
+                'status' => 'completed',
+                'completed_at' => now(),
+            ]);
+
+        return response()->json([
+            'message' => "Successfully completed {$updated} tasks",
+            'completed_count' => $updated,
         ]);
     }
 }

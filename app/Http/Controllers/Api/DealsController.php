@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Response;
 
 
 class DealsController extends Controller
@@ -321,5 +322,103 @@ class DealsController extends Controller
                 'end_date' => $endDate->toISOString(),
             ],
         ]);
+    }
+
+    public function export(Request $request): Response
+    {
+        $this->authorize('viewAny', Deal::class);
+
+        // Get tenant_id from header or use user's organization as fallback
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            // Use organization_name to determine tenant_id
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4; // chitti's organization
+            } else {
+                $tenantId = 1; // default tenant
+            }
+        }
+        $userId = $request->user()->id;
+
+        $query = Deal::query()->where('tenant_id', $tenantId);
+
+        // Filter by owner_id to ensure users only see their own deals
+        $query->where('owner_id', $userId);
+
+        // Apply filters
+        if ($ownerId = $request->query('owner_id')) {
+            $query->where('owner_id', $ownerId);
+        }
+        if ($pipelineId = $request->query('pipeline_id')) {
+            $query->where('pipeline_id', $pipelineId);
+        }
+        if ($stageId = $request->query('stage_id')) {
+            $query->where('stage_id', $stageId);
+        }
+        if ($status = $request->query('status')) {
+            $query->where('status', $status);
+        }
+        if ($from = $request->query('created_from') ?: $request->query('date_from')) {
+            $query->whereDate('created_at', '>=', $from);
+        }
+        if ($to = $request->query('created_to') ?: $request->query('date_to')) {
+            $query->whereDate('created_at', '<=', $to);
+        }
+        if ($tag = $request->query('tag')) {
+            $query->whereJsonContains('tags', $tag);
+        }
+        if ($valueMin = $request->query('value_min') ?: $request->query('min_value')) {
+            $query->where('value', '>=', $valueMin);
+        }
+        if ($valueMax = $request->query('value_max') ?: $request->query('max_value')) {
+            $query->where('value', '<=', $valueMax);
+        }
+
+        $deals = $query->with(['pipeline', 'stage', 'owner', 'contact', 'company'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $filename = 'deals_export_' . now()->format('Y-m-d_H-i-s') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function() use ($deals) {
+            $file = fopen('php://output', 'w');
+            
+            // CSV Headers
+            fputcsv($file, [
+                'ID', 'Title', 'Value', 'Currency', 'Status', 'Probability (%)',
+                'Pipeline', 'Stage', 'Owner', 'Contact', 'Company',
+                'Expected Close Date', 'Created Date', 'Updated Date'
+            ]);
+
+            // CSV Data
+            foreach ($deals as $deal) {
+                fputcsv($file, [
+                    $deal->id,
+                    $deal->title,
+                    $deal->value,
+                    $deal->currency,
+                    $deal->status,
+                    $deal->probability,
+                    $deal->pipeline?->name ?? '',
+                    $deal->stage?->name ?? '',
+                    $deal->owner?->name ?? '',
+                    $deal->contact?->name ?? '',
+                    $deal->company?->name ?? '',
+                    $deal->expected_close_date,
+                    $deal->created_at?->format('Y-m-d H:i:s'),
+                    $deal->updated_at?->format('Y-m-d H:i:s'),
+                ]);
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

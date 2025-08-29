@@ -32,4 +32,19 @@ class ActivityPolicy
     {
         return true; // Allow all authenticated users to delete activities
     }
+
+    public function deleteAny(User $user): bool
+    {
+        return true; // Allow bulk delete operations
+    }
+
+    public function updateAny(User $user): bool
+    {
+        return true; // Allow bulk update operations
+    }
+
+    public function createAny(User $user): bool
+    {
+        return true; // Allow bulk create operations
+    }
 }

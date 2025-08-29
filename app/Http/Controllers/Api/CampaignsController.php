@@ -11,6 +11,7 @@ use App\Jobs\SendCampaignJob;
 use App\Models\Campaign;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CampaignsController extends Controller
 {
@@ -247,5 +248,245 @@ class CampaignsController extends Controller
                 'sent_at' => $campaign->sent_at?->toISOString(),
             ],
         ]);
+    }
+
+    public function pause(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $campaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $this->authorize('update', $campaign);
+
+        if (!in_array($campaign->status, ['active', 'sending'])) {
+            return response()->json([
+                'error' => 'Campaign cannot be paused in its current status',
+            ], 422);
+        }
+
+        $campaign->update(['status' => 'paused']);
+
+        return response()->json([
+            'data' => new CampaignResource($campaign->load(['recipients'])),
+            'message' => 'Campaign paused successfully',
+        ]);
+    }
+
+    public function resume(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $campaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $this->authorize('update', $campaign);
+
+        if ($campaign->status !== 'paused') {
+            return response()->json([
+                'error' => 'Campaign is not paused',
+            ], 422);
+        }
+
+        $campaign->update(['status' => 'active']);
+
+        return response()->json([
+            'data' => new CampaignResource($campaign->load(['recipients'])),
+            'message' => 'Campaign resumed successfully',
+        ]);
+    }
+
+    public function recipients(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $campaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $this->authorize('view', $campaign);
+
+        $recipients = $campaign->recipients()
+            ->orderBy('created_at', 'desc')
+            ->paginate(min((int) $request->query('per_page', 15), 100));
+
+        return response()->json([
+            'data' => $recipients->items(),
+            'meta' => [
+                'current_page' => $recipients->currentPage(),
+                'last_page' => $recipients->lastPage(),
+                'per_page' => $recipients->perPage(),
+                'total' => $recipients->total(),
+                'campaign_id' => $campaign->id,
+            ],
+        ]);
+    }
+
+    public function addRecipients(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $campaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $this->authorize('update', $campaign);
+
+        $request->validate([
+            'recipients' => 'required|array|min:1',
+            'recipients.*.email' => 'required|email',
+            'recipients.*.name' => 'nullable|string|max:255',
+        ]);
+
+        $recipients = collect($request->recipients)->map(function ($recipient) use ($campaign) {
+            return [
+                'campaign_id' => $campaign->id,
+                'email' => $recipient['email'],
+                'name' => $recipient['name'] ?? null,
+                'status' => 'pending',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        })->toArray();
+
+        DB::table('campaign_recipients')->insert($recipients);
+
+        return response()->json([
+            'message' => 'Recipients added successfully',
+            'added_count' => count($recipients),
+        ]);
+    }
+
+    public function removeRecipients(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $campaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $this->authorize('update', $campaign);
+
+        $request->validate([
+            'recipient_ids' => 'required|array|min:1',
+            'recipient_ids.*' => 'integer|exists:campaign_recipients,id',
+        ]);
+
+        $deleted = DB::table('campaign_recipients')
+            ->where('campaign_id', $campaign->id)
+            ->whereIn('id', $request->recipient_ids)
+            ->delete();
+
+        return response()->json([
+            'message' => 'Recipients removed successfully',
+            'removed_count' => $deleted,
+        ]);
+    }
+
+    public function templates(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Campaign::class);
+
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $templates = Campaign::where('tenant_id', $tenantId)
+            ->where('is_template', true)
+            ->select(['id', 'name', 'subject', 'content', 'created_at'])
+            ->orderBy('created_at', 'desc')
+            ->paginate(min((int) $request->query('per_page', 15), 100));
+
+        return response()->json([
+            'data' => $templates->items(),
+            'meta' => [
+                'current_page' => $templates->currentPage(),
+                'last_page' => $templates->lastPage(),
+                'per_page' => $templates->perPage(),
+                'total' => $templates->total(),
+            ],
+        ]);
+    }
+
+    public function duplicate(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+        $originalCampaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $this->authorize('create', Campaign::class);
+
+        // Create new campaign with copied data
+        $newCampaign = $originalCampaign->replicate();
+        $newCampaign->name = $originalCampaign->name . ' (Copy)';
+        $newCampaign->status = 'draft';
+        $newCampaign->created_by = $request->user()->id;
+        $newCampaign->sent_at = null;
+        $newCampaign->scheduled_at = null;
+        $newCampaign->save();
+
+        // Copy recipients
+        $recipients = DB::table('campaign_recipients')
+            ->where('campaign_id', $originalCampaign->id)
+            ->get()
+            ->map(function ($recipient) use ($newCampaign) {
+                return [
+                    'campaign_id' => $newCampaign->id,
+                    'email' => $recipient->email,
+                    'name' => $recipient->name,
+                    'status' => 'pending',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            })->toArray();
+
+        if (!empty($recipients)) {
+            DB::table('campaign_recipients')->insert($recipients);
+        }
+
+        return response()->json([
+            'data' => new CampaignResource($newCampaign->load(['recipients'])),
+            'message' => 'Campaign duplicated successfully',
+        ], 201);
     }
 }

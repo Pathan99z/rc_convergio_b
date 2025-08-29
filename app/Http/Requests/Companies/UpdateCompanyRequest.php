@@ -46,6 +46,8 @@ class UpdateCompanyRequest extends FormRequest
             'timezone' => 'nullable|string|max:50',
             'description' => 'nullable|string|max:1000',
             'linkedin_page' => 'nullable|url|max:255',
+            'phone' => 'nullable|string|max:255',
+            'email' => 'nullable|email|max:255',
             'owner_id' => 'nullable|exists:users,id',
         ];
     }
