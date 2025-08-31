@@ -3,13 +3,15 @@
 namespace App\Jobs;
 
 use App\Models\Company;
-use App\Services\CompanyService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB; // ADDED: Database facade for transactions
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use League\Csv\Reader;
 
 class ImportCompaniesJob implements ShouldQueue
 {
@@ -21,7 +23,7 @@ class ImportCompaniesJob implements ShouldQueue
      * Create a new job instance.
      */
     public function __construct(
-        private string $filePath,
+        private string $path,
         private int $tenantId,
         private int $userId
     ) {}
@@ -29,79 +31,226 @@ class ImportCompaniesJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(CompanyService $companyService): void
+    public function handle(): void
     {
-        try {
-            Log::info('ImportCompaniesJob: Starting import', [
-                'file' => $this->filePath,
+        $result = $this->processImport();
+        
+        // Log success message for immediate visibility
+        if ($result['imported'] > 0) {
+            Log::info('ImportCompaniesJob: SUCCESS - Companies are now available in database', [
+                'companies_imported' => $result['imported'],
                 'tenant_id' => $this->tenantId,
-                'user_id' => $this->userId
+                'user_id' => $this->userId,
+                'company_ids' => $result['company_ids'] ?? []
             ]);
+        }
+    }
 
-            if (!file_exists($this->filePath)) {
-                Log::error('ImportCompaniesJob: File not found', ['path' => $this->filePath]);
-                return;
-            }
+    /**
+     * Process import synchronously and return results
+     */
+    public function handleSync(): array
+    {
+        return $this->processImport();
+    }
 
-            $content = file_get_contents($this->filePath);
-            $lines = explode("\n", $content);
+    /**
+     * Core import processing logic with enhanced database transaction and verification
+     */
+    private function processImport(): array
+    {
+        Log::info('ImportCompaniesJob: Starting company import with enhanced persistence', [
+            'path' => $this->path,
+            'tenantId' => $this->tenantId,
+            'userId' => $this->userId
+        ]);
+
+        $fullPath = Storage::path($this->path);
+
+        if (! is_file($fullPath)) {
+            Log::error('ImportCompaniesJob: file missing', ['path' => $fullPath]);
+            throw new \RuntimeException('Import file not found: ' . $this->path);
+        }
+
+        Log::info('ImportCompaniesJob: File found, processing CSV');
+
+        try {
+            $csv = Reader::createFromPath($fullPath, 'r');
+            $csv->setHeaderOffset(0);
+        } catch (\Exception $e) {
+            Log::error('ImportCompaniesJob: Failed to read CSV file', [
+                'path' => $fullPath,
+                'error' => $e->getMessage()
+            ]);
+            throw new \RuntimeException('Failed to read CSV file: ' . $e->getMessage());
+        }
+
+        $processedCount = 0;
+        $errorCount = 0;
+        $totalRows = 0;
+        $importedCompanies = [];
+
+        // Enhanced database transaction with explicit commit and verification
+        return DB::transaction(function () use ($csv, &$processedCount, &$errorCount, &$totalRows, &$importedCompanies) {
             
-            // Skip header
-            $headers = str_getcsv(array_shift($lines));
-            $imported = 0;
-            $errors = [];
-
-            foreach ($lines as $index => $line) {
-                if (empty(trim($line))) continue;
-                
+            Log::info('ImportCompaniesJob: Starting database transaction for company import');
+            
+            foreach ($csv->getRecords() as $offset => $record) {
+                $totalRows++;
                 try {
-                    $record = str_getcsv($line);
-                    if (count($record) < count($headers)) continue;
+                    // Skip empty rows
+                    if (empty(array_filter($record))) {
+                        Log::debug('ImportCompaniesJob: Skipping empty row', ['row' => $offset]);
+                        continue;
+                    }
+
+                    Log::debug('ImportCompaniesJob: Processing row', ['row' => $offset, 'record' => $record]);
+
+                    $data = $this->cleanRecord($record);
                     
-                    $data = array_combine($headers, $record);
-                    $data = $this->cleanRecord($data);
-                    
-                    // Create the company
+                    // Add required fields
                     $data['tenant_id'] = $this->tenantId;
                     $data['owner_id'] = $this->userId;
-                    
-                    Company::create($data);
-                    $imported++;
-                    
-                    Log::info('ImportCompaniesJob: Company created', ['name' => $data['name']]);
-                    
-                } catch (\Exception $e) {
-                    $errors[] = [
-                        'row' => $index + 2,
-                        'error' => $e->getMessage()
-                    ];
-                    Log::error('ImportCompaniesJob: Row error', ['row' => $index + 2, 'error' => $e->getMessage()]);
+
+                    Log::debug('ImportCompaniesJob: Processed data', ['data' => $data]);
+
+                    // Basic validation
+                    if (empty($data['name'])) {
+                        throw new \RuntimeException('Company name is required');
+                    }
+
+                    // Use updateOrCreate to avoid duplicates based on domain and tenant
+                    $company = Company::updateOrCreate(
+                        [
+                            'domain' => $data['domain'] ?? null,
+                            'tenant_id' => $this->tenantId
+                        ],
+                        $data
+                    );
+
+                    // Force refresh to ensure we have the latest data
+                    $company->refresh();
+
+                    Log::info('ImportCompaniesJob: Company created/updated in DB', [
+                        'company_id' => $company->id,
+                        'name' => $company->name,
+                        'domain' => $company->domain,
+                        'tenant_id' => $company->tenant_id,
+                        'owner_id' => $company->owner_id,
+                        'address' => $company->address
+                    ]);
+
+                    $importedCompanies[] = $company->id;
+                    $processedCount++;
+
+                } catch (\Throwable $e) {
+                    Log::warning('ImportCompaniesJob: row skipped', [
+                        'row' => $offset,
+                        'error' => $e->getMessage(),
+                        'record' => $record
+                    ]);
+                    $errorCount++;
                 }
             }
 
-            Log::info('ImportCompaniesJob: Import completed', [
-                'imported' => $imported,
-                'errors' => count($errors)
-            ]);
+            // Enhanced verification: Verify that companies were actually inserted into database
+            if ($processedCount > 0) {
+                Log::info('ImportCompaniesJob: Starting database verification', [
+                    'expected_companies' => $processedCount,
+                    'company_ids' => $importedCompanies
+                ]);
 
-            // Clean up the file
-            if (file_exists($this->filePath)) {
-                unlink($this->filePath);
+                // First verification: Count companies by IDs
+                $actualCount = Company::whereIn('id', $importedCompanies)
+                    ->where('tenant_id', $this->tenantId)
+                    ->count();
+                
+                Log::info('ImportCompaniesJob: Database verification - Count check', [
+                    'expected_companies' => $processedCount,
+                    'actual_companies_in_db' => $actualCount,
+                    'company_ids' => $importedCompanies
+                ]);
+
+                if ($actualCount !== $processedCount) {
+                    throw new \RuntimeException("Database verification failed: Expected {$processedCount} companies, but found {$actualCount} in database.");
+                }
+
+                // Second verification: Verify each company exists and has correct data
+                foreach ($importedCompanies as $companyId) {
+                    $company = Company::find($companyId);
+                    if (!$company) {
+                        throw new \RuntimeException("Database verification failed: Company ID {$companyId} not found in database.");
+                    }
+                    if ($company->tenant_id !== $this->tenantId) {
+                        throw new \RuntimeException("Database verification failed: Company ID {$companyId} has wrong tenant_id.");
+                    }
+                }
+
+                Log::info('ImportCompaniesJob: Database verification - Individual company check passed', [
+                    'verified_companies' => count($importedCompanies)
+                ]);
+
+                // Force database commit to ensure data is immediately visible
+                DB::commit();
+                
+                Log::info('ImportCompaniesJob: Database transaction committed successfully', [
+                    'companies_imported' => $processedCount,
+                    'company_ids' => $importedCompanies
+                ]);
+
+                // Final verification: Query again to ensure data is visible
+                $finalCount = Company::whereIn('id', $importedCompanies)
+                    ->where('tenant_id', $this->tenantId)
+                    ->count();
+                
+                Log::info('ImportCompaniesJob: Final database verification', [
+                    'expected_companies' => $processedCount,
+                    'final_companies_in_db' => $finalCount,
+                    'verification_status' => $finalCount === $processedCount ? 'PASSED' : 'FAILED'
+                ]);
+
+                if ($finalCount !== $processedCount) {
+                    throw new \RuntimeException("Final database verification failed: Expected {$processedCount} companies, but found {$finalCount} in database after commit.");
+                }
+
+                Log::info('ImportCompaniesJob: DB persistence confirmed ✅', [
+                    'companies_imported' => $processedCount,
+                    'company_ids' => $importedCompanies,
+                    'tenant_id' => $this->tenantId
+                ]);
             }
 
-        } catch (\Exception $e) {
-            Log::error('ImportCompaniesJob: Import failed', [
-                'error' => $e->getMessage(),
-                'file' => $this->filePath
-            ]);
-
-            // Clean up the file on error too
-            if (file_exists($this->filePath)) {
-                unlink($this->filePath);
+            // Clean up the file after processing
+            try {
+                Storage::delete($this->path);
+                Log::info('ImportCompaniesJob: Cleaned up import file', ['path' => $this->path]);
+            } catch (\Exception $e) {
+                Log::warning('ImportCompaniesJob: Failed to clean up import file', [
+                    'path' => $this->path,
+                    'error' => $e->getMessage()
+                ]);
             }
 
-            throw $e;
-        }
+            Log::info('ImportCompaniesJob: Import completed and verified in database', [
+                'total_rows' => $totalRows,
+                'processed' => $processedCount,
+                'errors' => $errorCount,
+                'success_rate' => $totalRows > 0 ? round(($processedCount / $totalRows) * 100, 2) : 0,
+                'company_ids_imported' => $importedCompanies
+            ]);
+
+            if ($processedCount === 0 && $totalRows > 0) {
+                throw new \RuntimeException('No companies were imported. Please check your CSV format and data.');
+            }
+
+            return [
+                'imported' => $processedCount,
+                'failed' => $errorCount,
+                'total' => $totalRows,
+                'success_rate' => $totalRows > 0 ? round(($processedCount / $totalRows) * 100, 2) : 0,
+                'company_ids' => $importedCompanies
+            ];
+        });
     }
 
     /**
@@ -124,32 +273,49 @@ class ImportCompaniesJob implements ShouldQueue
             'description' => ['description', 'about', 'notes'],
             'linkedin_page' => ['linkedin_page', 'linkedin', 'linkedin_url'],
             'status' => ['status'],
+            'phone' => ['phone', 'telephone', 'contact_phone'],
+            'email' => ['email', 'contact_email'],
         ];
 
         foreach ($mapping as $field => $possibleNames) {
             foreach ($possibleNames as $name) {
-                if (isset($record[$name]) && !empty(trim($record[$name]))) {
-                    $data[$field] = trim($record[$name]);
+                if (isset($record[$name]) && !empty(trim((string) $record[$name]))) {
+                    $data[$field] = trim((string) $record[$name]);
                     break;
                 }
             }
         }
 
-        // Handle address fields
-        $addressFields = ['street', 'city', 'state', 'postal_code', 'country'];
+        // Handle address fields - map flat CSV fields to nested JSON structure
+        $addressMapping = [
+            'street' => ['address_street', 'street', 'address_line1'],
+            'city' => ['address_city', 'city'],
+            'state' => ['address_state', 'state', 'province'],
+            'postal_code' => ['address_postal_code', 'postal_code', 'zip_code', 'zip'],
+            'country' => ['address_country', 'country']
+        ];
+        
         $address = [];
-        foreach ($addressFields as $field) {
-            if (isset($record[$field]) && !empty(trim($record[$field]))) {
-                $address[$field] = trim($record[$field]);
+        foreach ($addressMapping as $addressField => $possibleNames) {
+            foreach ($possibleNames as $csvField) {
+                if (isset($record[$csvField])) {
+                    $value = trim((string) $record[$csvField]);
+                    if (!empty($value)) {
+                        $address[$addressField] = $value;
+                    }
+                    break; // Use first match found
+                }
             }
         }
+        
+        // Only add address if at least one field is present
         if (!empty($address)) {
             $data['address'] = $address;
-        }
-
-        // Validate required fields
-        if (empty($data['name'])) {
-            throw new \Exception('Company name is required');
+            
+            Log::debug('ImportCompaniesJob: Address mapping completed', [
+                'original_record' => array_intersect_key($record, array_flip(['address_street', 'address_city', 'address_state', 'address_postal_code', 'address_country'])),
+                'mapped_address' => $address
+            ]);
         }
 
         // Set default status if not provided

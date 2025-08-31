@@ -47,6 +47,11 @@ class StoreCompanyRequest extends FormRequest
             'phone' => 'nullable|string|max:255',
             'email' => 'nullable|email|max:255',
             'owner_id' => 'nullable|exists:users,id',
+            'contact_id' => [
+                'nullable',
+                'integer',
+                'exists:contacts,id'
+            ],
         ];
     }
 

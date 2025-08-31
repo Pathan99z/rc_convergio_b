@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -175,14 +176,154 @@ class ContactsController extends Controller
         ]);
 
         $path = $request->file('file')->store('imports/contacts');
+        $fileSize = $request->file('file')->getSize();
+        $userId = $request->user()->id;
 
-        $job = new ImportContactsJob($path, $tenantId, $request->user()->id);
-        dispatch($job);
+        // Determine processing mode based on file size and row count
+        $csv = \League\Csv\Reader::createFromPath(Storage::path($path), 'r');
+        $csv->setHeaderOffset(0);
+        $rowCount = iterator_count($csv->getRecords());
+        
+        // Sync-first approach: Use sync for small files (≤1000 rows), async for large files
+        $shouldUseSync = $rowCount <= 1000;
+        
+        Log::info('Contact import started', [
+            'path' => $path,
+            'file_size' => $fileSize,
+            'row_count' => $rowCount,
+            'mode' => $shouldUseSync ? 'sync' : 'async',
+            'tenant_id' => $tenantId,
+            'user_id' => $userId
+        ]);
 
-        return response()->json([
-            'data' => [ 'job_id' => spl_object_hash($job) ],
-            'meta' => [ 'page' => 1, 'total' => 1 ],
-        ], 202);
+        if ($shouldUseSync) {
+            // Process immediately for small files
+            try {
+                $startTime = microtime(true);
+                
+                $job = new ImportContactsJob($path, $tenantId, $userId);
+                $result = $job->handleSync(); // New method for sync processing
+                
+                $processingTime = round((microtime(true) - $startTime) * 1000, 2);
+                
+                Log::info('Contact import completed synchronously', [
+                    'path' => $path,
+                    'row_count' => $rowCount,
+                    'processing_time_ms' => $processingTime,
+                    'imported' => $result['imported'] ?? 0,
+                    'failed' => $result['failed'] ?? 0,
+                    'mode' => 'sync'
+                ]);
+
+                return response()->json([
+                    'data' => [
+                        'job_id' => spl_object_hash($job),
+                        'status' => 'completed',
+                        'message' => "Import completed successfully - {$result['imported']} contacts imported",
+                        'imported' => $result['imported'] ?? 0,
+                        'failed' => $result['failed'] ?? 0,
+                        'mode' => 'sync',
+                        'processing_time_ms' => $processingTime
+                    ],
+                    'meta' => [ 'page' => 1, 'total' => 1 ],
+                ], 200);
+                
+            } catch (\Exception $e) {
+                Log::error('Contact import failed in sync mode', [
+                    'error' => $e->getMessage(),
+                    'path' => $path,
+                    'row_count' => $rowCount,
+                    'tenant_id' => $tenantId,
+                    'user_id' => $userId,
+                    'mode' => 'sync'
+                ]);
+
+                return response()->json([
+                    'error' => 'Import failed: ' . $e->getMessage(),
+                    'data' => null,
+                ], 500);
+            }
+        } else {
+            // Use async for large files
+            try {
+                $job = new ImportContactsJob($path, $tenantId, $userId);
+                dispatch($job);
+                
+                Log::info('Contact import job dispatched to queue for large file', [
+                    'job_id' => spl_object_hash($job),
+                    'path' => $path,
+                    'row_count' => $rowCount,
+                    'tenant_id' => $tenantId,
+                    'user_id' => $userId,
+                    'mode' => 'async'
+                ]);
+
+                return response()->json([
+                    'data' => [ 
+                        'job_id' => spl_object_hash($job),
+                        'status' => 'queued',
+                        'message' => "Large import queued ({$rowCount} contacts) - will be processed in background",
+                        'row_count' => $rowCount,
+                        'mode' => 'async'
+                    ],
+                    'meta' => [ 'page' => 1, 'total' => 1 ],
+                ], 202);
+                
+            } catch (\Exception $e) {
+                Log::warning('Failed to dispatch large import job, falling back to sync mode', [
+                    'error' => $e->getMessage(),
+                    'path' => $path,
+                    'row_count' => $rowCount
+                ]);
+                
+                // Fallback to sync even for large files if queue fails
+                try {
+                    $startTime = microtime(true);
+                    
+                    $job = new ImportContactsJob($path, $tenantId, $userId);
+                    $result = $job->handleSync();
+                    
+                    $processingTime = round((microtime(true) - $startTime) * 1000, 2);
+                    
+                    Log::info('Large contact import completed in sync fallback mode', [
+                        'path' => $path,
+                        'row_count' => $rowCount,
+                        'processing_time_ms' => $processingTime,
+                        'imported' => $result['imported'] ?? 0,
+                        'failed' => $result['failed'] ?? 0,
+                        'mode' => 'sync_fallback'
+                    ]);
+
+                    return response()->json([
+                        'data' => [
+                            'job_id' => spl_object_hash($job),
+                            'status' => 'completed',
+                            'message' => "Import completed successfully - {$result['imported']} contacts imported",
+                            'imported' => $result['imported'] ?? 0,
+                            'failed' => $result['failed'] ?? 0,
+                            'mode' => 'sync_fallback',
+                            'processing_time_ms' => $processingTime
+                        ],
+                        'meta' => [ 'page' => 1, 'total' => 1 ],
+                    ], 200);
+                    
+                } catch (\Exception $fallbackError) {
+                    Log::error('Contact import failed in sync fallback mode', [
+                        'error' => $fallbackError->getMessage(),
+                        'path' => $path,
+                        'row_count' => $rowCount,
+                        'tenant_id' => $tenantId,
+                        'user_id' => $userId,
+                        'mode' => 'sync_fallback'
+                    ]);
+
+                    return response()->json([
+                        'error' => 'Import failed: ' . $fallbackError->getMessage(),
+                        'data' => null,
+                    ], 500);
+                }
+            }
+        }
     }
 
     public function search(Request $request): JsonResponse
@@ -207,6 +348,140 @@ class ContactsController extends Controller
         return response()->json([
             'data' => $results,
             'meta' => [ 'page' => 1, 'total' => $results->count() ],
+        ]);
+    }
+
+    /**
+     * Get the company linked to a contact.
+     */
+    public function getCompany(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        $userId = $request->user()->id;
+        
+        $contact = Contact::where('tenant_id', $tenantId)
+                         ->where('owner_id', $userId)
+                         ->findOrFail($id);
+        
+        $this->authorize('view', $contact);
+
+        $company = $contact->company;
+
+        return response()->json([
+            'data' => $company,
+            'meta' => [ 'page' => 1, 'total' => $company ? 1 : 0 ],
+        ]);
+    }
+
+    /**
+     * Get deals linked to a contact.
+     */
+    public function getDeals(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        $userId = $request->user()->id;
+        
+        $contact = Contact::where('tenant_id', $tenantId)
+                         ->where('owner_id', $userId)
+                         ->findOrFail($id);
+        
+        $this->authorize('view', $contact);
+
+        $query = \App\Models\Deal::query()
+            ->where('tenant_id', $tenantId)
+            ->where('contact_id', $id)
+            ->with(['pipeline', 'stage', 'owner', 'company']);
+
+        // Apply filters
+        if ($status = $request->query('status')) {
+            $query->where('status', $status);
+        }
+        if ($stageId = $request->query('stage_id')) {
+            $query->where('stage_id', $stageId);
+        }
+        if ($pipelineId = $request->query('pipeline_id')) {
+            $query->where('pipeline_id', $pipelineId);
+        }
+        if ($from = $request->query('created_from')) {
+            $query->whereDate('created_at', '>=', $from);
+        }
+        if ($to = $request->query('created_to')) {
+            $query->whereDate('created_at', '<=', $to);
+        }
+
+        // Sorting
+        $sort = (string) $request->query('sort', '-updated_at');
+        $direction = str_starts_with($sort, '-') ? 'desc' : 'asc';
+        $column = ltrim($sort, '-');
+        $query->orderBy($column, $direction);
+
+        $perPage = min((int) $request->query('per_page', 15), 100);
+        $deals = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $deals->items(),
+            'meta' => [
+                'current_page' => $deals->currentPage(),
+                'last_page' => $deals->lastPage(),
+                'per_page' => $deals->perPage(),
+                'total' => $deals->total(),
+                'from' => $deals->firstItem(),
+                'to' => $deals->lastItem(),
+            ],
+        ]);
+    }
+
+    /**
+     * Get activities timeline for a contact.
+     */
+    public function getActivities(Request $request, int $id): JsonResponse
+    {
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        $userId = $request->user()->id;
+        
+        $contact = Contact::where('tenant_id', $tenantId)
+                         ->where('owner_id', $userId)
+                         ->findOrFail($id);
+        
+        $this->authorize('view', $contact);
+
+        $query = \App\Models\Activity::query()
+            ->where('tenant_id', $tenantId)
+            ->where('related_type', 'App\\Models\\Contact')
+            ->where('related_id', $id)
+            ->with(['owner', 'related']);
+
+        // Apply filters
+        if ($type = $request->query('type')) {
+            $query->where('type', $type);
+        }
+        if ($status = $request->query('status')) {
+            $query->where('status', $status);
+        }
+        if ($from = $request->query('scheduled_from')) {
+            $query->where('scheduled_at', '>=', \Carbon\Carbon::parse($from)->startOfDay());
+        }
+        if ($to = $request->query('scheduled_to')) {
+            $query->where('scheduled_at', '<=', \Carbon\Carbon::parse($to)->endOfDay());
+        }
+
+        // Sorting by most recent first
+        $query->orderBy('scheduled_at', 'desc')
+              ->orderBy('created_at', 'desc');
+
+        $perPage = min((int) $request->query('per_page', 15), 100);
+        $activities = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $activities->items(),
+            'meta' => [
+                'current_page' => $activities->currentPage(),
+                'last_page' => $activities->lastPage(),
+                'per_page' => $activities->perPage(),
+                'total' => $activities->total(),
+                'from' => $activities->firstItem(),
+                'to' => $activities->lastItem(),
+            ],
         ]);
     }
 }

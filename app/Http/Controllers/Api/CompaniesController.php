@@ -13,6 +13,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class CompaniesController extends Controller
 {
@@ -64,14 +66,59 @@ class CompaniesController extends Controller
         $this->authorize('create', Company::class);
 
         $data = $request->validated();
+        $contactId = $data['contact_id'] ?? null;
+        
+        // Remove contact_id from data to avoid it being saved to company table
+        unset($data['contact_id']);
+        
         $data['tenant_id'] = $request->header('X-Tenant-ID') ?? $request->user()->id;
 
-        $company = $this->companyService->createCompany($data);
+        // Use database transaction to ensure company creation and contact attachment succeed together
+        $company = DB::transaction(function () use ($data, $contactId, $request) {
+            // Create the company
+            $company = $this->companyService->createCompany($data);
+            
+            // Auto-attach contact if contact_id is provided
+            if ($contactId) {
+                // Verify contact exists and belongs to same tenant
+                $contact = \App\Models\Contact::where('id', $contactId)
+                    ->where('tenant_id', $data['tenant_id'])
+                    ->first();
+                
+                if ($contact) {
+                    // Check if user has permission to attach this contact
+                    $this->authorize('update', $company);
+                    
+                    // Attach the contact to the company
+                    $this->companyService->attachContacts($company, [$contactId]);
+                    
+                    Log::info('Contact auto-attached to company during creation', [
+                        'company_id' => $company->id,
+                        'company_name' => $company->name,
+                        'contact_id' => $contactId,
+                        'contact_name' => $contact->first_name . ' ' . $contact->last_name,
+                        'tenant_id' => $data['tenant_id'],
+                        'user_id' => $request->user()->id
+                    ]);
+                } else {
+                    Log::warning('Contact not found or does not belong to tenant during company creation', [
+                        'contact_id' => $contactId,
+                        'tenant_id' => $data['tenant_id'],
+                        'company_id' => $company->id
+                    ]);
+                }
+            }
+            
+            return $company;
+        });
+
+        // Load the company with contacts for the response
+        $company->load(['owner:id,name,email', 'contacts']);
 
         return response()->json([
             'success' => true,
             'data' => new CompanyResource($company),
-            'message' => 'Company created successfully'
+            'message' => $contactId ? 'Company created and contact attached successfully' : 'Company created successfully'
         ], 201);
     }
 
@@ -318,31 +365,175 @@ class CompaniesController extends Controller
             'file' => 'required|file|mimes:csv,txt|max:10240' // 10MB max
         ]);
 
+        // Get tenant_id from header or use user's organization as fallback
+        $tenantId = (int) $request->header('X-Tenant-ID');
+        if ($tenantId === 0) {
+            // Use organization_name to determine tenant_id
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4; // chitti's organization
+            } else {
+                $tenantId = 1; // default tenant
+            }
+        }
+
         $file = $request->file('file');
         $fileName = 'companies_' . time() . '_' . Str::random(10) . '.csv';
-        $filePath = storage_path('app/imports/companies/' . $fileName);
+        $path = 'imports/companies/' . $fileName;
 
         // Ensure directory exists
         Storage::disk('local')->makeDirectory('imports/companies');
         
         // Store the file
         $file->storeAs('imports/companies', $fileName, 'local');
+        $fileSize = $file->getSize();
+        $userId = $request->user()->id;
 
-        // Dispatch import job
-        ImportCompaniesJob::dispatch(
-            $filePath,
-            1, // Use tenant ID 1 as default
-            $request->user()->id
-        );
+        // Determine processing mode based on file size and row count
+        $csv = \League\Csv\Reader::createFromPath(Storage::path($path), 'r');
+        $csv->setHeaderOffset(0);
+        $rowCount = iterator_count($csv->getRecords());
+        
+        // Sync-first approach: Use sync for small files (≤1000 rows), async for large files
+        $shouldUseSync = $rowCount <= 1000;
+        
+        Log::info('Company import started', [
+            'path' => $path,
+            'file_size' => $fileSize,
+            'row_count' => $rowCount,
+            'mode' => $shouldUseSync ? 'sync' : 'async',
+            'tenant_id' => $tenantId,
+            'user_id' => $userId
+        ]);
 
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'job_id' => uniqid('import_'),
-                'file_name' => $fileName
-            ],
-            'message' => 'Import job queued successfully'
-        ], 202);
+        if ($shouldUseSync) {
+            // Process immediately for small files
+            try {
+                $startTime = microtime(true);
+                
+                $job = new ImportCompaniesJob($path, $tenantId, $userId);
+                $result = $job->handleSync(); // New method for sync processing
+                
+                $processingTime = round((microtime(true) - $startTime) * 1000, 2);
+                
+                Log::info('Company import completed synchronously', [
+                    'path' => $path,
+                    'row_count' => $rowCount,
+                    'processing_time_ms' => $processingTime,
+                    'imported' => $result['imported'] ?? 0,
+                    'failed' => $result['failed'] ?? 0,
+                    'mode' => 'sync'
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'imported' => $result['imported'] ?? 0,
+                        'failed' => $result['failed'] ?? 0,
+                        'total' => $result['total'] ?? 0,
+                        'success_rate' => $result['success_rate'] ?? 0,
+                        'mode' => 'sync',
+                        'processing_time_ms' => $processingTime
+                    ],
+                    'message' => 'Companies imported successfully'
+                ], 200);
+
+            } catch (\Exception $e) {
+                Log::error('Company import failed in sync mode', [
+                    'path' => $path,
+                    'error' => $e->getMessage(),
+                    'mode' => 'sync'
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Company import failed: ' . $e->getMessage(),
+                    'data' => [
+                        'imported' => 0,
+                        'failed' => $rowCount,
+                        'mode' => 'sync'
+                    ]
+                ], 422);
+            }
+        } else {
+            // Process asynchronously for large files
+            try {
+                ImportCompaniesJob::dispatch($path, $tenantId, $userId);
+                
+                Log::info('Company import job dispatched to queue for large file', [
+                    'path' => $path,
+                    'row_count' => $rowCount,
+                    'mode' => 'async'
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'job_id' => uniqid('import_'),
+                        'file_name' => $fileName,
+                        'status' => 'queued',
+                        'mode' => 'async'
+                    ],
+                    'message' => 'Import job queued successfully'
+                ], 202);
+
+            } catch (\Exception $e) {
+                Log::error('Company import job dispatch failed, falling back to sync', [
+                    'path' => $path,
+                    'error' => $e->getMessage(),
+                    'fallback_mode' => 'sync'
+                ]);
+
+                // Fallback to sync processing if queue dispatch fails
+                try {
+                    $startTime = microtime(true);
+                    
+                    $job = new ImportCompaniesJob($path, $tenantId, $userId);
+                    $result = $job->handleSync();
+                    
+                    $processingTime = round((microtime(true) - $startTime) * 1000, 2);
+                    
+                    Log::info('Large company import completed in sync fallback mode', [
+                        'path' => $path,
+                        'row_count' => $rowCount,
+                        'processing_time_ms' => $processingTime,
+                        'imported' => $result['imported'] ?? 0,
+                        'failed' => $result['failed'] ?? 0,
+                        'mode' => 'sync_fallback'
+                    ]);
+
+                    return response()->json([
+                        'success' => true,
+                        'data' => [
+                            'imported' => $result['imported'] ?? 0,
+                            'failed' => $result['failed'] ?? 0,
+                            'total' => $result['total'] ?? 0,
+                            'success_rate' => $result['success_rate'] ?? 0,
+                            'mode' => 'sync_fallback',
+                            'processing_time_ms' => $processingTime
+                        ],
+                        'message' => 'Companies imported successfully (sync fallback)'
+                    ], 200);
+
+                } catch (\Exception $fallbackError) {
+                    Log::error('Company import failed in sync fallback mode', [
+                        'path' => $path,
+                        'error' => $fallbackError->getMessage(),
+                        'mode' => 'sync_fallback'
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Company import failed: ' . $fallbackError->getMessage(),
+                        'data' => [
+                            'imported' => 0,
+                            'failed' => $rowCount,
+                            'mode' => 'sync_fallback'
+                        ]
+                    ], 422);
+                }
+            }
+        }
     }
 
     /**
@@ -358,6 +549,58 @@ class CompaniesController extends Controller
         return response()->json([
             'success' => true,
             'data' => $contacts
+        ]);
+    }
+
+    /**
+     * Get deals associated with a company.
+     */
+    public function getDeals(Request $request, int $id): JsonResponse
+    {
+        $company = Company::findOrFail($id);
+        $this->authorize('view', $company);
+
+        // Apply filters
+        $query = $company->deals();
+        
+        // Filter by status
+        if ($request->has('status')) {
+            $query->where('status', $request->get('status'));
+        }
+        
+        // Filter by stage
+        if ($request->has('stage')) {
+            $query->where('stage_id', $request->get('stage'));
+        }
+        
+        // Filter by date range
+        if ($request->has('created_from')) {
+            $query->whereDate('created_at', '>=', $request->get('created_from'));
+        }
+        
+        if ($request->has('created_to')) {
+            $query->whereDate('created_at', '<=', $request->get('created_to'));
+        }
+        
+        // Sort by most recent first
+        $query->orderBy('updated_at', 'desc');
+        
+        // Pagination
+        $perPage = min($request->get('limit', 10), 100);
+        $deals = $query->with(['pipeline', 'stage', 'owner', 'contact'])
+                      ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => $deals->items(),
+            'meta' => [
+                'current_page' => $deals->currentPage(),
+                'last_page' => $deals->lastPage(),
+                'per_page' => $deals->perPage(),
+                'total' => $deals->total(),
+                'from' => $deals->firstItem(),
+                'to' => $deals->lastItem(),
+            ]
         ]);
     }
 

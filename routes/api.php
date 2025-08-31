@@ -42,6 +42,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('contacts/{id}', [ApiContactsController::class, 'update'])->whereNumber('id');
     Route::delete('contacts/{id}', [ApiContactsController::class, 'destroy'])->whereNumber('id');
     Route::post('contacts/import', [ApiContactsController::class, 'import']);
+    // Contact detail page APIs
+    Route::get('contacts/{id}/company', [ApiContactsController::class, 'getCompany'])->whereNumber('id');
+    Route::get('contacts/{id}/deals', [ApiContactsController::class, 'getDeals'])->whereNumber('id');
+    Route::get('contacts/{id}/activities', [ApiContactsController::class, 'getActivities'])->whereNumber('id');
 
     // Companies resource
     Route::get('companies', [CompaniesController::class, 'index']);
@@ -59,6 +63,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('companies/{id}/contacts', [CompaniesController::class, 'attachContacts'])->whereNumber('id');
     Route::delete('companies/{id}/contacts/{contact_id}', [CompaniesController::class, 'detachContact'])->whereNumber(['id', 'contact_id']);
     Route::get('companies/{id}/activity-log', [CompaniesController::class, 'activityLog'])->whereNumber('id');
+    // Company detail page APIs
+    Route::get('companies/{id}/deals', [CompaniesController::class, 'getDeals'])->whereNumber('id');
+    Route::post('companies/{id}/contacts/bulk', [CompaniesController::class, 'bulkAttachContacts'])->whereNumber('id');
+    Route::delete('companies/{id}/contacts/bulk', [CompaniesController::class, 'bulkDetachContacts'])->whereNumber('id');
+    Route::get('companies/{companyId}/contacts/{contactId}/exists', [CompaniesController::class, 'checkContactLinked'])->whereNumber(['companyId', 'contactId']);
 
     // Metadata endpoints
     Route::get('metadata/industries', [MetadataController::class, 'industries']);

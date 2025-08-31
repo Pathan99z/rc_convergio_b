@@ -62,6 +62,14 @@ class Company extends Model
     }
 
     /**
+     * Get the deals for the company.
+     */
+    public function deals(): HasMany
+    {
+        return $this->hasMany(Deal::class);
+    }
+
+    /**
      * Scope a query to only include companies for a specific tenant.
      */
     public function scopeForTenant($query, $tenantId)
