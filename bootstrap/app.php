@@ -13,6 +13,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->api(prepend: [\App\Http\Middleware\ForceJsonResponse::class]);
+        
+        // Register feature restriction middleware
+        $middleware->alias([
+            'feature.restrict' => \App\Http\Middleware\FeatureRestrictionMiddleware::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

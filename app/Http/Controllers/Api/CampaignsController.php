@@ -9,12 +9,17 @@ use App\Http\Requests\Campaigns\SendCampaignRequest;
 use App\Http\Resources\CampaignResource;
 use App\Jobs\SendCampaignJob;
 use App\Models\Campaign;
+use App\Services\FeatureRestrictionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class CampaignsController extends Controller
 {
+    public function __construct(
+        private FeatureRestrictionService $featureRestrictionService
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Campaign::class);
@@ -169,6 +174,11 @@ class CampaignsController extends Controller
 
     public function send(SendCampaignRequest $request, int $id): JsonResponse
     {
+        // Check feature restriction for campaign sending
+        if (!$this->featureRestrictionService->canSendCampaigns($request->user())) {
+            abort(403, $this->featureRestrictionService->getRestrictionMessage('campaign_sending'));
+        }
+
         // Get tenant_id from header or use user's organization as fallback
         $tenantId = (int) $request->header('X-Tenant-ID');
         if ($tenantId === 0) {

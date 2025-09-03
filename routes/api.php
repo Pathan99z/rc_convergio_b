@@ -14,6 +14,13 @@ use App\Http\Controllers\Api\StagesController;
 use App\Http\Controllers\Api\ActivitiesController;
 use App\Http\Controllers\Api\CampaignWebhookController;
 use App\Http\Controllers\Api\EnrichmentController;
+use App\Http\Controllers\Api\FormsController;
+use App\Http\Controllers\Api\PublicFormController;
+use App\Http\Controllers\Api\ListsController;
+use App\Http\Controllers\Api\SearchController;
+use App\Http\Controllers\Api\UsersController;
+use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\FeatureStatusController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -22,6 +29,7 @@ Route::prefix('auth')->group(function () {
     Route::get('verify', [AuthController::class, 'verifyEmail'])->name('auth.verify')->middleware('signed');
     Route::post('forgot', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
     Route::post('reset', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
+    Route::post('resend-verification', [AuthController::class, 'resendVerificationEmail'])->middleware('throttle:3,1');
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -33,6 +41,24 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('tasks/today', [TasksController::class, 'today']);
     Route::get('contacts/recent', [ContactsController::class, 'recent']);
     Route::get('campaigns/metrics', [CampaignsController::class, 'metrics']);
+
+    // Email verification required for sensitive operations
+    Route::middleware(['verified'])->group(function () {
+        // Campaign operations (sending, etc.)
+        Route::post('campaigns/{id}/send', [CampaignsController::class, 'send'])->whereNumber('id');
+        
+        // Bulk operations
+        Route::post('contacts/import', [ApiContactsController::class, 'import']);
+        Route::post('companies/import', [CompaniesController::class, 'import']);
+        Route::post('companies/bulk-create', [CompaniesController::class, 'bulkCreate']);
+        
+        // Data export operations
+        Route::get('deals/export', [\App\Http\Controllers\Api\DealsController::class, 'export']);
+        Route::get('activities/export', [ActivitiesController::class, 'export']);
+        
+        // API integrations and advanced features
+        Route::get('companies/enrich', [EnrichmentController::class, 'enrich']);
+    });
 
     // Contacts resource (place search BEFORE {id} and constrain {id} numeric)
     Route::get('contacts/search', [ApiContactsController::class, 'search']);
@@ -150,6 +176,51 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Campaign webhook (no auth required)
     Route::post('campaigns/events', [CampaignWebhookController::class, 'handleEvents']);
+
+    // Forms resource
+    Route::get('forms', [FormsController::class, 'index']);
+    Route::post('forms', [FormsController::class, 'store']);
+    Route::get('forms/check-duplicate', [FormsController::class, 'checkDuplicate']);
+    Route::get('forms/{form}', [FormsController::class, 'show'])->whereNumber('form');
+    Route::put('forms/{form}', [FormsController::class, 'update'])->whereNumber('form');
+    Route::delete('forms/{form}', [FormsController::class, 'destroy'])->whereNumber('form');
+    Route::get('forms/{form}/submissions', [FormsController::class, 'submissions'])->whereNumber('form');
+    Route::get('forms/{form}/submissions/{submission}', [FormsController::class, 'showSubmission'])->whereNumber(['form', 'submission']);
+
+    // Lists resource
+    Route::get('lists', [ListsController::class, 'index']);
+    Route::post('lists', [ListsController::class, 'store']);
+    Route::get('lists/check-duplicate', [ListsController::class, 'checkDuplicate']);
+    Route::get('lists/{list}', [ListsController::class, 'show'])->whereNumber('list');
+    Route::put('lists/{list}', [ListsController::class, 'update'])->whereNumber('list');
+    Route::delete('lists/{list}', [ListsController::class, 'destroy'])->whereNumber('list');
+    Route::get('lists/{list}/members', [ListsController::class, 'members'])->whereNumber('list');
+    Route::post('lists/{list}/members', [ListsController::class, 'addMembers'])->whereNumber('list');
+    Route::delete('lists/{list}/members/{contact_id}', [ListsController::class, 'removeMember'])->whereNumber(['list', 'contact_id']);
+
+    // Global search
+    Route::get('search', [SearchController::class, 'search']);
+
+    // Users resource (Admin only)
+    Route::get('users/me', [UsersController::class, 'me']);
+    Route::get('users', [UsersController::class, 'index']);
+    Route::get('users/{id}', [UsersController::class, 'show'])->whereNumber('id');
+    Route::post('users', [UsersController::class, 'store']);
+    Route::put('users/{id}', [UsersController::class, 'update'])->whereNumber('id');
+    Route::delete('users/{id}', [UsersController::class, 'destroy'])->whereNumber('id');
+
+    // Roles resource (for role dropdowns)
+    Route::get('roles', [RoleController::class, 'index']);
+
+    // Feature status and restrictions
+    Route::get('features/status', [FeatureStatusController::class, 'index']);
+    Route::get('features/check/{feature}', [FeatureStatusController::class, 'checkFeature']);
+});
+
+// Public routes (no auth required)
+Route::prefix('public')->group(function () {
+    Route::get('forms/{id}', [PublicFormController::class, 'show'])->whereNumber('id');
+    Route::post('forms/{id}/submit', [PublicFormController::class, 'submit'])->whereNumber('id');
 });
 
 

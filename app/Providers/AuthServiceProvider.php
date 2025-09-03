@@ -10,6 +10,9 @@ use App\Models\Stage;
 use App\Models\Activity;
 use App\Models\Task;
 use App\Models\Campaign;
+use App\Models\Form;
+use App\Models\ContactList;
+use App\Models\User;
 use App\Policies\ContactPolicy;
 use App\Policies\CompanyPolicy;
 use App\Policies\DealPolicy;
@@ -18,6 +21,9 @@ use App\Policies\StagePolicy;
 use App\Policies\ActivityPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\CampaignPolicy;
+use App\Policies\FormPolicy;
+use App\Policies\ContactListPolicy;
+use App\Policies\UserPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Auth\Notifications\ResetPassword;
 
@@ -32,6 +38,9 @@ class AuthServiceProvider extends ServiceProvider
         Activity::class => ActivityPolicy::class,
         Task::class => TaskPolicy::class,
         Campaign::class => CampaignPolicy::class,
+        Form::class => FormPolicy::class,
+        ContactList::class => ContactListPolicy::class,
+        User::class => UserPolicy::class,
     ];
 
     public function boot(): void

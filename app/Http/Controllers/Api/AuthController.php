@@ -31,6 +31,7 @@ class AuthController extends Controller
             'email' => $data['email'],
             'password' => $data['password'],
             'organization_name' => $data['organization_name'],
+            'status' => 'active', // Automatically set status to active for public registrations
         ]);
 
         event(new Registered($user));
@@ -71,6 +72,22 @@ class AuthController extends Controller
         if (! $user || ! Hash::check($request->validated('password'), $user->password)) {
             RateLimiter::hit($key, 15 * 60);
             return $this->error('Invalid credentials.', 401);
+        }
+
+        // Check if user is active
+        if ($user->status !== 'active') {
+            return $this->error('Your account has been deactivated. Please contact an administrator.', 403, [
+                'account_deactivated' => true,
+                'user_id' => $user->id
+            ]);
+        }
+
+        // Check if email is verified
+        if (!$user->hasVerifiedEmail()) {
+            return $this->error('Please verify your email address before logging in. Check your inbox for a verification link.', 403, [
+                'email_verification_required' => true,
+                'user_id' => $user->id
+            ]);
         }
 
         RateLimiter::clear($key);
@@ -140,6 +157,29 @@ class AuthController extends Controller
         }
 
         return $this->error(__($status), 422);
+    }
+
+    /**
+     * Resend email verification link
+     */
+    public function resendVerificationEmail(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => ['required', 'email', 'exists:users,email']
+        ]);
+
+        $user = User::where('email', $request->email)->first();
+
+        if ($user->hasVerifiedEmail()) {
+            return $this->error('Email is already verified.', 422);
+        }
+
+        // Send verification email
+        if ($user instanceof MustVerifyEmail) {
+            $user->sendEmailVerificationNotification();
+        }
+
+        return $this->success(['message' => 'Verification link sent!']);
     }
 
     private function transformUser(User $user): array

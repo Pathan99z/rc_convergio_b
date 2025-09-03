@@ -22,6 +22,7 @@ class DatabaseSeeder extends Seeder
 
         // Seed contacts for testing
         $this->call([
+            RoleSeeder::class,
             ContactSeeder::class,
         ]);
     }

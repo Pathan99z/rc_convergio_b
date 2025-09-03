@@ -1,0 +1,298 @@
+{
+  "info": {
+    "_postman_id": "2f9b2e1a-7b94-4d59-9a6b-8bfb1c3c7fa2",
+    "name": "RC Convergio CRM API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost" },
+    { "key": "token", "value": "" },
+    { "key": "tenant_id", "value": "1" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{token}}", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Global Search",
+      "item": [
+        {
+          "name": "Search (contacts, companies, deals)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/search?q=john&types=contacts,companies,deals",
+              "host": ["{{base_url}}"],
+              "path": ["api", "search"],
+              "query": [
+                { "key": "q", "value": "john" },
+                { "key": "types", "value": "contacts,companies,deals" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Forms",
+      "item": [
+        {
+          "name": "List Forms",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/forms", "host": ["{{base_url}}"], "path": ["api","forms"] }
+          }
+        },
+        {
+          "name": "Create Form",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Website Lead Form\",\n  \"fields\": [\n    {\"name\":\"first_name\",\"type\":\"text\",\"label\":\"First Name\",\"required\":true},\n    {\"name\":\"email\",\"type\":\"email\",\"label\":\"Email\",\"required\":true}\n  ],\n  \"consent_required\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/api/forms", "host": ["{{base_url}}"], "path": ["api","forms"] }
+          }
+        },
+        {
+          "name": "Show Form",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/forms/1", "host": ["{{base_url}}"], "path": ["api","forms","1"] }
+          }
+        },
+        {
+          "name": "Update Form",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Website Lead Form - Updated\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/api/forms/1", "host": ["{{base_url}}"], "path": ["api","forms","1"] }
+          }
+        },
+        {
+          "name": "Delete Form",
+          "request": {
+            "method": "DELETE",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/forms/1", "host": ["{{base_url}}"], "path": ["api","forms","1"] }
+          }
+        },
+        {
+          "name": "Form Submissions",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/forms/1/submissions", "host": ["{{base_url}}"], "path": ["api","forms","1","submissions"] }
+          }
+        },
+        {
+          "name": "Public Submit Form",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"John\",\n  \"email\": \"john@acme.com\",\n  \"consent\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/api/public/forms/1/submit", "host": ["{{base_url}}"], "path": ["api","public","forms","1","submit"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lists",
+      "item": [
+        {
+          "name": "List Lists",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/lists", "host": ["{{base_url}}"], "path": ["api","lists"] }
+          }
+        },
+        {
+          "name": "Create List (Dynamic)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Leads - USA\",\n  \"type\": \"dynamic\",\n  \"rule\": [{\n    \"field\": \"country\",\n    \"operator\": \"=\",\n    \"value\": \"USA\"\n  }]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/api/lists", "host": ["{{base_url}}"], "path": ["api","lists"] }
+          }
+        },
+        {
+          "name": "Show List",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/lists/1", "host": ["{{base_url}}"], "path": ["api","lists","1"] }
+          }
+        },
+        {
+          "name": "Update List",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Leads - USA (Updated)\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/api/lists/1", "host": ["{{base_url}}"], "path": ["api","lists","1"] }
+          }
+        },
+        {
+          "name": "Delete List",
+          "request": {
+            "method": "DELETE",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/lists/1", "host": ["{{base_url}}"], "path": ["api","lists","1"] }
+          }
+        },
+        {
+          "name": "Get Members",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/lists/1/members", "host": ["{{base_url}}"], "path": ["api","lists","1","members"] }
+          }
+        },
+        {
+          "name": "Add Members (Static)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_ids\": [10, 11, 12]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/api/lists/1/members", "host": ["{{base_url}}"], "path": ["api","lists","1","members"] }
+          }
+        },
+        {
+          "name": "Remove Member (Static)",
+          "request": {
+            "method": "DELETE",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/lists/1/members/10", "host": ["{{base_url}}"], "path": ["api","lists","1","members","10"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/users/me", "host": ["{{base_url}}"], "path": ["api","users","me"] }
+          }
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/users", "host": ["{{base_url}}"], "path": ["api","users"] }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane Admin\",\n  \"email\": \"jane@acme.com\",\n  \"password\": \"Secret123!\",\n  \"password_confirmation\": \"Secret123!\",\n  \"organization_name\": \"Acme\",\n  \"roles\": [1]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/api/users", "host": ["{{base_url}}"], "path": ["api","users"] }
+          }
+        },
+        {
+          "name": "Show User",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/users/2", "host": ["{{base_url}}"], "path": ["api","users","2"] }
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane A.\",\n  \"roles\": [1,2]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{base_url}}/api/users/2", "host": ["{{base_url}}"], "path": ["api","users","2"] }
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "header": [ { "key": "Accept", "value": "application/json" }, { "key": "X-Tenant-ID", "value": "{{tenant_id}}" } ],
+            "url": { "raw": "{{base_url}}/api/users/2", "host": ["{{base_url}}"], "path": ["api","users","2"] }
+          }
+        }
+      ]
+    }
+  ]
+}
+
+
