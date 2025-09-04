@@ -13,6 +13,8 @@ class FormSubmission extends Model
     protected $fillable = [
         'form_id',
         'contact_id',
+        'company_id',
+        'status',
         'payload',
         'ip_address',
         'user_agent',
@@ -38,6 +40,14 @@ class FormSubmission extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class);
+    }
+
+    /**
+     * Get the company associated with the submission.
+     */
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
     }
 
     /**

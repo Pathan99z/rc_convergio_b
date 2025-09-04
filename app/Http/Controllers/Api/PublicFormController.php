@@ -7,6 +7,7 @@ use App\Http\Resources\FormResource;
 use App\Http\Resources\FormSubmissionResource;
 use App\Models\Form;
 use App\Services\FormService;
+use App\Jobs\ProcessFormSubmissionJob;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -67,6 +68,20 @@ class PublicFormController extends Controller
         
         Log::info('Form submission attempted', ['form_id' => $form->id, 'form_name' => $form->name]);
         
+        // DEBUG: Log form structure and request data
+        Log::info('Form structure debug', [
+            'form_id' => $form->id,
+            'form_fields' => $form->fields,
+            'form_fields_count' => $form->fields ? count($form->fields) : 0,
+            'form_fields_type' => gettype($form->fields),
+            'request_all' => $request->all(),
+            'request_keys' => array_keys($request->all()),
+            'request_method' => $request->method(),
+            'request_url' => $request->url(),
+            'request_path' => $request->path(),
+            'user_agent' => $request->userAgent()
+        ]);
+        
         // Build validation rules based on form fields
         $rules = [];
         $messages = [];
@@ -100,6 +115,7 @@ class PublicFormController extends Controller
                         $fieldRules[] = 'max:1000';
                 }
 
+                // CRITICAL FIX: Expect fields under payload object (payload.first_name, payload.last_name, etc.)
                 $rules["payload.{$field['name']}"] = $fieldRules;
                 
                 // Add custom messages
@@ -125,8 +141,16 @@ class PublicFormController extends Controller
                 }
             }
         }
+        
+        // DEBUG: Log validation rules and messages
+        Log::info('Validation rules debug', [
+            'form_id' => $form->id,
+            'generated_rules' => $rules,
+            'generated_messages' => $messages,
+            'rules_count' => count($rules)
+        ]);
 
-        // Add consent validation if required
+        // Add consent validation if required (consent_given stays at top level)
         if ($form->consent_required) {
             $rules['consent_given'] = ['required', 'accepted'];
             $messages['consent_given.required'] = 'You must accept the terms and conditions.';
@@ -139,7 +163,8 @@ class PublicFormController extends Controller
         if ($validator->fails()) {
             Log::warning('Form validation failed', [
                 'form_id' => $form->id,
-                'errors' => $validator->errors()->toArray()
+                'errors' => $validator->errors()->toArray(),
+                'request_data' => $request->all() // Add request data for debugging
             ]);
             
             return response()->json([
@@ -149,9 +174,36 @@ class PublicFormController extends Controller
         }
 
         try {
-            // Extract payload data
-            $payload = $request->input('payload', []);
+            // CRITICAL FIX: Extract form fields directly from payload object
+            $payload = [];
+            
+            // Extract all form fields from the payload object
+            if ($form->fields) {
+                foreach ($form->fields as $field) {
+                    $fieldName = $field['name'];
+                    
+                    // Get field value directly from payload object
+                    $fieldValue = $request->input("payload.{$fieldName}");
+                    
+                    // Only add non-null values to payload
+                    if ($fieldValue !== null) {
+                        $payload[$fieldName] = $fieldValue;
+                    }
+                }
+            }
+            
             $consentGiven = $request->input('consent_given', false);
+            $payload['consent_given'] = $consentGiven;
+            
+            // DEBUG: Log payload extraction
+            Log::info('Payload extraction debug', [
+                'form_id' => $form->id,
+                'extracted_payload' => $payload,
+                'request_all' => $request->all(),
+                'has_payload_object' => $request->has('payload'),
+                'payload_object' => $request->input('payload'),
+                'extraction_method' => 'direct_from_payload'
+            ]);
             
             // Create submission using FormService
             $submission = $this->formService->submitForm(
@@ -161,19 +213,24 @@ class PublicFormController extends Controller
                 $request->userAgent()
             );
             
-            // Update submission with consent information
+            // Update submission with consent information and set initial status
             $submission->update([
-                'consent_given' => $consentGiven
+                'consent_given' => $consentGiven,
+                'status' => 'pending' // Set initial status for automated processing
             ]);
             
-            Log::info('Form submission successful', [
+            // AUTOMATED PROCESSING: Dispatch background job to process submission
+            ProcessFormSubmissionJob::dispatch($submission->id);
+            
+            Log::info('Form submission successful and processing job dispatched', [
                 'form_id' => $form->id,
                 'submission_id' => $submission->id,
-                'ip_address' => $request->ip()
+                'ip_address' => $request->ip(),
+                'job_dispatched' => true
             ]);
             
             return response()->json([
-                'message' => 'Form submitted successfully',
+                'message' => 'Form submitted successfully. Processing in background.',
                 'data' => new FormSubmissionResource($submission)
             ], 201);
             

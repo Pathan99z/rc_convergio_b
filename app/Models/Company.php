@@ -29,6 +29,7 @@ class Company extends Model
         'phone',
         'email',
         'status',
+        'source',
     ];
 
     protected $casts = [

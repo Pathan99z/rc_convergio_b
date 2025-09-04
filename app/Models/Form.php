@@ -16,14 +16,18 @@ class Form extends Model
         'name',
         'status',
         'fields',
+        'field_mapping',
         'consent_required',
+        'settings',
         'created_by',
         'tenant_id',
     ];
 
     protected $casts = [
         'fields' => 'array',
+        'field_mapping' => 'array',
         'consent_required' => 'boolean',
+        'settings' => 'array',
     ];
 
     /**

@@ -198,7 +198,10 @@ class FormService
                 
             if ($contact) {
                 // Update existing contact
-                $contact->update($contactData);
+                $updateData = array_merge($contactData, [
+                    'source' => 'Request Demo Form',
+                ]);
+                $contact->update($updateData);
                 return $contact;
             }
         }
@@ -206,6 +209,8 @@ class FormService
         // Create new contact
         $contactData['tenant_id'] = $tenantId;
         $contactData['owner_id'] = $this->assignSalesRep($tenantId);
+        $contactData['source'] = 'Request Demo Form';
+        $contactData['lifecycle_stage'] = $contactData['lifecycle_stage'] ?? 'lead';
         
         // Create company if email domain is new
         if ($email) {

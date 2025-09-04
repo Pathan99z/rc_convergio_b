@@ -117,12 +117,17 @@ class ContactsController extends Controller
     {
         $tenantId = (int) $request->header('X-Tenant-ID');
         $userId = $request->user()->id;
-        $contact = Contact::where('tenant_id', $tenantId)
-                         ->where('owner_id', $userId)
-                         ->findOrFail($id);
+
+        $contact = Contact::whereNull('deleted_at')->find($id);
+
+        if (!$contact) {
+            return response()->json(['message' => 'Contact not found'], 404);
+        }
+
         $this->authorize('view', $contact);
 
         return response()->json([
+            'success' => true,
             'data' => [
                 'contact' => $contact,
                 'timeline_summary' => [],

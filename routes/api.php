@@ -186,6 +186,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('forms/{form}', [FormsController::class, 'destroy'])->whereNumber('form');
     Route::get('forms/{form}/submissions', [FormsController::class, 'submissions'])->whereNumber('form');
     Route::get('forms/{form}/submissions/{submission}', [FormsController::class, 'showSubmission'])->whereNumber(['form', 'submission']);
+    
+    // Form settings and field mapping
+    Route::get('forms/{form}/settings', [FormsController::class, 'getSettings'])->whereNumber('form');
+    Route::put('forms/{form}/settings', [FormsController::class, 'updateSettings'])->whereNumber('form');
+    Route::get('forms/{form}/mapping', [FormsController::class, 'getFieldMapping'])->whereNumber('form');
+    Route::put('forms/{form}/mapping', [FormsController::class, 'updateFieldMapping'])->whereNumber('form');
+    
+    // Form submission reprocessing
+    Route::post('forms/{form}/submissions/{submissionId}/reprocess', [FormsController::class, 'reprocessSubmission'])->whereNumber(['form', 'submissionId']);
 
     // Lists resource
     Route::get('lists', [ListsController::class, 'index']);
