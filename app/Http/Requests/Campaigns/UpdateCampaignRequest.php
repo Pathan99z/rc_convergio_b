@@ -21,6 +21,7 @@ class UpdateCampaignRequest extends FormRequest
             'type' => ['nullable', 'string', 'in:email,sms'],
             'scheduled_at' => ['nullable', 'date', 'after:now'],
             'settings' => ['nullable', 'array'],
+            'owner_id' => ['nullable', 'exists:users,id'],
         ];
     }
 }

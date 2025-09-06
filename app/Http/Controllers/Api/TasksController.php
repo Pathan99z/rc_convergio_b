@@ -19,7 +19,7 @@ class TasksController extends Controller
         $this->authorize('viewAny', Task::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -133,7 +133,7 @@ class TasksController extends Controller
         $this->authorize('create', Task::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -168,7 +168,7 @@ class TasksController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -190,7 +190,7 @@ class TasksController extends Controller
     public function update(UpdateTaskRequest $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -227,7 +227,7 @@ class TasksController extends Controller
     public function destroy(Request $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -249,7 +249,7 @@ class TasksController extends Controller
     public function complete(Request $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -278,7 +278,7 @@ class TasksController extends Controller
     {
         $this->authorize('viewAny', Task::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {
@@ -312,7 +312,7 @@ class TasksController extends Controller
     {
         $this->authorize('viewAny', Task::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {
@@ -346,7 +346,7 @@ class TasksController extends Controller
     {
         $this->authorize('viewAny', Task::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {
@@ -389,7 +389,7 @@ class TasksController extends Controller
     {
         $this->authorize('viewAny', Task::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {
@@ -441,7 +441,7 @@ class TasksController extends Controller
             'assigned_to' => 'sometimes|integer|exists:users,id',
         ]);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {
@@ -472,7 +472,7 @@ class TasksController extends Controller
             'ids.*' => 'integer|exists:tasks,id',
         ]);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {

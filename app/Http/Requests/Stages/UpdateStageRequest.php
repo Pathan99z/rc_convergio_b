@@ -15,7 +15,7 @@ class UpdateStageRequest extends FormRequest
     public function rules(): array
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $this->header('X-Tenant-ID');
+        $tenantId = (int) (optional($this->user())->tenant_id ?? $this->user()->id);
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $this->user();

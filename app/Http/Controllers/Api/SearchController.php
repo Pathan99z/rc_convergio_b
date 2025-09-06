@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Company;
-use App\Models\Deal;
+// Deal model may be optional in some deployments; use FQN conditionally
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -78,8 +78,8 @@ class SearchController extends Controller
             $results['companies'] = $companies;
         }
 
-        if (in_array('deals', $types)) {
-            $deals = Deal::where('tenant_id', $tenantId)
+        if (in_array('deals', $types) && class_exists(\App\Models\Deal::class)) {
+            $deals = \App\Models\Deal::where('tenant_id', $tenantId)
                 ->where(function ($q) use ($query) {
                     $q->where('title', 'like', "%{$query}%")
                       ->orWhere('description', 'like', "%{$query}%");
@@ -102,6 +102,9 @@ class SearchController extends Controller
                 });
 
             $results['deals'] = $deals;
+        } else {
+            // Ensure key exists even when Deal model is unavailable
+            $results['deals'] = collect();
         }
 
         return response()->json([

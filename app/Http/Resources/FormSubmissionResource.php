@@ -18,6 +18,8 @@ class FormSubmissionResource extends JsonResource
             'id' => $this->id,
             'form_id' => $this->form_id,
             'contact_id' => $this->contact_id,
+            'company_id' => $this->company_id,
+            'status' => $this->status,
             'payload' => $this->payload,
             'ip_address' => $this->ip_address,
             'user_agent' => $this->user_agent,
@@ -29,6 +31,13 @@ class FormSubmissionResource extends JsonResource
                     'last_name' => $this->contact->last_name,
                     'email' => $this->contact->email,
                 ];
+            }),
+            'company' => $this->whenLoaded('company', function () {
+                return $this->company ? [
+                    'id' => $this->company->id,
+                    'name' => $this->company->name,
+                    'domain' => $this->company->domain,
+                ] : null;
             }),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

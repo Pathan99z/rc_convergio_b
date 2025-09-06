@@ -25,7 +25,7 @@ class CampaignsController extends Controller
         $this->authorize('viewAny', Campaign::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -81,7 +81,7 @@ class CampaignsController extends Controller
         $this->authorize('create', Campaign::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -107,7 +107,7 @@ class CampaignsController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -129,7 +129,7 @@ class CampaignsController extends Controller
     public function update(UpdateCampaignRequest $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -153,7 +153,7 @@ class CampaignsController extends Controller
     public function destroy(Request $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -180,7 +180,7 @@ class CampaignsController extends Controller
         }
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -218,7 +218,7 @@ class CampaignsController extends Controller
     public function metrics(Request $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -262,7 +262,7 @@ class CampaignsController extends Controller
 
     public function pause(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {
@@ -291,7 +291,7 @@ class CampaignsController extends Controller
 
     public function resume(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {
@@ -320,7 +320,7 @@ class CampaignsController extends Controller
 
     public function recipients(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {
@@ -351,7 +351,7 @@ class CampaignsController extends Controller
 
     public function addRecipients(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             $user = $request->user();
             if ($user->organization_name === 'Globex LLC') {

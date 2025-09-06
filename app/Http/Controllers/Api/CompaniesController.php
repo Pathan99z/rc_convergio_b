@@ -30,7 +30,7 @@ class CompaniesController extends Controller
         $this->authorize('viewAny', Company::class);
 
         $filters = [
-            'tenant_id' => $request->header('X-Tenant-ID') ?? $request->user()->id,
+            'tenant_id' => optional($request->user())->tenant_id ?? $request->user()->id,
             'name' => $request->get('name'),
             'q' => $request->get('q'), // Add search query parameter
             'industry' => $request->get('industry'),
@@ -71,7 +71,7 @@ class CompaniesController extends Controller
         // Remove contact_id from data to avoid it being saved to company table
         unset($data['contact_id']);
         
-        $data['tenant_id'] = $request->header('X-Tenant-ID') ?? $request->user()->id;
+        $data['tenant_id'] = optional($request->user())->tenant_id ?? $request->user()->id;
 
         // Use database transaction to ensure company creation and contact attachment succeed together
         $company = DB::transaction(function () use ($data, $contactId, $request) {
@@ -181,7 +181,7 @@ class CompaniesController extends Controller
     {
         $this->authorize('viewAny', Company::class);
 
-        $tenantId = $request->header('X-Tenant-ID') ?? $request->user()->id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $perPage = min($request->get('pageSize', 15), 100);
 
         $companies = $this->companyService->getDeletedCompanies($tenantId, $perPage);
@@ -207,7 +207,7 @@ class CompaniesController extends Controller
         $company = Company::withTrashed()->findOrFail($id);
         $this->authorize('restore', $company);
 
-        $tenantId = $request->header('X-Tenant-ID') ?? $request->user()->id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         
         $restored = $this->companyService->restoreCompany($id, $tenantId);
 
@@ -284,7 +284,7 @@ class CompaniesController extends Controller
         ]);
 
         $data = $request->only(['name', 'domain', 'website']);
-        $tenantId = $request->header('X-Tenant-ID') ?? $request->user()->id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $excludeId = $request->input('exclude_id');
 
         $duplicates = $this->companyService->checkDuplicates($data, $tenantId, $excludeId);
@@ -337,7 +337,7 @@ class CompaniesController extends Controller
         ]);
 
         $companiesData = $request->input('companies');
-        $tenantId = $request->header('X-Tenant-ID') ?? $request->user()->id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $result = $this->companyService->bulkCreate($companiesData, $tenantId);
 
@@ -366,7 +366,7 @@ class CompaniesController extends Controller
         ]);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = (int) (optional($request->user())->tenant_id ?? $request->user()->id);
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();

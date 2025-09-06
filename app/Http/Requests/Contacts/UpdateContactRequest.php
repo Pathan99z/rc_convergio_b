@@ -14,7 +14,7 @@ class UpdateContactRequest extends FormRequest
 
     public function rules(): array
     {
-        $tenantId = (int) $this->header('X-Tenant-ID');
+        $tenantId = (int) (optional($this->user())->tenant_id ?? $this->user()->id);
         $contactId = (int) $this->route('id');
 
         return [
@@ -37,7 +37,7 @@ class UpdateContactRequest extends FormRequest
                     ->where(fn ($q) => $q->where('tenant_id', $tenantId))
                     ->whereNull('deleted_at'),
             ],
-            'owner_id' => ['required', 'exists:users,id'],
+            'owner_id' => ['nullable', 'exists:users,id'],
             'company_id' => ['nullable', 'exists:companies,id'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:30'],

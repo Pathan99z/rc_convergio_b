@@ -18,12 +18,15 @@ class ContactsController extends Controller
         $userId = $request->user()->id;
         $cacheKey = "contacts:recent:user:{$userId}:limit:{$limit}";
 
-        $data = $this->cache->remember($cacheKey, 60, function () use ($limit) {
+        $tenantId = $userId; // tenant equals authenticated user id in this app
+        $data = $this->cache->remember($cacheKey, 60, function () use ($limit, $tenantId) {
             if (! $this->db->connection()->getSchemaBuilder()->hasTable('contacts')) {
                 return [];
             }
 
             $rows = $this->db->table('contacts')
+                ->where('tenant_id', $tenantId)
+                ->where('owner_id', $tenantId)
                 ->orderByDesc('updated_at')
                 ->orderByDesc('created_at')
                 ->limit($limit)
@@ -35,8 +38,9 @@ class ContactsController extends Controller
                 'last_name' => $r->last_name,
                 'email' => $r->email,
                 'phone' => $r->phone,
-                'created_at' => optional($r->created_at)?->toIso8601String(),
-                'updated_at' => optional($r->updated_at)?->toIso8601String(),
+                // Ensure proper ISO strings; fallback to DB raw if Carbon casting not applied through query builder
+                'created_at' => $r->created_at ? (is_string($r->created_at) ? $r->created_at : $r->created_at->toIso8601String()) : null,
+                'updated_at' => $r->updated_at ? (is_string($r->updated_at) ? $r->updated_at : $r->updated_at->toIso8601String()) : null,
             ])->toArray();
         });
 

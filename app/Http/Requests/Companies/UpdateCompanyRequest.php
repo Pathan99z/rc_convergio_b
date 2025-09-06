@@ -30,7 +30,7 @@ class UpdateCompanyRequest extends FormRequest
                 'max:255',
                 Rule::unique('companies')
                     ->ignore($this->route('company'))
-                    ->where('tenant_id', $this->header('X-Tenant-ID'))
+                    ->where('tenant_id', optional($this->user())->tenant_id ?? $this->user()->id)
             ],
             'website' => 'nullable|url|max:255',
             'industry' => 'nullable|string|max:100',

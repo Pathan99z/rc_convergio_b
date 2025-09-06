@@ -20,7 +20,7 @@ class MetadataController extends Controller
      */
     public function industries(Request $request): JsonResponse
     {
-        $tenantId = $request->header('X-Tenant-ID') ?? $request->user()->id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $industries = $this->companyService->getIndustries($tenantId);
 
         return response()->json([
@@ -34,7 +34,7 @@ class MetadataController extends Controller
      */
     public function companyTypes(Request $request): JsonResponse
     {
-        $tenantId = $request->header('X-Tenant-ID') ?? $request->user()->id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $types = $this->companyService->getCompanyTypes($tenantId);
 
         return response()->json([
@@ -48,7 +48,7 @@ class MetadataController extends Controller
      */
     public function owners(Request $request): JsonResponse
     {
-        $tenantId = $request->header('X-Tenant-ID') ?? $request->user()->id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $owners = $this->companyService->getOwners($tenantId);
 
         return response()->json([

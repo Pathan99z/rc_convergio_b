@@ -5,13 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Traits\HasTenantScope;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Deal extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, HasTenantScope;
 
     protected $fillable = [
         'title',
@@ -38,6 +39,11 @@ class Deal extends Model
         'closed_date' => 'date',
         'tags' => 'array',
     ];
+
+    protected static function booted(): void
+    {
+        static::bootHasTenantScope();
+    }
 
     /**
      * Get the pipeline that owns the deal.

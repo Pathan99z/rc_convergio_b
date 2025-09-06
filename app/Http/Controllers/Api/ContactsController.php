@@ -24,10 +24,10 @@ class ContactsController extends Controller
     {
         $this->authorize('viewAny', Contact::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $userId = $request->user()->id;
 
-        $query = Contact::query()->where('tenant_id', $tenantId);
+        $query = Contact::query();
 
         // Filter by owner_id to ensure users only see their own contacts
         $query->where('owner_id', $userId);
@@ -53,6 +53,21 @@ class ContactsController extends Controller
         $column = ltrim($sort, '-');
         $query->orderBy($column, $direction);
 
+        // Show contacts if (a) they have no submission at all OR (b) they have at least one processed submission
+        $query->where(function ($q) {
+            $q->whereNotExists(function ($q1) {
+                $q1->select(DB::raw(1))
+                    ->from('form_submissions as fs_none')
+                    ->whereColumn('fs_none.contact_id', 'contacts.id');
+            })
+            ->orWhereExists(function ($q2) {
+                $q2->select(DB::raw(1))
+                    ->from('form_submissions as fs_ok')
+                    ->whereColumn('fs_ok.contact_id', 'contacts.id')
+                    ->where('fs_ok.status', 'processed');
+            });
+        });
+
         $perPage = min((int) $request->query('per_page', 15), 100);
         $contacts = $query->paginate($perPage);
 
@@ -73,7 +88,7 @@ class ContactsController extends Controller
     {
         $this->authorize('create', Contact::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         // Idempotency via table with 5-minute window
         $idempotencyKey = (string) $request->header('Idempotency-Key', '');
@@ -115,14 +130,8 @@ class ContactsController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        $userId = $request->user()->id;
-
-        $contact = Contact::whereNull('deleted_at')->find($id);
-
-        if (!$contact) {
-            return response()->json(['message' => 'Contact not found'], 404);
-        }
+        // Fetch by id only; tenant is enforced via global scope
+        $contact = Contact::with('company')->findOrFail($id);
 
         $this->authorize('view', $contact);
 
@@ -138,11 +147,8 @@ class ContactsController extends Controller
 
     public function update(UpdateContactRequest $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        $userId = $request->user()->id;
-        $contact = Contact::where('tenant_id', $tenantId)
-                         ->where('owner_id', $userId)
-                         ->findOrFail($id);
+        // Fetch by id only; tenant is enforced via global scope
+        $contact = Contact::findOrFail($id);
         $this->authorize('update', $contact);
 
         $contact->fill($request->validated());
@@ -156,11 +162,8 @@ class ContactsController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        $userId = $request->user()->id;
-        $contact = Contact::where('tenant_id', $tenantId)
-                         ->where('owner_id', $userId)
-                         ->findOrFail($id);
+        // Fetch by id only; tenant is enforced via global scope
+        $contact = Contact::findOrFail($id);
         $this->authorize('delete', $contact);
 
         $contact->delete();
@@ -174,7 +177,7 @@ class ContactsController extends Controller
     public function import(Request $request): JsonResponse
     {
         $this->authorize('create', Contact::class);
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = (int) (optional($request->user())->tenant_id ?? $request->user()->id);
 
         $request->validate([
             'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
@@ -333,11 +336,9 @@ class ContactsController extends Controller
 
     public function search(Request $request): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
         $q = (string) $request->query('q', '');
 
         $results = Contact::query()
-            ->where('tenant_id', $tenantId)
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($sub) use ($q) {
                     $sub->where('first_name', 'like', "%$q%")
@@ -361,13 +362,11 @@ class ContactsController extends Controller
      */
     public function getCompany(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        $userId = $request->user()->id;
-        
-        $contact = Contact::where('tenant_id', $tenantId)
-                         ->where('owner_id', $userId)
-                         ->findOrFail($id);
-        
+        // Align with show(): fetch by id and authorize; avoid false 404s due to filters
+        $contact = Contact::whereNull('deleted_at')->find($id);
+        if (!$contact) {
+            return response()->json(['message' => 'Contact not found'], 404);
+        }
         $this->authorize('view', $contact);
 
         $company = $contact->company;
@@ -383,17 +382,12 @@ class ContactsController extends Controller
      */
     public function getDeals(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        $userId = $request->user()->id;
-        
-        $contact = Contact::where('tenant_id', $tenantId)
-                         ->where('owner_id', $userId)
-                         ->findOrFail($id);
+        // Fetch by id only; tenant is enforced via global scope
+        $contact = Contact::findOrFail($id);
         
         $this->authorize('view', $contact);
 
         $query = \App\Models\Deal::query()
-            ->where('tenant_id', $tenantId)
             ->where('contact_id', $id)
             ->with(['pipeline', 'stage', 'owner', 'company']);
 
@@ -441,17 +435,12 @@ class ContactsController extends Controller
      */
     public function getActivities(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        $userId = $request->user()->id;
-        
-        $contact = Contact::where('tenant_id', $tenantId)
-                         ->where('owner_id', $userId)
-                         ->findOrFail($id);
+        // Fetch by id only; tenant is enforced via global scope
+        $contact = Contact::findOrFail($id);
         
         $this->authorize('view', $contact);
 
         $query = \App\Models\Activity::query()
-            ->where('tenant_id', $tenantId)
             ->where('related_type', 'App\\Models\\Contact')
             ->where('related_id', $id)
             ->with(['owner', 'related']);

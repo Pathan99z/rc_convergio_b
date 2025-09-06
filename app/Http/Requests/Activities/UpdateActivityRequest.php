@@ -14,7 +14,7 @@ class UpdateActivityRequest extends FormRequest
 
     public function rules(): array
     {
-        $tenantId = (int) $this->header('X-Tenant-ID');
+        $tenantId = (int) (optional($this->user())->tenant_id ?? $this->user()->id);
 
         return [
             'type' => ['sometimes', 'required', 'string', 'in:call,email,meeting,note,task'],

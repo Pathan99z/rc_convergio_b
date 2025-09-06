@@ -24,20 +24,35 @@ class FormSubmissionHandler
         ?string $ipAddress = null, 
         ?string $userAgent = null,
         array $utmData = [],
-        ?string $referrer = null
+        ?string $referrer = null,
+        ?FormSubmission $existingSubmission = null
     ): array {
-        return DB::transaction(function () use ($form, $payload, $ipAddress, $userAgent, $utmData, $referrer) {
-            // 1. Always store submission row for audit/logs
-            $submission = $this->createSubmission($form, $payload, $ipAddress, $userAgent);
+        return DB::transaction(function () use ($form, $payload, $ipAddress, $userAgent, $utmData, $referrer, $existingSubmission) {
+            // 1. Store submission row only if not provided (avoid duplicates)
+            $submission = $existingSubmission ?: $this->createSubmission($form, $payload, $ipAddress, $userAgent);
             
             // 2. Parse & validate payload using form field mapping
             $contactData = $this->extractContactData($form, $payload);
             
-            // 3. Company handling
-            $companyResult = $this->handleCompany($form, $payload);
+            // 3. Company handling (respect existing submission linkage)
+            if ($existingSubmission && $existingSubmission->company_id) {
+                $companyResult = ['company' => $existingSubmission->company, 'status' => 'linked'];
+            } else {
+                $companyResult = $this->handleCompany($form, $payload);
+            }
             
             // 4. Contact handling with deduplication
             $contactResult = $this->handleContact($form, $contactData, $companyResult);
+            // Touch updated_at to surface in recent lists immediately
+            $contactResult['contact']->touch();
+
+            // Ensure we link the existing submission (if passed) to company/contact
+            if ($submission && $companyResult['company'] && empty($submission->company_id)) {
+                $submission->update(['company_id' => $companyResult['company']->id]);
+            }
+            if ($submission && empty($submission->contact_id)) {
+                $submission->update(['contact_id' => $contactResult['contact']->id]);
+            }
             
             // 5. Track marketing source
             $this->trackMarketingSource($contactResult['contact'], $form, $utmData, $referrer);
@@ -64,7 +79,15 @@ class FormSubmissionHandler
                     'status' => $companyResult['status']
                 ],
                 'owner_id' => $ownerId,
-                'source' => 'Request Demo Form'
+                'source' => $form->name,
+                'messages' => [
+                    'contact' => $contactResult['status'] === 'created'
+                        ? 'Contact ' . ($contactResult['contact']->first_name . ' ' . $contactResult['contact']->last_name) . ' created successfully.'
+                        : 'Contact ' . ($contactResult['contact']->first_name . ' ' . $contactResult['contact']->last_name) . ' updated successfully.',
+                    'company' => $companyResult['company']
+                        ? 'Company ' . $companyResult['company']->name . ' ' . ($companyResult['status'] === 'created' ? 'created' : 'linked') . ' successfully.'
+                        : null,
+                ],
             ];
         });
     }
@@ -136,9 +159,17 @@ class FormSubmissionHandler
      */
     private function handleCompany(Form $form, array $payload): array
     {
-        $email = $payload['email'] ?? null;
-        $companyName = $payload['company'] ?? null;
+        $email = $payload['email'] ?? $payload['email_address'] ?? null;
+        $companyName = $payload['company'] ?? $payload['company_name'] ?? null;
         
+        Log::info('Form submission debug: handleCompany start', [
+            'form_id' => $form->id,
+            'tenant_id' => $form->tenant_id,
+            'created_by' => $form->created_by,
+            'email' => $email,
+            'company_name' => $companyName,
+        ]);
+
         if (!$email && !$companyName) {
             return ['company' => null, 'status' => 'skipped'];
         }
@@ -167,16 +198,48 @@ class FormSubmissionHandler
         
         // Create new company if auto-creation is enabled or company name is provided
         if ($companyName || ($email && $this->shouldCreateCompanyFromDomain($form))) {
-            $company = Company::create([
-                'tenant_id' => $form->tenant_id,
-                'name' => $companyName ?: ucfirst($this->extractDomain($email)),
-                'domain' => $email ? $this->extractDomain($email) : null,
-                'owner_id' => $this->assignSalesRep($form->tenant_id),
-                'status' => 'active',
-                'source' => 'Request Demo Form'
-            ]);
-            
-            return ['company' => $company, 'status' => 'created'];
+            try {
+                $deriver = app(\App\Services\CompanyDeriver::class);
+                $derived = $deriver->derive([
+                    'email' => $email,
+                    'company' => $companyName,
+                ]);
+
+                $ownerToUse = $form->created_by ?: $this->assignSalesRep($form->tenant_id);
+                $company = DB::transaction(function () use ($form, $ownerToUse, $derived) {
+                    $tenantId = $form->tenant_id;
+                    $domain = $derived['normalized_domain'];
+                    $name = $derived['normalized_name'];
+                    $query = Company::query()->where('tenant_id', $tenantId);
+                    if ($domain) {
+                        $existing = (clone $query)->whereRaw('LOWER(domain) = ?', [strtolower($domain)])->first();
+                        if ($existing) return $existing;
+                    }
+                    $existingByName = (clone $query)->whereRaw('LOWER(name) = ?', [strtolower($name)])->first();
+                    if ($existingByName) return $existingByName;
+                    return Company::create([
+                        'tenant_id' => $tenantId,
+                        'name' => $name,
+                        'domain' => $domain,
+                        'owner_id' => $ownerToUse,
+                        'status' => 'active',
+                    ]);
+                });
+                
+                Log::info('Form submission debug: company created in handler', [ 'company_id' => $company->id ]);
+                return ['company' => $company, 'status' => 'created'];
+            } catch (\Throwable $e) {
+                Log::error('Form submission error: handleCompany failed', [
+                    'form_id' => $form->id,
+                    'tenant_id' => $form->tenant_id,
+                    'company_name' => $companyName,
+                    'email' => $email,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+                // Graceful fallback: skip company creation, proceed with contact only
+                return ['company' => null, 'status' => 'skipped'];
+            }
         }
         
         return ['company' => null, 'status' => 'skipped'];
@@ -188,6 +251,8 @@ class FormSubmissionHandler
     private function handleContact(Form $form, array $contactData, array $companyResult): array
     {
         $email = $contactData['email'] ?? null;
+        // Ensure tenant_id is always set for contacts created via form submissions
+        $contactData['tenant_id'] = $form->tenant_id;
         
         if ($email) {
             // Try to find existing contact by email
@@ -199,7 +264,6 @@ class FormSubmissionHandler
                 // Update existing contact
                 $updateData = array_merge($contactData, [
                     'company_id' => $companyResult['company']?->id ?? $contact->company_id,
-                    'source' => 'Request Demo Form',
                     'lifecycle_stage' => $this->getFormLifecycleStage($form)
                 ]);
                 
@@ -210,10 +274,10 @@ class FormSubmissionHandler
         }
 
         // Create new contact
-        $contactData['tenant_id'] = $form->tenant_id;
-        $contactData['owner_id'] = $this->assignSalesRep($form->tenant_id);
+        // Ensure owner is the form creator when available
+        $contactData['owner_id'] = $form->created_by ?: $this->assignSalesRep($form->tenant_id);
         $contactData['company_id'] = $companyResult['company']?->id;
-        $contactData['source'] = 'Request Demo Form';
+        $contactData['source'] = $form->name;
         $contactData['lifecycle_stage'] = $this->getFormLifecycleStage($form);
         $contactData['tags'] = $this->getFormTags($form);
         
@@ -228,7 +292,7 @@ class FormSubmissionHandler
     private function trackMarketingSource(Contact $contact, Form $form, array $utmData, ?string $referrer): void
     {
         $marketingData = array_merge($utmData, [
-            'source' => 'Request Demo Form',
+            'source' => $form->name,
             'form_id' => $form->id,
             'form_name' => $form->name,
             'referrer' => $referrer,
@@ -257,8 +321,8 @@ class FormSubmissionHandler
     {
         Activity::create([
             'type' => 'form_submission',
-            'subject' => 'Submitted ' . $form->name,
-            'description' => 'Contact submitted the ' . $form->name . ' form',
+            'subject' => 'Form submitted: ' . $form->name,
+            'description' => 'A contact submitted the ' . $form->name . ' form',
             'status' => 'completed',
             'completed_at' => now(),
             'owner_id' => $contact->owner_id,

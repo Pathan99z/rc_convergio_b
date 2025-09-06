@@ -14,7 +14,7 @@ class UpdateTaskRequest extends FormRequest
 
     public function rules(): array
     {
-        $tenantId = (int) $this->header('X-Tenant-ID');
+        $tenantId = (int) (optional($this->user())->tenant_id ?? $this->user()->id);
 
         return [
             'title' => ['sometimes', 'required', 'string', 'max:255'],

@@ -104,156 +104,70 @@ class FormsController extends Controller
         return FormSubmissionResource::collection($submissions);
     }
 
-    /**
-     * Check if a form name already exists.
-     */
-    public function checkDuplicate(Request $request): JsonResponse
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'exclude_id' => 'nullable|integer|exists:forms,id'
-        ]);
-
-        $name = $request->get('name');
-        $excludeId = $request->get('exclude_id');
-        $tenantId = $request->user()->id;
-
-        $query = Form::where('tenant_id', $tenantId)
-                    ->whereRaw('LOWER(name) = ?', [strtolower($name)]);
-
-        if ($excludeId) {
-            $query->where('id', '!=', $excludeId);
-        }
-
-        $exists = $query->exists();
-
-        return response()->json(['exists' => $exists]);
-    }
-
-    /**
-     * Get a specific form submission.
-     */
-
-    /**
-     * Get form settings.
-     */
-    public function getSettings($id): JsonResponse
+    public function getSettings(Request $request, $id): JsonResponse
     {
         $form = Form::findOrFail($id);
         $this->authorize('view', $form);
 
         return response()->json([
-            'data' => [
-                'id' => $form->id,
-                'settings' => $form->settings ?? [],
-                'consent_required' => $form->consent_required,
-                'created_at' => $form->created_at,
-                'updated_at' => $form->updated_at
-            ]
+            'id' => $form->id,
+            'settings' => $form->settings ?? [],
         ]);
     }
 
-    /**
-     * Update form settings.
-     */
     public function updateSettings(Request $request, $id): JsonResponse
     {
         $form = Form::findOrFail($id);
         $this->authorize('update', $form);
 
-        $request->validate([
-            'settings' => 'nullable|array',
-            'consent_required' => 'nullable|boolean'
-        ]);
+        $settings = $request->input('settings', []);
 
-        $data = $request->only(['settings', 'consent_required']);
-        
-        // Debug: Log what we're receiving and updating
-        Log::info('Form settings update request', [
-            'form_id' => $id,
-            'request_data' => $request->all(),
-            'filtered_data' => $data,
-            'current_form_settings' => $form->settings
-        ]);
-        
-        $form->update($data);
-        $form->refresh(); // Ensure updated data is loaded
-        
-        // Debug: Log what was actually saved
-        Log::info('Form settings after update', [
-            'form_id' => $id,
-            'saved_settings' => $form->settings,
-            'form_attributes' => $form->getAttributes()
-        ]);
+        $form->settings = $settings;
+        $form->save();
 
         return response()->json([
             'message' => 'Form settings updated successfully',
             'data' => [
                 'id' => $form->id,
                 'settings' => $form->settings ?? [],
-                'consent_required' => $form->consent_required,
-                'updated_at' => $form->updated_at
             ]
         ]);
     }
 
-    /**
-     * Get form field mapping.
-     */
-    public function getFieldMapping($id): JsonResponse
+    public function getFieldMapping(Request $request, $id): JsonResponse
     {
         $form = Form::findOrFail($id);
         $this->authorize('view', $form);
 
         return response()->json([
-            'data' => [
-                'id' => $form->id,
-                'fields' => $form->fields ?? [],
-                'field_mapping' => $form->field_mapping ?? [],
-                'created_at' => $form->created_at,
-                'updated_at' => $form->updated_at
-            ]
+            'id' => $form->id,
+            'fields' => $form->fields ?? [],
+            'field_mapping' => $form->field_mapping ?? [],
         ]);
     }
 
-    /**
-     * Update form field mapping.
-     */
     public function updateFieldMapping(Request $request, $id): JsonResponse
     {
         $form = Form::findOrFail($id);
         $this->authorize('update', $form);
 
-        $request->validate([
-            'fields' => 'nullable|array',
-            'mappings' => 'nullable|array' // Changed from 'field_mapping' to 'mappings'
-        ]);
+        $fields = $request->input('fields');
+        $fieldMapping = $request->input('field_mapping');
+        if ($fieldMapping === null) {
+            $fieldMapping = $request->input('mapping');
+        }
+        if ($fieldMapping === null) {
+            $fieldMapping = $request->input('mappings');
+        }
 
-        // Extract the mappings data from the request
-        $mappings = $request->input('mappings', []);
-        $fields = $request->input('fields', null); // Changed to null to check if fields were sent
-        
-        // Debug: Log what we're receiving and updating
-        Log::info('Form field mapping update request', [
-            'form_id' => $id,
-            'request_data' => $request->all(),
-            'mappings' => $mappings,
-            'fields' => $fields,
-            'current_field_mapping' => $form->field_mapping,
-            'current_fields' => $form->fields
-        ]);
-        
-        // CRITICAL FIX: Only update field_mapping, preserve existing fields unless explicitly sent
-        $form->field_mapping = $mappings;
-        
-        // Only update fields if they were explicitly sent in the request
         if ($fields !== null) {
             $form->fields = $fields;
         }
-        // If fields is null, keep existing fields unchanged
-        
+        if ($fieldMapping !== null) {
+            $form->field_mapping = $fieldMapping;
+        }
         $form->save();
-        
+
         $form->refresh(); // Ensure updated data is loaded
         
         // Debug: Log what was actually saved
@@ -262,6 +176,11 @@ class FormsController extends Controller
             'saved_field_mapping' => $form->field_mapping,
             'saved_fields' => $form->fields,
             'fields_updated' => $fields !== null,
+            'mapping_keys_present' => [
+                'field_mapping' => $request->has('field_mapping'),
+                'mapping' => $request->has('mapping'),
+                'mappings' => $request->has('mappings'),
+            ],
             'form_attributes' => $form->getAttributes()
         ]);
 
@@ -280,7 +199,7 @@ class FormsController extends Controller
     {
         $this->authorize('view', $form);
 
-        $submission = $form->submissions()->find($submissionId);
+        $submission = $form->submissions()->with(['contact:id,first_name,last_name,email','company:id,name,domain'])->find($submissionId);
 
         if (!$submission) {
             return response()->json(['message' => 'Submission not found'], 404);
@@ -290,10 +209,24 @@ class FormsController extends Controller
             'id' => $submission->id,
             'form_id' => $submission->form_id,
             'contact_id' => $submission->contact_id,
+            'company_id' => $submission->company_id,
+            'status' => $submission->status,
             'payload' => $submission->payload,
             'ip_address' => $submission->ip_address,
             'user_agent' => $submission->user_agent,
-            'created_at' => $submission->created_at
+            'contact' => $submission->contact ? [
+                'id' => $submission->contact->id,
+                'first_name' => $submission->contact->first_name,
+                'last_name' => $submission->contact->last_name,
+                'email' => $submission->contact->email,
+            ] : null,
+            'company' => $submission->company ? [
+                'id' => $submission->company->id,
+                'name' => $submission->company->name,
+                'domain' => $submission->company->domain,
+            ] : null,
+            'created_at' => $submission->created_at,
+            'updated_at' => $submission->updated_at
         ]);
     }
 
@@ -324,15 +257,22 @@ class FormsController extends Controller
                 $submission->ip_address,
                 $submission->user_agent,
                 [], // No UTM data for reprocessing
-                null // No referrer for reprocessing
+                null, // No referrer for reprocessing
+                $submission // IMPORTANT: operate on the same submission, do not create a new one
             );
 
-            // Update the submission record with the processed contact and company IDs
-            $submission->update([
-                'contact_id' => $result['contact']['id'],
-                'company_id' => $result['company']['id'] ?? null,
-                'status' => 'processed'
-            ]);
+            // Only set IDs if they are not already set to avoid duplicates
+            $updates = [];
+            if (empty($submission->contact_id)) {
+                $updates['contact_id'] = $result['contact']['id'];
+            }
+            if (empty($submission->company_id) && isset($result['company']['id'])) {
+                $updates['company_id'] = $result['company']['id'];
+            }
+            $updates['status'] = 'processed';
+            if (!empty($updates)) {
+                $submission->update($updates);
+            }
 
             return response()->json([
                 'message' => 'Submission reprocessed successfully',

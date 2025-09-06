@@ -204,8 +204,38 @@ class PublicFormController extends Controller
                 'payload_object' => $request->input('payload'),
                 'extraction_method' => 'direct_from_payload'
             ]);
+
+            // Normalize keys to ensure downstream services always have email/company
+            if (isset($payload['email_address']) && !isset($payload['email'])) {
+                $payload['email'] = $payload['email_address'];
+            }
+            if (isset($payload['company_name']) && !isset($payload['company'])) {
+                $payload['company'] = $payload['company_name'];
+            }
+
+            Log::info('Payload normalization', [
+                'form_id' => $form->id,
+                'original' => $request->all(),
+                'normalized' => $payload
+            ]);
             
-            // Create submission using FormService
+            // TEMP DEBUG: Log key submission details before saving
+            Log::info('Form submission debug: before submit', [
+                'form_id' => $form->id,
+                'tenant_id' => $form->tenant_id,
+                'created_by' => $form->created_by,
+                'payload_contact' => [
+                    'first_name' => $payload['first_name'] ?? null,
+                    'last_name' => $payload['last_name'] ?? null,
+                    'email' => $payload['email'] ?? null,
+                    'phone' => $payload['phone'] ?? null,
+                    'company' => $payload['company'] ?? null,
+                ],
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+            
+            // Create submission using FormService (synchronous company upsert + linking inside)
             $submission = $this->formService->submitForm(
                 $form,
                 $payload,
@@ -213,15 +243,66 @@ class PublicFormController extends Controller
                 $request->userAgent()
             );
             
-            // Update submission with consent information and set initial status
+            // Mark initial submission pending; background job will set to processed
             $submission->update([
                 'consent_given' => $consentGiven,
-                'status' => 'pending' // Set initial status for automated processing
+                'status' => 'pending'
             ]);
             
-            // AUTOMATED PROCESSING: Dispatch background job to process submission
-            ProcessFormSubmissionJob::dispatch($submission->id);
+            // TEMP DEBUG: Log after submission created
+            Log::info('Form submission debug: after submit', [
+                'form_id' => $form->id,
+                'submission_id' => $submission->id,
+                'contact_id' => $submission->contact_id,
+                'company_id' => $submission->company_id,
+                'status' => $submission->status,
+                'consent_given' => $consentGiven,
+            ]);
             
+            // AUTOMATED PROCESSING: Dispatch background job; if it does not run immediately, fall back to inline processing
+            try {
+                ProcessFormSubmissionJob::dispatch($submission->id);
+            } catch (\Throwable $e) {
+                // Ignore and try sync below
+            }
+
+            // Fallback: if still pending after dispatch, process inline to ensure immediate UX
+            try {
+                $submission->refresh();
+                if ($submission->status !== 'processed') {
+                    $handler = app(\App\Services\FormSubmissionHandler::class);
+                    $result = $handler->processSubmission(
+                        $form,
+                        $payload,
+                        $request->ip(),
+                        $request->userAgent(),
+                        [],
+                        null,
+                        $submission
+                    );
+
+                    $updates = [];
+                    if (empty($submission->contact_id)) {
+                        $updates['contact_id'] = $result['contact']['id'];
+                    }
+                    if (empty($submission->company_id) && isset($result['company']['id'])) {
+                        $updates['company_id'] = $result['company']['id'];
+                    }
+                    $updates['status'] = 'processed';
+                    if (!empty($updates)) {
+                        $submission->update($updates);
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Leave as pending; reprocess remains available
+            }
+            
+            // Eager load relations so UI can immediately render created contact/company
+            $submission->load([
+                'contact:id,first_name,last_name,email,company_id',
+                'company:id,name,domain'
+            ]);
+
             Log::info('Form submission successful and processing job dispatched', [
                 'form_id' => $form->id,
                 'submission_id' => $submission->id,

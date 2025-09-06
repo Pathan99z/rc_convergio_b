@@ -18,7 +18,7 @@ class PipelinesController extends Controller
     {
         $this->authorize('viewAny', Pipeline::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $query = Pipeline::query()->where('tenant_id', $tenantId);
 
@@ -52,7 +52,7 @@ class PipelinesController extends Controller
         $this->authorize('create', Pipeline::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -66,6 +66,7 @@ class PipelinesController extends Controller
         $data = $request->validated();
         $data['tenant_id'] = $tenantId;
         $data['created_by'] = $request->user()->id;
+        // Do not set owner_id; pipelines table may not have this column
 
         $pipeline = Pipeline::create($data);
 
@@ -76,7 +77,7 @@ class PipelinesController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $pipeline = Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('view', $pipeline);
@@ -88,7 +89,7 @@ class PipelinesController extends Controller
 
     public function update(UpdatePipelineRequest $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $pipeline = Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('update', $pipeline);
@@ -102,7 +103,7 @@ class PipelinesController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $pipeline = Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('delete', $pipeline);
@@ -114,7 +115,7 @@ class PipelinesController extends Controller
 
     public function stages(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $pipeline = Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('view', $pipeline);

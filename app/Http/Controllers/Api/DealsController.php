@@ -22,7 +22,7 @@ class DealsController extends Controller
         $this->authorize('viewAny', Deal::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -111,7 +111,7 @@ class DealsController extends Controller
         $this->authorize('create', Deal::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -165,7 +165,7 @@ class DealsController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -188,7 +188,7 @@ class DealsController extends Controller
     public function update(UpdateDealRequest $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -218,7 +218,7 @@ class DealsController extends Controller
     public function destroy(Request $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -241,7 +241,7 @@ class DealsController extends Controller
     public function move(MoveDealRequest $request, int $id): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -269,7 +269,7 @@ class DealsController extends Controller
         $this->authorize('viewAny', Deal::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -329,7 +329,7 @@ class DealsController extends Controller
         $this->authorize('viewAny', Deal::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();

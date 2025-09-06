@@ -14,7 +14,7 @@ class UpdateDealRequest extends FormRequest
 
     public function rules(): array
     {
-        $tenantId = (int) $this->header('X-Tenant-ID');
+        $tenantId = (int) (optional($this->user())->tenant_id ?? $this->user()->id);
 
         return [
             'title' => ['sometimes', 'required', 'string', 'max:255'],
@@ -25,6 +25,7 @@ class UpdateDealRequest extends FormRequest
             'expected_close_date' => ['nullable', 'date'],
             'closed_date' => ['nullable', 'date'],
             'close_reason' => ['nullable', 'string'],
+            'probability' => ['nullable', 'integer', 'min:0', 'max:100'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:30'],
             'pipeline_id' => [
@@ -41,7 +42,7 @@ class UpdateDealRequest extends FormRequest
                     $query->where('tenant_id', $tenantId);
                 })
             ],
-            'owner_id' => ['prohibited'], // Prevent owner_id from being changed
+            'owner_id' => ['nullable', 'exists:users,id'],
             'contact_id' => [
                 'nullable',
                 Rule::exists('contacts', 'id')->where(function ($query) use ($tenantId) {

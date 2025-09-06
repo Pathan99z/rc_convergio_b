@@ -12,6 +12,8 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class FormService
 {
@@ -82,7 +84,10 @@ class FormService
         return $form->load([
             'creator:id,name,email',
             'submissions' => function ($query) {
-                $query->with(['contact:id,first_name,last_name,email'])
+                $query->with([
+                        'contact:id,first_name,last_name,email',
+                        'company:id,name,domain'
+                    ])
                       ->orderBy('created_at', 'desc')
                       ->limit(10);
             }
@@ -95,7 +100,10 @@ class FormService
     public function getFormSubmissions(Form $form, int $perPage = 15): LengthAwarePaginator
     {
         return $form->submissions()
-            ->with(['contact:id,first_name,last_name,email'])
+            ->with([
+                'contact:id,first_name,last_name,email',
+                'company:id,name,domain'
+            ])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
     }
@@ -109,17 +117,113 @@ class FormService
             // Extract contact information from form data
             $contactData = $this->extractContactData($form, $data);
             
+            // Idempotency: prevent duplicate submissions within 60s for same form+email+payload
+            $submissionHash = $this->computeSubmissionHash($form->id, $data);
+            // In-flight lock to avoid race-condition duplicates
+            $lockKey = 'form_submit:' . $form->id . ':' . $submissionHash;
+            if (!Cache::add($lockKey, 1, 60)) {
+                $existing = FormSubmission::where('form_id', $form->id)
+                    ->where('created_at', '>=', now()->subSeconds(60))
+                    ->where(function($q) use ($submissionHash) {
+                        $q->whereRaw('JSON_UNQUOTE(JSON_EXTRACT(payload, "$.__hash")) = ?', [$submissionHash])
+                          ->orWhere('payload', 'like', '%"__hash":"' . $submissionHash . '"%');
+                    })
+                    ->orderByDesc('id')
+                    ->first();
+                if ($existing) {
+                    Log::info('Duplicate submission detected by lock, returning existing', [
+                        'form_id' => $form->id,
+                        'submission_id' => $existing->id,
+                    ]);
+                    return $existing->load(['contact:id,first_name,last_name,email,company_id','company:id,name,domain']);
+                }
+            }
+
+            $existingRecent = FormSubmission::where('form_id', $form->id)
+                ->where('created_at', '>=', now()->subSeconds(60))
+                ->where(function($q) use ($submissionHash) {
+                    $q->whereRaw('JSON_UNQUOTE(JSON_EXTRACT(payload, "$.__hash")) = ?', [$submissionHash])
+                      ->orWhere('payload', 'like', '%"__hash":"' . $submissionHash . '"%');
+                })
+                ->first();
+            if ($existingRecent) {
+                Log::info('Duplicate submission detected: returning existing submission', [
+                    'form_id' => $form->id,
+                    'submission_id' => $existingRecent->id,
+                ]);
+                return $existingRecent;
+            }
+
+            // Ensure owner is the form creator for new records
+            $preferredOwnerId = $form->created_by ?? $form->tenant_id;
+
+            // Derive and upsert company first (graceful on errors)
+            $company = null;
+            try {
+                $deriver = app(CompanyDeriver::class);
+                $derived = $deriver->derive($data);
+                $company = $this->upsertCompanyForTenant(
+                    $form->tenant_id,
+                    $preferredOwnerId,
+                    $derived['normalized_domain'],
+                    $derived['normalized_name']
+                );
+                if (!empty($derived['normalized_domain'])) {
+                    Log::info('Company derived from email domain', [
+                        'domain' => $derived['normalized_domain'],
+                        'form_id' => $form->id,
+                    ]);
+                }
+                if ($company) {
+                    Log::info('Company upserted', [
+                        'form_id' => $form->id,
+                        'company_id' => $company->id,
+                        'name' => $company->name,
+                        'domain' => $company->domain,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                Log::error('Company upsert failed during submit (continuing)', [
+                    'form_id' => $form->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
             // Find or create contact
-            $contact = $this->findOrCreateContact($form->tenant_id, $contactData);
+            $contact = $this->findOrCreateContactWithOwner($form->tenant_id, $preferredOwnerId, $contactData, $form->name);
+
+            // Link company to contact if needed
+            if ($company && (empty($contact->company_id) || $contact->company_id !== $company->id)) {
+                $contact->update(['company_id' => $company->id]);
+                Log::info('Company linked to contact', [
+                    'contact_id' => $contact->id,
+                    'company_id' => $company->id,
+                ]);
+            }
             
-            // Create form submission
+            // Create form submission (store hash inside payload for soft idempotency tracking)
+            $dataWithHash = array_merge($data, ['__hash' => $submissionHash]);
             $submission = FormSubmission::create([
                 'form_id' => $form->id,
                 'contact_id' => $contact->id,
-                'payload' => $data,
+                'payload' => $dataWithHash,
                 'ip_address' => $ipAddress,
                 'user_agent' => $userAgent,
+                'company_id' => $company?->id ?? $contact->company_id ?? null,
+                'status' => 'pending',
             ]);
+
+            // Ensure company_id is set synchronously (even if contact was just linked)
+            if ($company && $submission->company_id !== $company->id) {
+                $submission->update(['company_id' => $company->id]);
+            }
+
+            if ($submission->company_id) {
+                Log::info('Company linked to submission', [
+                    'submission_id' => $submission->id,
+                    'company_id' => $submission->company_id,
+                ]);
+            }
 
             Log::info('Form submitted', [
                 'form_id' => $form->id,
@@ -127,7 +231,11 @@ class FormService
                 'submission_id' => $submission->id,
             ]);
 
-            return $submission;
+            // Eager-load for immediate response
+            return $submission->load([
+                'contact:id,first_name,last_name,email,company_id',
+                'company:id,name,domain'
+            ]);
         });
     }
 
@@ -186,7 +294,7 @@ class FormService
     /**
      * Find or create contact based on email
      */
-    private function findOrCreateContact(int $tenantId, array $contactData): Contact
+    private function findOrCreateContactWithOwner(int $tenantId, int $preferredOwnerId, array $contactData, string $sourceName): Contact
     {
         $email = $contactData['email'] ?? null;
         
@@ -198,9 +306,7 @@ class FormService
                 
             if ($contact) {
                 // Update existing contact
-                $updateData = array_merge($contactData, [
-                    'source' => 'Request Demo Form',
-                ]);
+                $updateData = array_merge($contactData, []);
                 $contact->update($updateData);
                 return $contact;
             }
@@ -208,18 +314,9 @@ class FormService
 
         // Create new contact
         $contactData['tenant_id'] = $tenantId;
-        $contactData['owner_id'] = $this->assignSalesRep($tenantId);
-        $contactData['source'] = 'Request Demo Form';
+        $contactData['owner_id'] = $preferredOwnerId ?: $this->assignSalesRep($tenantId);
+        $contactData['source'] = $sourceName;
         $contactData['lifecycle_stage'] = $contactData['lifecycle_stage'] ?? 'lead';
-        
-        // Create company if email domain is new
-        if ($email) {
-            $domain = $this->extractDomain($email);
-            if ($domain) {
-                $company = $this->findOrCreateCompany($tenantId, $domain);
-                $contactData['company_id'] = $company->id;
-            }
-        }
 
         return Contact::create($contactData);
     }
@@ -227,23 +324,130 @@ class FormService
     /**
      * Find or create company based on email domain
      */
-    private function findOrCreateCompany(int $tenantId, string $domain): Company
+    private function findOrCreateCompanyWithOwner(int $tenantId, int $preferredOwnerId, string $domain): Company
     {
+        Log::info('Form submission debug: findOrCreateCompanyWithOwner called', [
+            'tenant_id' => $tenantId,
+            'preferred_owner_id' => $preferredOwnerId,
+            'domain' => $domain,
+        ]);
+
         $company = Company::where('domain', $domain)
             ->where('tenant_id', $tenantId)
             ->first();
             
         if ($company) {
+            Log::info('Form submission debug: existing company found', [
+                'company_id' => $company->id,
+                'tenant_id' => $tenantId,
+                'domain' => $domain,
+            ]);
             return $company;
         }
 
-        // Create new company
-        return Company::create([
-            'tenant_id' => $tenantId,
-            'name' => ucfirst($domain),
-            'domain' => $domain,
-            'owner_id' => $this->assignSalesRep($tenantId),
-        ]);
+        // Create new company with safe defaults
+        try {
+            $safeName = trim(ucfirst($domain)) ?: 'Unknown Company';
+            $ownerId = $preferredOwnerId ?: $this->assignSalesRep($tenantId);
+            $data = [
+                'tenant_id' => $tenantId,
+                'name' => $safeName,
+                'domain' => $domain ?: null,
+                'owner_id' => $ownerId,
+                'status' => 'active',
+                'source' => 'Request Demo Form',
+            ];
+            Log::info('Form submission debug: creating company', $data);
+            $company = Company::create($data);
+            Log::info('Form submission debug: company created', [ 'company_id' => $company->id ]);
+            return $company;
+        } catch (\Throwable $e) {
+            Log::error('Form submission error: company creation failed', [
+                'tenant_id' => $tenantId,
+                'domain' => $domain,
+                'preferred_owner_id' => $preferredOwnerId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Upsert company for tenant using domain or name, dedup-first. Returns Company|null.
+     */
+    private function upsertCompanyForTenant(int $tenantId, int $ownerId, ?string $domain, string $name): ?Company
+    {
+        return DB::transaction(function () use ($tenantId, $ownerId, $domain, $name) {
+            $query = Company::query()->where('tenant_id', $tenantId);
+            if ($domain) {
+                $existing = (clone $query)->whereRaw('LOWER(domain) = ?', [strtolower($domain)])->first();
+                if ($existing) {
+                    return $existing;
+                }
+            }
+            $existingByName = (clone $query)->whereRaw('LOWER(name) = ?', [strtolower($name)])->first();
+            if ($existingByName) {
+                return $existingByName;
+            }
+            // Create new
+            $data = [
+                'tenant_id' => $tenantId,
+                'name' => $name ?: 'Unknown Company',
+                'domain' => $domain ? strtolower($domain) : null,
+                'owner_id' => $ownerId ?: $this->assignSalesRep($tenantId),
+                'status' => 'active',
+            ];
+            Log::info('Company upsert creating new company', $data);
+            return Company::create($data);
+        });
+    }
+
+    /**
+     * Public helper to derive and upsert company from a submission payload.
+     */
+    public function deriveAndUpsertCompanyForPayload(Form $form, array $payload): ?Company
+    {
+        try {
+            $deriver = app(CompanyDeriver::class);
+            $derived = $deriver->derive($payload);
+            $company = $this->upsertCompanyForTenant(
+                $form->tenant_id,
+                $form->created_by ?? $form->tenant_id,
+                $derived['normalized_domain'],
+                $derived['normalized_name']
+            );
+            if ($company) {
+                Log::info('Company upserted (public helper)', [
+                    'form_id' => $form->id,
+                    'company_id' => $company->id,
+                    'name' => $company->name,
+                    'domain' => $company->domain,
+                ]);
+            }
+            return $company;
+        } catch (\Throwable $e) {
+            Log::error('Company upsert failed (public helper)', [
+                'form_id' => $form->id,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+    /**
+     * Compute a short idempotency hash for submission.
+     */
+    private function computeSubmissionHash(int $formId, array $payload): string
+    {
+        $email = $payload['email'] ?? $payload['email_address'] ?? '';
+        $normalized = $this->normalizePayloadForHash($payload);
+        return substr(hash('sha256', $formId . '|' . strtolower($email) . '|' . json_encode($normalized)), 0, 16);
+    }
+
+    private function normalizePayloadForHash(array $payload): array
+    {
+        ksort($payload);
+        return $payload;
     }
 
     /**

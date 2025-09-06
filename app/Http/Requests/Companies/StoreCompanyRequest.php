@@ -28,7 +28,7 @@ class StoreCompanyRequest extends FormRequest
                 'nullable',
                 'string',
                 'max:255',
-                Rule::unique('companies')->where('tenant_id', $this->header('X-Tenant-ID'))
+                Rule::unique('companies')->where('tenant_id', optional($this->user())->tenant_id ?? $this->user()->id)
             ],
             'website' => 'nullable|url|max:255',
             'industry' => 'nullable|string|max:100',

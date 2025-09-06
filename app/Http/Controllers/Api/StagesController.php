@@ -16,7 +16,7 @@ class StagesController extends Controller
     {
         $this->authorize('viewAny', Stage::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $query = Stage::query()->where('tenant_id', $tenantId);
 
@@ -53,7 +53,7 @@ class StagesController extends Controller
         $this->authorize('create', Stage::class);
 
         // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         if ($tenantId === 0) {
             // Use organization_name to determine tenant_id
             $user = $request->user();
@@ -77,7 +77,7 @@ class StagesController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $stage = Stage::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('view', $stage);
@@ -89,7 +89,7 @@ class StagesController extends Controller
 
     public function update(UpdateStageRequest $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $stage = Stage::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('update', $stage);

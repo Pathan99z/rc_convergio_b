@@ -14,17 +14,7 @@ class StoreDealRequest extends FormRequest
 
     public function rules(): array
     {
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $this->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $this->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
-        }
+        $tenantId = (int) (optional($this->user())->tenant_id ?? $this->user()->id);
 
         return [
             'title' => ['required', 'string', 'max:255'],
@@ -48,7 +38,7 @@ class StoreDealRequest extends FormRequest
                     $query->where('tenant_id', $tenantId);
                 })
             ],
-            'owner_id' => ['required', 'exists:users,id'],
+            'owner_id' => ['nullable', 'exists:users,id'],
             'contact_id' => [
                 'nullable',
                 Rule::exists('contacts', 'id')->where(function ($query) use ($tenantId) {

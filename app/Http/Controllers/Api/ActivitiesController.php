@@ -20,17 +20,8 @@ class ActivitiesController extends Controller
     {
         $this->authorize('viewAny', Activity::class);
 
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
-        }
+        // Resolve tenant from authenticated user
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $userId = $request->user()->id;
 
         // Log tenant and user info for debugging
@@ -114,17 +105,8 @@ class ActivitiesController extends Controller
     {
         $this->authorize('create', Activity::class);
 
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
-        }
+        // Resolve tenant from authenticated user
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $data = $request->validated();
         
@@ -161,17 +143,8 @@ class ActivitiesController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
-        }
+        // Resolve tenant from authenticated user
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $activity = Activity::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('view', $activity);
@@ -183,17 +156,8 @@ class ActivitiesController extends Controller
 
     public function update(UpdateActivityRequest $request, int $id): JsonResponse
     {
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
-        }
+        // Resolve tenant from authenticated user
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $activity = Activity::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('update', $activity);
@@ -256,15 +220,7 @@ class ActivitiesController extends Controller
 
     public function complete(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
-        }
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         
         $activity = Activity::where('tenant_id', $tenantId)->findOrFail($id);
         $this->authorize('update', $activity);
@@ -284,15 +240,7 @@ class ActivitiesController extends Controller
     {
         $this->authorize('viewAny', Activity::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
-        }
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $userId = $request->user()->id;
 
         $query = Activity::query()->where('tenant_id', $tenantId);
@@ -333,15 +281,7 @@ class ActivitiesController extends Controller
     {
         $this->authorize('viewAny', Activity::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
-        }
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $userId = $request->user()->id;
         $days = (int) $request->query('days', 7);
 
@@ -373,15 +313,7 @@ class ActivitiesController extends Controller
     {
         $this->authorize('viewAny', Activity::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
-        }
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $query = Activity::query()
             ->where('tenant_id', $tenantId)
@@ -409,15 +341,7 @@ class ActivitiesController extends Controller
     {
         $this->authorize('viewAny', Activity::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
-        }
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $userId = $request->user()->id;
         $searchTerm = $request->query('q');
 
@@ -470,15 +394,7 @@ class ActivitiesController extends Controller
             'owner_id' => 'sometimes|integer|exists:users,id',
         ]);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
-        }
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $updateData = $request->only(['status', 'due_date', 'owner_id']);
         if (isset($updateData['due_date'])) {
@@ -505,15 +421,7 @@ class ActivitiesController extends Controller
             'ids.*' => 'integer|exists:activities,id',
         ]);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
-        }
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $updated = Activity::where('tenant_id', $tenantId)
             ->whereIn('id', $request->ids)

@@ -22,6 +22,14 @@ class ContactResource extends JsonResource
             'phone' => $this->phone,
             'owner_id' => $this->owner_id,
             'company_id' => $this->company_id,
+            'company' => $this->whenLoaded('company', function () {
+                return $this->company ? [
+                    'id' => $this->company->id,
+                    'name' => $this->company->name,
+                    'domain' => $this->company->domain,
+                    'industry' => $this->company->industry ?? null,
+                ] : null;
+            }),
             'lifecycle_stage' => $this->lifecycle_stage,
             'source' => $this->source,
             'tags' => $this->tags,

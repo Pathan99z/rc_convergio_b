@@ -14,7 +14,7 @@ class StoreContactRequest extends FormRequest
 
     public function rules(): array
     {
-        $tenantId = (int) $this->header('X-Tenant-ID');
+        $tenantId = (int) (optional($this->user())->tenant_id ?? $this->user()->id);
 
         return [
             'first_name' => ['required', 'string'],
@@ -25,7 +25,7 @@ class StoreContactRequest extends FormRequest
                 Rule::unique('contacts', 'email')->where(fn ($q) => $q->where('tenant_id', $tenantId))->whereNull('deleted_at'),
             ],
             'phone' => ['nullable', 'string', 'regex:/^\+?[1-9]\d{1,14}$/'],
-            'owner_id' => ['required', 'exists:users,id'],
+            'owner_id' => ['nullable', 'exists:users,id'],
             'company_id' => ['nullable', 'exists:companies,id'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:30'],
