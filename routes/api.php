@@ -163,6 +163,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('campaigns', [\App\Http\Controllers\Api\CampaignsController::class, 'store']);
     Route::get('campaigns/templates', [\App\Http\Controllers\Api\CampaignsController::class, 'templates']);
     Route::get('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'show'])->whereNumber('id');
+    Route::patch('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'update'])->whereNumber('id');
     Route::put('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'update'])->whereNumber('id');
     Route::delete('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'destroy'])->whereNumber('id');
     Route::post('campaigns/{id}/send', [\App\Http\Controllers\Api\CampaignsController::class, 'send'])->whereNumber('id');
@@ -230,6 +231,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::prefix('public')->group(function () {
     Route::get('forms/{id}', [PublicFormController::class, 'show'])->whereNumber('id');
     Route::post('forms/{id}/submit', [PublicFormController::class, 'submit'])->whereNumber('id');
+    // Campaign tracking
+    Route::get('campaigns/track/open', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'open'])->name('campaigns.track.open');
+    Route::get('campaigns/track/click', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'click'])->name('campaigns.track.click');
 });
 
 

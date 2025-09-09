@@ -13,6 +13,10 @@ use App\Services\FeatureRestrictionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Log as FrameworkLog;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class CampaignsController extends Controller
 {
@@ -96,6 +100,12 @@ class CampaignsController extends Controller
         $data['tenant_id'] = $tenantId;
         $data['created_by'] = $request->user()->id;
         $data['status'] = 'draft';
+        // Persist new recipient settings additively under settings to avoid schema changes
+        $data['settings'] = array_merge($data['settings'] ?? [], [
+            'recipient_mode' => $data['recipient_mode'] ?? null,
+            'recipient_contact_ids' => $data['recipient_contact_ids'] ?? null,
+            'segment_id' => $data['segment_id'] ?? null,
+        ]);
 
         $campaign = Campaign::create($data);
 
@@ -143,7 +153,20 @@ class CampaignsController extends Controller
 
         $this->authorize('update', $campaign);
 
-        $campaign->update($request->validated());
+        $update = $request->validated();
+        // If the request intends to only toggle is_template via PATCH, allow partial update
+        if ($request->isMethod('patch') && array_keys($update) === ['is_template']) {
+            $campaign->update(['is_template' => (bool) $update['is_template']]);
+        } else {
+            // Merge recipient fields into settings without breaking existing keys
+            $settings = array_merge($campaign->settings ?? [], [
+                'recipient_mode' => $update['recipient_mode'] ?? ($campaign->settings['recipient_mode'] ?? null),
+                'recipient_contact_ids' => $update['recipient_contact_ids'] ?? ($campaign->settings['recipient_contact_ids'] ?? null),
+                'segment_id' => $update['segment_id'] ?? ($campaign->settings['segment_id'] ?? null),
+            ]);
+            $update['settings'] = $settings;
+            $campaign->update($update);
+        }
 
         return response()->json([
             'data' => new CampaignResource($campaign->load(['recipients'])),
@@ -166,6 +189,13 @@ class CampaignsController extends Controller
         $campaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('delete', $campaign);
+
+        // Guard: allow deletion here only for templates
+        if (!$campaign->is_template) {
+            return response()->json([
+                'message' => 'Only templates can be deleted via this view.'
+            ], 422);
+        }
 
         $campaign->delete();
 
@@ -195,18 +225,44 @@ class CampaignsController extends Controller
         $this->authorize('send', $campaign);
 
         $data = $request->validated();
-        $scheduleAt = $data['schedule_at'] ?? null;
+        $scheduleAt = isset($data['schedule_at']) && $data['schedule_at']
+            ? Carbon::parse($data['schedule_at'])
+            : null;
+
+        FrameworkLog::info('Campaign send requested', [
+            'campaign_id' => $campaign->id,
+            'tenant_id' => $campaign->tenant_id,
+            'schedule_at' => $scheduleAt?->toIso8601String(),
+            'queue' => config('queue.default'),
+        ]);
 
         if ($scheduleAt) {
             $campaign->update([
                 'status' => 'scheduled',
                 'scheduled_at' => $scheduleAt,
             ]);
-
-            SendCampaignJob::dispatch($campaign)->delay($scheduleAt);
+            Bus::chain([
+                new \App\Jobs\HydrateCampaignRecipients($campaign->id),
+                new \App\Jobs\SendCampaignEmails($campaign->id),
+            ])->delay($scheduleAt)->dispatch();
         } else {
             $campaign->update(['status' => 'sending']);
-            SendCampaignJob::dispatch($campaign);
+            Bus::chain([
+                new \App\Jobs\HydrateCampaignRecipients($campaign->id),
+                new \App\Jobs\SendCampaignEmails($campaign->id),
+            ])->dispatch();
+
+            // Fallback inline execution if queue is sync or worker not running
+            try {
+                $queue = config('queue.default');
+                if ($queue === 'sync') {
+                    FrameworkLog::info('Queue sync mode: running campaign send inline', ['campaign_id' => $campaign->id]);
+                    app(\App\Jobs\HydrateCampaignRecipients::class, ['campaignId' => $campaign->id])->handle();
+                    app(\App\Jobs\SendCampaignEmails::class, ['campaignId' => $campaign->id])->handle();
+                }
+            } catch (\Throwable $e) {
+                // ignore, async worker will process
+            }
         }
 
         return response()->json([
@@ -232,21 +288,27 @@ class CampaignsController extends Controller
 
         $this->authorize('view', $campaign);
 
+        // Recompute base counts live to reflect latest recipient statuses
+        $live = DB::table('campaign_recipients')->selectRaw(
+            "SUM(status='sent') as sent, SUM(status='bounced') as bounced, SUM(opened_at IS NOT NULL) as opened, SUM(clicked_at IS NOT NULL) as clicked, SUM(delivered_at IS NOT NULL) as delivered, COUNT(*) as total"
+        )->where('campaign_id', $campaign->id)->first();
+
+        $sent = (int) ($live->sent ?? 0);
+        $bounced = (int) ($live->bounced ?? 0);
+        $opened = (int) ($live->opened ?? 0);
+        $clicked = (int) ($live->clicked ?? 0);
+        $delivered = (int) ($live->delivered ?? 0);
+        $total = (int) ($live->total ?? 0);
+
         $metrics = [
-            'total_recipients' => $campaign->total_recipients,
-            'sent_count' => $campaign->sent_count,
-            'delivered_count' => $campaign->delivered_count,
-            'opened_count' => $campaign->opened_count,
-            'clicked_count' => $campaign->clicked_count,
-            'bounced_count' => $campaign->bounced_count,
-            'delivery_rate' => $campaign->total_recipients > 0 ? 
-                round(($campaign->delivered_count / $campaign->total_recipients) * 100, 2) : 0,
-            'open_rate' => $campaign->delivered_count > 0 ? 
-                round(($campaign->opened_count / $campaign->delivered_count) * 100, 2) : 0,
-            'click_rate' => $campaign->delivered_count > 0 ? 
-                round(($campaign->clicked_count / $campaign->delivered_count) * 100, 2) : 0,
-            'bounce_rate' => $campaign->total_recipients > 0 ? 
-                round(($campaign->bounced_count / $campaign->total_recipients) * 100, 2) : 0,
+            'sent_count' => $sent,
+            'delivered_count' => $delivered,
+            'opened_count' => $opened,
+            'clicked_count' => $clicked,
+            'bounced_count' => $bounced,
+            'open_percentage' => $delivered > 0 ? round(($opened / $delivered) * 100, 2) : 0,
+            'click_percentage' => $delivered > 0 ? round(($clicked / $delivered) * 100, 2) : 0,
+            'bounce_percentage' => $total > 0 ? round(($bounced / $total) * 100, 2) : 0,
         ];
 
         return response()->json([
@@ -424,19 +486,12 @@ class CampaignsController extends Controller
     {
         $this->authorize('viewAny', Campaign::class);
 
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
-        }
+        // Use authenticated tenant scoping consistently
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $templates = Campaign::where('tenant_id', $tenantId)
             ->where('is_template', true)
-            ->select(['id', 'name', 'subject', 'content', 'created_at'])
+            ->select(['id', 'name', 'subject', 'content', 'created_at', 'is_template'])
             ->orderBy('created_at', 'desc')
             ->paginate(min((int) $request->query('per_page', 15), 100));
 
@@ -453,16 +508,15 @@ class CampaignsController extends Controller
 
     public function duplicate(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
-        if ($tenantId === 0) {
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4;
-            } else {
-                $tenantId = 1;
-            }
+        // Enforce tenant scoping via authenticated user
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
+        try {
+            $originalCampaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message' => 'Campaign not found for your account',
+            ], 404);
         }
-        $originalCampaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('create', Campaign::class);
 
@@ -475,24 +529,7 @@ class CampaignsController extends Controller
         $newCampaign->scheduled_at = null;
         $newCampaign->save();
 
-        // Copy recipients
-        $recipients = DB::table('campaign_recipients')
-            ->where('campaign_id', $originalCampaign->id)
-            ->get()
-            ->map(function ($recipient) use ($newCampaign) {
-                return [
-                    'campaign_id' => $newCampaign->id,
-                    'email' => $recipient->email,
-                    'name' => $recipient->name,
-                    'status' => 'pending',
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ];
-            })->toArray();
-
-        if (!empty($recipients)) {
-            DB::table('campaign_recipients')->insert($recipients);
-        }
+        // Do not copy recipients for duplicated campaigns (start fresh)
 
         return response()->json([
             'data' => new CampaignResource($newCampaign->load(['recipients'])),

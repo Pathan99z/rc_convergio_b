@@ -22,6 +22,12 @@ class UpdateCampaignRequest extends FormRequest
             'scheduled_at' => ['nullable', 'date', 'after:now'],
             'settings' => ['nullable', 'array'],
             'owner_id' => ['nullable', 'exists:users,id'],
+            // Additive fields for new design (stored under settings)
+            'recipient_mode' => ['nullable', 'string', 'in:manual,segment'],
+            'recipient_contact_ids' => ['nullable', 'array'],
+            'recipient_contact_ids.*' => ['integer', 'exists:contacts,id'],
+            'segment_id' => ['nullable', 'integer', 'exists:lists,id'],
+            'is_template' => ['nullable', 'boolean'],
         ];
     }
 }

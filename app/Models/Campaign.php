@@ -34,6 +34,7 @@ class Campaign extends Model
         'clicked_count',
         'bounced_count',
         'settings',
+        'is_template',
         'tenant_id',
         'created_by',
     ];
@@ -42,6 +43,7 @@ class Campaign extends Model
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
         'settings' => 'array',
+        'is_template' => 'boolean',
     ];
 
     /**
