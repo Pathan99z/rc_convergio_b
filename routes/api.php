@@ -225,6 +225,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Feature status and restrictions
     Route::get('features/status', [FeatureStatusController::class, 'index']);
     Route::get('features/check/{feature}', [FeatureStatusController::class, 'checkFeature']);
+
+    // Audit logs
+    Route::get('audit-logs', [\App\Http\Controllers\Api\AuditLogController::class, 'index']);
 });
 
 // Public routes (no auth required)
@@ -234,6 +237,8 @@ Route::prefix('public')->group(function () {
     // Campaign tracking
     Route::get('campaigns/track/open', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'open'])->name('campaigns.track.open');
     Route::get('campaigns/track/click', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'click'])->name('campaigns.track.click');
+    // Campaign unsubscribe
+    Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
 });
 
 

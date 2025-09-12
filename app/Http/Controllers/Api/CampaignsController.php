@@ -9,12 +9,14 @@ use App\Http\Requests\Campaigns\SendCampaignRequest;
 use App\Http\Resources\CampaignResource;
 use App\Jobs\SendCampaignJob;
 use App\Models\Campaign;
+use App\Models\Contact;
 use App\Services\FeatureRestrictionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log as FrameworkLog;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
@@ -236,32 +238,42 @@ class CampaignsController extends Controller
             'queue' => config('queue.default'),
         ]);
 
+        // FREEZE AUDIENCE: Resolve and save contacts at the moment of scheduling/sending
+        $this->freezeCampaignAudience($campaign);
+
         if ($scheduleAt) {
             $campaign->update([
                 'status' => 'scheduled',
                 'scheduled_at' => $scheduleAt,
             ]);
             Bus::chain([
-                new \App\Jobs\HydrateCampaignRecipients($campaign->id),
                 new \App\Jobs\SendCampaignEmails($campaign->id),
             ])->delay($scheduleAt)->dispatch();
         } else {
             $campaign->update(['status' => 'sending']);
             Bus::chain([
-                new \App\Jobs\HydrateCampaignRecipients($campaign->id),
                 new \App\Jobs\SendCampaignEmails($campaign->id),
             ])->dispatch();
 
-            // Fallback inline execution if queue is sync or worker not running
-            try {
-                $queue = config('queue.default');
-                if ($queue === 'sync') {
-                    FrameworkLog::info('Queue sync mode: running campaign send inline', ['campaign_id' => $campaign->id]);
-                    app(\App\Jobs\HydrateCampaignRecipients::class, ['campaignId' => $campaign->id])->handle();
-                    app(\App\Jobs\SendCampaignEmails::class, ['campaignId' => $campaign->id])->handle();
+            // Only execute inline if queue is sync mode (not async)
+            $queue = config('queue.default');
+            if ($queue === 'sync') {
+                FrameworkLog::info('Queue sync mode: executing campaign inline', ['campaign_id' => $campaign->id]);
+                
+                try {
+                    // Execute sending job inline (audience already frozen)
+                    $sendJob = new \App\Jobs\SendCampaignEmails($campaign->id);
+                    $sendJob->handle();
+                    
+                    FrameworkLog::info('Campaign executed inline successfully', ['campaign_id' => $campaign->id]);
+                } catch (\Throwable $e) {
+                    FrameworkLog::error('Inline campaign execution failed', [
+                        'campaign_id' => $campaign->id,
+                        'error' => $e->getMessage()
+                    ]);
                 }
-            } catch (\Throwable $e) {
-                // ignore, async worker will process
+            } else {
+                FrameworkLog::info('Campaign queued for async processing', ['campaign_id' => $campaign->id, 'queue' => $queue]);
             }
         }
 
@@ -269,6 +281,154 @@ class CampaignsController extends Controller
             'data' => new CampaignResource($campaign->load(['recipients'])),
             'message' => $scheduleAt ? 'Campaign scheduled successfully' : 'Campaign queued for sending',
         ]);
+    }
+
+    /**
+     * FREEZE AUDIENCE: Resolve and save contacts at the moment of scheduling/sending
+     * This prevents dynamic segments from changing the campaign audience later
+     */
+    private function freezeCampaignAudience(Campaign $campaign): void
+    {
+        $settings = $campaign->settings ?? [];
+        $mode = $settings['recipient_mode'] ?? null;
+        $contactIds = $settings['recipient_contact_ids'] ?? [];
+        $segmentId = $settings['segment_id'] ?? null;
+        $tenantId = $campaign->tenant_id;
+
+        FrameworkLog::info('Freezing campaign audience', [
+            'campaign_id' => $campaign->id,
+            'mode' => $mode,
+            'contact_ids_count' => count($contactIds),
+            'segment_id' => $segmentId
+        ]);
+
+        // Log campaign audience freezing event
+        \App\Models\AuditLog::log('audience_frozen', [
+            'campaign_id' => $campaign->id,
+            'metadata' => [
+                'mode' => $mode,
+                'contact_ids_count' => count($contactIds),
+                'segment_id' => $segmentId,
+                'tenant_id' => $tenantId
+            ]
+        ]);
+
+        // Clear existing recipients to ensure clean state
+        DB::table('campaign_recipients')->where('campaign_id', $campaign->id)->delete();
+
+        $query = Contact::query()
+            ->where('tenant_id', $tenantId)
+            ->whereNotNull('email')
+            ->whereNotExists(function ($q) {
+                $q->select(\DB::raw(1))
+                  ->from('contact_subscriptions')
+                  ->whereColumn('contact_subscriptions.contact_id', 'contacts.id')
+                  ->where('contact_subscriptions.unsubscribed', true);
+            }); // SUPPRESSION: Exclude unsubscribed contacts
+
+        if ($mode === 'segment' && $segmentId) {
+            // Resolve dynamic segment at this moment and freeze it
+            $query->whereIn('id', function ($q) use ($segmentId) {
+                $q->select('contact_id')->from('list_members')->where('list_id', $segmentId);
+            });
+            
+            // Store the resolved contact IDs for traceability
+            $resolvedContactIds = $query->pluck('id')->toArray();
+            $campaign->update([
+                'settings' => array_merge($settings, [
+                    'frozen_contact_ids' => $resolvedContactIds,
+                    'frozen_at' => now()->toISOString(),
+                    'original_segment_id' => $segmentId
+                ])
+            ]);
+            
+        } elseif (in_array($mode, ['manual', 'static'], true) && !empty($contactIds)) {
+            // Use manually selected contacts
+            $query->whereIn('id', $contactIds);
+            
+            $campaign->update([
+                'settings' => array_merge($settings, [
+                    'frozen_contact_ids' => $contactIds,
+                    'frozen_at' => now()->toISOString()
+                ])
+            ]);
+        } else {
+            FrameworkLog::warning('No valid recipient mode found for campaign', [
+                'campaign_id' => $campaign->id,
+                'mode' => $mode
+            ]);
+            return;
+        }
+
+        // Bulk insert frozen audience into campaign_recipients
+        $now = now();
+        $batch = [];
+        $hasTenantColumn = Schema::hasColumn('campaign_recipients', 'tenant_id');
+        $hasContactIdColumn = Schema::hasColumn('campaign_recipients', 'contact_id');
+
+        $query->chunkById(500, function ($contacts) use (&$batch, $campaign, $now, $hasTenantColumn, $hasContactIdColumn) {
+            $batch = [];
+            foreach ($contacts as $contact) {
+                $name = trim(($contact->first_name ?: '') . ' ' . ($contact->last_name ?: '')) ?: null;
+                $batch[] = [
+                    'campaign_id' => $campaign->id,
+                    'contact_id' => $hasContactIdColumn ? $contact->id : null,
+                    'email' => $contact->email,
+                    'name' => $name,
+                    'status' => 'pending',
+                    'tenant_id' => $hasTenantColumn ? $campaign->tenant_id : null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if (!empty($batch)) {
+                DB::table('campaign_recipients')->insert($batch);
+            }
+        });
+
+        // Update campaign with frozen recipient count
+        $totalRecipients = DB::table('campaign_recipients')->where('campaign_id', $campaign->id)->count();
+        $campaign->update(['total_recipients' => $totalRecipients]);
+
+        // Count suppressed contacts for audit
+        $originalCount = $query->count();
+        $suppressedCount = $originalCount - $totalRecipients;
+
+        FrameworkLog::info('Campaign audience frozen successfully', [
+            'campaign_id' => $campaign->id,
+            'total_recipients' => $totalRecipients,
+            'original_count' => $originalCount,
+            'suppressed_count' => $suppressedCount,
+            'mode' => $mode
+        ]);
+
+        // Log suppression results
+        if ($suppressedCount > 0) {
+            \App\Models\AuditLog::log('contacts_suppressed', [
+                'campaign_id' => $campaign->id,
+                'metadata' => [
+                    'original_count' => $originalCount,
+                    'suppressed_count' => $suppressedCount,
+                    'final_count' => $totalRecipients,
+                    'suppression_reasons' => ['unsubscribed', 'bounced']
+                ]
+            ]);
+        }
+    }
+
+    /**
+     * Check if queue worker is running
+     */
+    private function isQueueWorkerRunning(): bool
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $processes = shell_exec('tasklist /FI "IMAGENAME eq php.exe" /FO CSV | findstr "queue:work"');
+            return !empty($processes);
+        } else {
+            $processes = shell_exec('ps aux | grep "queue:work" | grep -v grep');
+            return !empty($processes);
+        }
     }
 
     public function metrics(Request $request, int $id): JsonResponse

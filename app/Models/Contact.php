@@ -49,6 +49,22 @@ class Contact extends Model
     {
         return $this->belongsTo(User::class, 'owner_id');
     }
+
+    /**
+     * Get the contact's subscription status
+     */
+    public function subscription(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\ContactSubscription::class, 'id', 'contact_id');
+    }
+
+    /**
+     * Check if contact is unsubscribed
+     */
+    public function isUnsubscribed(): bool
+    {
+        return \App\Models\ContactSubscription::isUnsubscribed($this->id);
+    }
 }
 
 

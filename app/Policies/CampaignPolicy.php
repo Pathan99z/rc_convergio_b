@@ -39,11 +39,21 @@ class CampaignPolicy
 
     public function send(User $user, Campaign $campaign): bool
     {
-        // Only allow sending if campaign is in draft status
-        if ($campaign->status !== 'draft') {
-            return false;
+        // Allow sending if campaign is in draft status
+        if ($campaign->status === 'draft') {
+            return true;
         }
         
-        return true; // Allow all authenticated users to send campaigns
+        // Allow scheduling if campaign is in sent status (for resending/scheduling)
+        if ($campaign->status === 'sent') {
+            return true;
+        }
+        
+        // Allow sending if campaign is in scheduled status (for rescheduling)
+        if ($campaign->status === 'scheduled') {
+            return true;
+        }
+        
+        return false; // Block sending for other statuses
     }
 }
