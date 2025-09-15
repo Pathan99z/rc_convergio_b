@@ -109,4 +109,64 @@ class Campaign extends Model
     {
         return $query->where('status', 'sent');
     }
+
+    /**
+     * Scope a query to get email campaigns.
+     */
+    public function scopeEmail($query)
+    {
+        return $query->where('type', 'email');
+    }
+
+    /**
+     * Scope a query to get ad campaigns.
+     */
+    public function scopeAd($query)
+    {
+        return $query->where('type', 'ad');
+    }
+
+    /**
+     * Scope a query to get event campaigns.
+     */
+    public function scopeEvent($query)
+    {
+        return $query->where('type', 'event');
+    }
+
+    /**
+     * Get available campaign types.
+     */
+    public static function getAvailableTypes(): array
+    {
+        return [
+            'email' => 'Email Campaign',
+            'ad' => 'Ad Campaign',
+            'event' => 'Event Campaign',
+        ];
+    }
+
+    /**
+     * Check if this is an email campaign.
+     */
+    public function isEmail(): bool
+    {
+        return $this->type === 'email';
+    }
+
+    /**
+     * Check if this is an ad campaign.
+     */
+    public function isAd(): bool
+    {
+        return $this->type === 'ad';
+    }
+
+    /**
+     * Check if this is an event campaign.
+     */
+    public function isEvent(): bool
+    {
+        return $this->type === 'event';
+    }
 }

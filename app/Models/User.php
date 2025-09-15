@@ -58,4 +58,13 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         $this->notify(new \App\Notifications\VerifyEmailNotification());
     }
+
+    /**
+     * Get the tenant ID for this user.
+     * In this system, each user is their own tenant.
+     */
+    public function getTenantIdAttribute(): int
+    {
+        return $this->id;
+    }
 }

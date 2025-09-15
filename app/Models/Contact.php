@@ -22,11 +22,15 @@ class Contact extends Model
         'lifecycle_stage',
         'source',
         'tags',
+        'lead_score',
+        'lead_score_updated_at',
         'tenant_id',
     ];
 
     protected $casts = [
         'tags' => 'array',
+        'lead_score' => 'integer',
+        'lead_score_updated_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -64,6 +68,14 @@ class Contact extends Model
     public function isUnsubscribed(): bool
     {
         return \App\Models\ContactSubscription::isUnsubscribed($this->id);
+    }
+
+    /**
+     * Scope a query to only include contacts for a specific tenant.
+     */
+    public function scopeForTenant($query, $tenantId)
+    {
+        return $query->where('tenant_id', $tenantId);
     }
 }
 

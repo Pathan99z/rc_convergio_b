@@ -696,4 +696,160 @@ class CampaignsController extends Controller
             'message' => 'Campaign duplicated successfully',
         ], 201);
     }
+
+    /**
+     * Create an ad campaign.
+     */
+    public function createAd(Request $request, int $campaignId): JsonResponse
+    {
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+
+        // Verify campaign exists and belongs to tenant
+        $campaign = Campaign::where('id', $campaignId)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'ad_account_id' => 'required|exists:ad_accounts,id',
+            'ad_settings' => 'required|array',
+            'ad_settings.budget' => 'required|numeric|min:1',
+            'ad_settings.duration_days' => 'required|integer|min:1|max:365',
+            'ad_settings.targeting' => 'required|array',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            // Update campaign to be an ad campaign
+            $campaign->update([
+                'type' => 'ad',
+                'settings' => array_merge($campaign->settings ?? [], [
+                    'ad_account_id' => $validated['ad_account_id'],
+                    'ad_settings' => $validated['ad_settings']
+                ])
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'data' => new CampaignResource($campaign),
+                'message' => 'Ad campaign created successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to create ad campaign',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get ad campaign metrics.
+     */
+    public function getAdMetrics(Request $request, int $campaignId): JsonResponse
+    {
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+
+        // Verify campaign exists and belongs to tenant
+        $campaign = Campaign::where('id', $campaignId)
+            ->where('tenant_id', $tenantId)
+            ->where('type', 'ad')
+            ->firstOrFail();
+
+        try {
+            // Get ad account from campaign settings
+            $adAccountId = $campaign->settings['ad_account_id'] ?? null;
+            if (!$adAccountId) {
+                return response()->json([
+                    'message' => 'No ad account associated with this campaign'
+                ], 400);
+            }
+
+            // Get ad account
+            $adAccount = \App\Models\AdAccount::where('id', $adAccountId)
+                ->where('tenant_id', $tenantId)
+                ->firstOrFail();
+
+            // Simulate fetching metrics from ad provider
+            // In a real implementation, this would call the actual ad provider API
+            $metrics = $this->fetchAdMetricsFromProvider($adAccount, $campaign);
+
+            return response()->json([
+                'data' => [
+                    'campaign_id' => $campaignId,
+                    'provider' => $adAccount->provider,
+                    'impressions' => $metrics['impressions'],
+                    'clicks' => $metrics['clicks'],
+                    'conversions' => $metrics['conversions'],
+                    'roi' => $metrics['roi'],
+                    'spend' => $metrics['spend'],
+                    'ctr' => $metrics['ctr'],
+                    'cpc' => $metrics['cpc'],
+                    'updated_at' => now()->toISOString()
+                ],
+                'message' => 'Ad campaign metrics retrieved successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to fetch ad campaign metrics',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Fetch ad metrics from provider (simulated).
+     */
+    private function fetchAdMetricsFromProvider($adAccount, $campaign): array
+    {
+        // This is a simulation - in real implementation, you would call the actual ad provider API
+        // using the credentials stored in $adAccount->credentials
+        
+        $baseImpressions = rand(500, 5000);
+        $baseClicks = rand(50, 500);
+        $baseConversions = rand(5, 50);
+        
+        // Simulate different performance based on provider
+        switch ($adAccount->provider) {
+            case 'linkedin':
+                $impressions = $baseImpressions * 1.2;
+                $clicks = $baseClicks * 1.1;
+                $conversions = $baseConversions * 1.3;
+                break;
+            case 'google':
+                $impressions = $baseImpressions * 1.5;
+                $clicks = $baseClicks * 1.2;
+                $conversions = $baseConversions * 1.1;
+                break;
+            case 'facebook':
+                $impressions = $baseImpressions * 1.8;
+                $clicks = $baseClicks * 1.4;
+                $conversions = $baseConversions * 1.0;
+                break;
+            default:
+                $impressions = $baseImpressions;
+                $clicks = $baseClicks;
+                $conversions = $baseConversions;
+        }
+
+        $spend = rand(100, 2000); // Simulated spend
+        $roi = $conversions > 0 ? round(($conversions / $clicks) * 100, 1) . '%' : '0%';
+        $ctr = $impressions > 0 ? round(($clicks / $impressions) * 100, 2) . '%' : '0%';
+        $cpc = $clicks > 0 ? round($spend / $clicks, 2) : 0;
+
+        return [
+            'impressions' => (int) $impressions,
+            'clicks' => (int) $clicks,
+            'conversions' => (int) $conversions,
+            'roi' => $roi,
+            'spend' => $spend,
+            'ctr' => $ctr,
+            'cpc' => $cpc,
+        ];
+    }
 }

@@ -175,6 +175,87 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('campaigns/{id}/recipients', [\App\Http\Controllers\Api\CampaignsController::class, 'removeRecipients'])->whereNumber('id');
     Route::get('campaigns/{id}/metrics', [\App\Http\Controllers\Api\CampaignsController::class, 'metrics'])->whereNumber('id');
 
+    // Campaign Automations
+    Route::get('campaigns/{id}/automations', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'index'])->whereNumber('id');
+    Route::post('campaigns/{id}/automations', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'store'])->whereNumber('id');
+    Route::delete('campaigns/automations/{automationId}', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'destroy'])->whereNumber('automationId');
+    Route::get('campaigns/automations/options', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'options']);
+
+    // Ad Campaigns
+    Route::post('campaigns/{id}/ads', [\App\Http\Controllers\Api\CampaignsController::class, 'createAd'])->whereNumber('id');
+    Route::get('campaigns/{id}/ads-metrics', [\App\Http\Controllers\Api\CampaignsController::class, 'getAdMetrics'])->whereNumber('id');
+
+    // Ad Accounts
+    Route::get('ad-accounts', [\App\Http\Controllers\Api\AdAccountsController::class, 'index']);
+    Route::post('ad-accounts', [\App\Http\Controllers\Api\AdAccountsController::class, 'store']);
+    Route::put('ad-accounts/{id}', [\App\Http\Controllers\Api\AdAccountsController::class, 'update'])->whereNumber('id');
+    Route::delete('ad-accounts/{id}', [\App\Http\Controllers\Api\AdAccountsController::class, 'destroy'])->whereNumber('id');
+    Route::get('ad-accounts/providers', [\App\Http\Controllers\Api\AdAccountsController::class, 'providers']);
+
+    // Events
+    Route::get('events', [\App\Http\Controllers\Api\EventsController::class, 'index']);
+    Route::post('events', [\App\Http\Controllers\Api\EventsController::class, 'store']);
+    Route::get('events/{id}', [\App\Http\Controllers\Api\EventsController::class, 'show'])->whereNumber('id');
+    Route::put('events/{id}', [\App\Http\Controllers\Api\EventsController::class, 'update'])->whereNumber('id');
+    Route::delete('events/{id}', [\App\Http\Controllers\Api\EventsController::class, 'destroy'])->whereNumber('id');
+    Route::post('events/{id}/attendees', [\App\Http\Controllers\Api\EventsController::class, 'addAttendee'])->whereNumber('id');
+    Route::get('events/{id}/attendees', [\App\Http\Controllers\Api\EventsController::class, 'getAttendees'])->whereNumber('id');
+    Route::post('events/{eventId}/attendees/{attendeeId}/attended', [\App\Http\Controllers\Api\EventsController::class, 'markAttended'])->whereNumber(['eventId', 'attendeeId']);
+    Route::get('events/types', [\App\Http\Controllers\Api\EventsController::class, 'getEventTypes']);
+    Route::get('events/rsvp-statuses', [\App\Http\Controllers\Api\EventsController::class, 'getRsvpStatuses']);
+
+    // Visitor Intent Tracking
+    Route::post('tracking/events', [\App\Http\Controllers\Api\TrackingController::class, 'logEvent']);
+    Route::get('tracking/intent', [\App\Http\Controllers\Api\TrackingController::class, 'getIntentSignals']);
+    Route::get('tracking/analytics', [\App\Http\Controllers\Api\TrackingController::class, 'getIntentAnalytics']);
+    Route::get('tracking/actions', [\App\Http\Controllers\Api\TrackingController::class, 'getAvailableActions']);
+    Route::get('tracking/intent-levels', [\App\Http\Controllers\Api\TrackingController::class, 'getIntentLevels']);
+
+    // Lead Scoring Rules
+    Route::get('lead-scoring/rules', [\App\Http\Controllers\Api\LeadScoringController::class, 'getRules']);
+    Route::post('lead-scoring/rules', [\App\Http\Controllers\Api\LeadScoringController::class, 'createRule']);
+    Route::put('lead-scoring/rules/{id}', [\App\Http\Controllers\Api\LeadScoringController::class, 'updateRule'])->whereNumber('id');
+    Route::delete('lead-scoring/rules/{id}', [\App\Http\Controllers\Api\LeadScoringController::class, 'deleteRule'])->whereNumber('id');
+    Route::post('lead-scoring/recalculate/{contactId}', [\App\Http\Controllers\Api\LeadScoringController::class, 'recalculateContactScore'])->whereNumber('contactId');
+    Route::get('lead-scoring/stats', [\App\Http\Controllers\Api\LeadScoringController::class, 'getStats']);
+    Route::get('lead-scoring/top-contacts', [\App\Http\Controllers\Api\LeadScoringController::class, 'getTopScoringContacts']);
+    Route::get('lead-scoring/event-types', [\App\Http\Controllers\Api\LeadScoringController::class, 'getEventTypes']);
+    Route::get('lead-scoring/operators', [\App\Http\Controllers\Api\LeadScoringController::class, 'getOperators']);
+
+    // Customer Journey Workflows
+    Route::get('journeys', [\App\Http\Controllers\Api\JourneysController::class, 'index']);
+    Route::post('journeys', [\App\Http\Controllers\Api\JourneysController::class, 'store']);
+    Route::get('journeys/{id}', [\App\Http\Controllers\Api\JourneysController::class, 'show'])->whereNumber('id');
+    Route::put('journeys/{id}', [\App\Http\Controllers\Api\JourneysController::class, 'update'])->whereNumber('id');
+    Route::delete('journeys/{id}', [\App\Http\Controllers\Api\JourneysController::class, 'destroy'])->whereNumber('id');
+    Route::post('journeys/{journeyId}/run/{contactId}', [\App\Http\Controllers\Api\JourneysController::class, 'runForContact'])->whereNumber(['journeyId', 'contactId']);
+    Route::get('journeys/{id}/executions', [\App\Http\Controllers\Api\JourneysController::class, 'getExecutions'])->whereNumber('id');
+    Route::get('journeys/statuses', [\App\Http\Controllers\Api\JourneysController::class, 'getStatuses']);
+    Route::get('journeys/step-types', [\App\Http\Controllers\Api\JourneysController::class, 'getStepTypes']);
+    Route::get('journeys/step-schema', [\App\Http\Controllers\Api\JourneysController::class, 'getStepTypeSchema']);
+
+    // Sales Forecast
+    Route::get('forecast', [\App\Http\Controllers\Api\ForecastController::class, 'index']);
+    Route::get('forecast/multi-timeframe', [\App\Http\Controllers\Api\ForecastController::class, 'multiTimeframe']);
+    Route::get('forecast/trends', [\App\Http\Controllers\Api\ForecastController::class, 'trends']);
+    Route::get('forecast/by-pipeline', [\App\Http\Controllers\Api\ForecastController::class, 'byPipeline']);
+    Route::get('forecast/accuracy', [\App\Http\Controllers\Api\ForecastController::class, 'accuracy']);
+    Route::get('forecast/timeframes', [\App\Http\Controllers\Api\ForecastController::class, 'timeframes']);
+
+    // Meetings
+    Route::get('meetings', [\App\Http\Controllers\Api\MeetingsController::class, 'index']);
+    Route::post('meetings', [\App\Http\Controllers\Api\MeetingsController::class, 'store']);
+    Route::post('meetings/sync/google', [\App\Http\Controllers\Api\MeetingsController::class, 'syncGoogle']);
+    Route::post('meetings/sync/outlook', [\App\Http\Controllers\Api\MeetingsController::class, 'syncOutlook']);
+    Route::get('meetings/statuses', [\App\Http\Controllers\Api\MeetingsController::class, 'getStatuses']);
+    Route::get('meetings/providers', [\App\Http\Controllers\Api\MeetingsController::class, 'getProviders']);
+
+    // Analytics Dashboard
+    Route::get('analytics/dashboard', [\App\Http\Controllers\Api\AnalyticsController::class, 'dashboard']);
+    Route::get('analytics/modules', [\App\Http\Controllers\Api\AnalyticsController::class, 'modules']);
+    Route::get('analytics/periods', [\App\Http\Controllers\Api\AnalyticsController::class, 'periods']);
+    Route::get('analytics/{module}', [\App\Http\Controllers\Api\AnalyticsController::class, 'module']);
+
     // Campaign webhook (no auth required)
     Route::post('campaigns/events', [CampaignWebhookController::class, 'handleEvents']);
 

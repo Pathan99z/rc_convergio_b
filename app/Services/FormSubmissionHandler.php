@@ -9,12 +9,16 @@ use App\Models\Company;
 use App\Models\Activity;
 use App\Models\User;
 use App\Models\ContactList;
+use App\Services\CampaignAutomationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class FormSubmissionHandler
 {
+    public function __construct(
+        private CampaignAutomationService $automationService
+    ) {}
     /**
      * Process form submission with smart CRM automation
      */
@@ -45,6 +49,13 @@ class FormSubmissionHandler
             $contactResult = $this->handleContact($form, $contactData, $companyResult);
             // Touch updated_at to surface in recent lists immediately
             $contactResult['contact']->touch();
+
+            // 5. Trigger campaign automations for form submission
+            $this->automationService->triggerFormSubmission(
+                $contactResult['contact']->id,
+                $form->id,
+                $payload
+            );
 
             // Ensure we link the existing submission (if passed) to company/contact
             if ($submission && $companyResult['company'] && empty($submission->company_id)) {
