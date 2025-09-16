@@ -185,6 +185,115 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('campaigns/{id}/ads', [\App\Http\Controllers\Api\CampaignsController::class, 'createAd'])->whereNumber('id');
     Route::get('campaigns/{id}/ads-metrics', [\App\Http\Controllers\Api\CampaignsController::class, 'getAdMetrics'])->whereNumber('id');
 
+    // Campaign Enhancement APIs
+    Route::post('campaigns/{id}/test', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'test'])->whereNumber('id');
+    Route::get('campaigns/{id}/preview', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'preview'])->whereNumber('id');
+    Route::post('campaigns/{id}/validate', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'validateCampaign'])->whereNumber('id');
+    Route::post('campaigns/{id}/schedule', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'schedule'])->whereNumber('id');
+    Route::post('campaigns/{id}/unschedule', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'unschedule'])->whereNumber('id');
+    Route::post('campaigns/{id}/archive', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'archive'])->whereNumber('id');
+    Route::post('campaigns/{id}/restore', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'restore'])->whereNumber('id');
+
+    // Campaign Templates
+    Route::post('campaigns/templates', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'createTemplate']);
+    Route::put('campaigns/templates/{id}', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'updateTemplate'])->whereNumber('id');
+    Route::delete('campaigns/templates/{id}', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'deleteTemplate'])->whereNumber('id');
+
+    // Bulk Campaign Operations
+    Route::post('campaigns/bulk-send', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'bulkSend']);
+    Route::post('campaigns/bulk-pause', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'bulkPause']);
+    Route::post('campaigns/bulk-resume', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'bulkResume']);
+    Route::post('campaigns/bulk-archive', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'bulkArchive']);
+
+    // Campaign Import/Export
+    Route::get('campaigns/export', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'export']);
+    Route::post('campaigns/import', [\App\Http\Controllers\Api\CampaignEnhancementController::class, 'import']);
+
+    // ==================== BULK OPERATIONS ====================
+
+    // Forms Bulk Operations
+    Route::post('forms/bulk-delete', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkDeleteForms']);
+    Route::post('forms/bulk-activate', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkActivateForms']);
+    Route::post('forms/bulk-deactivate', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkDeactivateForms']);
+
+    // Lists Bulk Operations
+    Route::post('lists/bulk-delete', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkDeleteLists']);
+    Route::post('lists/bulk-activate', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkActivateLists']);
+    Route::post('lists/bulk-deactivate', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkDeactivateLists']);
+    Route::get('lists/export', [\App\Http\Controllers\Api\BulkOpsController::class, 'exportLists']);
+    Route::post('lists/import', [\App\Http\Controllers\Api\BulkOpsController::class, 'importLists']);
+    Route::get('lists/{id}/export', [\App\Http\Controllers\Api\BulkOpsController::class, 'exportSingleList'])->whereNumber('id');
+
+    // Events Bulk Operations
+    Route::post('events/bulk-delete', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkDeleteEvents']);
+    Route::post('events/bulk-cancel', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkCancelEvents']);
+    Route::post('events/bulk-activate', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkActivateEvents']);
+    Route::get('events/export', [\App\Http\Controllers\Api\BulkOpsController::class, 'exportEvents']);
+    Route::post('events/import', [\App\Http\Controllers\Api\BulkOpsController::class, 'importEvents']);
+    Route::get('events/{id}/export', [\App\Http\Controllers\Api\BulkOpsController::class, 'exportSingleEvent'])->whereNumber('id');
+    Route::post('events/{id}/cancel', [\App\Http\Controllers\Api\BulkOpsController::class, 'cancelEvent'])->whereNumber('id');
+    Route::post('events/{id}/reschedule', [\App\Http\Controllers\Api\BulkOpsController::class, 'rescheduleEvent'])->whereNumber('id');
+
+    // Meetings Bulk Operations
+    Route::post('meetings/bulk-delete', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkDeleteMeetings']);
+    Route::post('meetings/bulk-cancel', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkCancelMeetings']);
+    Route::post('meetings/bulk-reschedule', [\App\Http\Controllers\Api\BulkOpsController::class, 'bulkRescheduleMeetings']);
+    Route::get('meetings/export', [\App\Http\Controllers\Api\BulkOpsController::class, 'exportMeetings']);
+    Route::post('meetings/import', [\App\Http\Controllers\Api\BulkOpsController::class, 'importMeetings']);
+    Route::get('meetings/{id}/export', [\App\Http\Controllers\Api\BulkOpsController::class, 'exportSingleMeeting'])->whereNumber('id');
+    Route::post('meetings/{id}/cancel', [\App\Http\Controllers\Api\BulkOpsController::class, 'cancelMeeting'])->whereNumber('id');
+    Route::post('meetings/{id}/reschedule', [\App\Http\Controllers\Api\BulkOpsController::class, 'rescheduleMeeting'])->whereNumber('id');
+
+    // ==================== MODULE ENHANCEMENTS ====================
+
+    // Lead Scoring Enhancements
+    Route::post('lead-scoring/bulk-recalculate', [\App\Http\Controllers\Api\LeadScoringEnhancementController::class, 'bulkRecalculate']);
+    Route::post('lead-scoring/bulk-activate', [\App\Http\Controllers\Api\LeadScoringEnhancementController::class, 'bulkActivate']);
+    Route::post('lead-scoring/bulk-deactivate', [\App\Http\Controllers\Api\LeadScoringEnhancementController::class, 'bulkDeactivate']);
+    Route::get('lead-scoring/export', [\App\Http\Controllers\Api\LeadScoringEnhancementController::class, 'export']);
+    Route::post('lead-scoring/import', [\App\Http\Controllers\Api\LeadScoringEnhancementController::class, 'import']);
+    Route::get('lead-scoring/contacts/export', [\App\Http\Controllers\Api\LeadScoringEnhancementController::class, 'exportContacts']);
+
+    // Journeys Enhancements
+    Route::post('journeys/bulk-delete', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'bulkDelete']);
+    Route::post('journeys/bulk-activate', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'bulkActivate']);
+    Route::post('journeys/bulk-pause', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'bulkPause']);
+    Route::get('journeys/export', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'export']);
+    Route::post('journeys/import', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'import']);
+    Route::get('journeys/{id}/export', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'exportSingle'])->whereNumber('id');
+    Route::post('journeys/{id}/pause', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'pause'])->whereNumber('id');
+    Route::post('journeys/{id}/resume', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'resume'])->whereNumber('id');
+
+    // Ad Accounts Enhancements
+    Route::post('ad-accounts/bulk-delete', [\App\Http\Controllers\Api\AdAccountsEnhancementController::class, 'bulkDelete']);
+    Route::post('ad-accounts/bulk-activate', [\App\Http\Controllers\Api\AdAccountsEnhancementController::class, 'bulkActivate']);
+    Route::post('ad-accounts/bulk-deactivate', [\App\Http\Controllers\Api\AdAccountsEnhancementController::class, 'bulkDeactivate']);
+    Route::get('ad-accounts/export', [\App\Http\Controllers\Api\AdAccountsEnhancementController::class, 'export']);
+    Route::post('ad-accounts/import', [\App\Http\Controllers\Api\AdAccountsEnhancementController::class, 'import']);
+    Route::get('ad-accounts/{id}/export', [\App\Http\Controllers\Api\AdAccountsEnhancementController::class, 'exportSingle'])->whereNumber('id');
+
+    // ==================== FORECAST, ANALYTICS & BUYER INTENT ENHANCEMENTS ====================
+
+    // Forecast Enhancements
+    Route::get('forecast/export', [\App\Http\Controllers\Api\ForecastEnhancementController::class, 'export']);
+    Route::post('forecast/import', [\App\Http\Controllers\Api\ForecastEnhancementController::class, 'import']);
+    Route::get('forecast/reports', [\App\Http\Controllers\Api\ForecastEnhancementController::class, 'reports']);
+    Route::get('forecast/export/{format}', [\App\Http\Controllers\Api\ForecastEnhancementController::class, 'exportFormat'])->whereIn('format', ['csv', 'excel', 'json', 'pdf']);
+
+    // Analytics Enhancements
+    Route::get('analytics/export', [\App\Http\Controllers\Api\AnalyticsEnhancementController::class, 'export']);
+    Route::get('analytics/reports', [\App\Http\Controllers\Api\AnalyticsEnhancementController::class, 'reports']);
+    Route::get('analytics/export/{module}', [\App\Http\Controllers\Api\AnalyticsEnhancementController::class, 'exportModule']);
+    Route::post('analytics/schedule-report', [\App\Http\Controllers\Api\AnalyticsEnhancementController::class, 'scheduleReport']);
+    Route::get('analytics/scheduled-reports', [\App\Http\Controllers\Api\AnalyticsEnhancementController::class, 'scheduledReports']);
+    Route::delete('analytics/scheduled-reports/{id}', [\App\Http\Controllers\Api\AnalyticsEnhancementController::class, 'deleteScheduledReport'])->whereNumber('id');
+
+    // Buyer Intent Enhancements
+    Route::get('tracking/export', [\App\Http\Controllers\Api\BuyerIntentEnhancementController::class, 'export']);
+    Route::post('tracking/bulk-delete', [\App\Http\Controllers\Api\BuyerIntentEnhancementController::class, 'bulkDelete']);
+    Route::get('tracking/reports', [\App\Http\Controllers\Api\BuyerIntentEnhancementController::class, 'reports']);
+    Route::post('tracking/settings', [\App\Http\Controllers\Api\BuyerIntentEnhancementController::class, 'settings']);
+
     // Ad Accounts
     Route::get('ad-accounts', [\App\Http\Controllers\Api\AdAccountsController::class, 'index']);
     Route::post('ad-accounts', [\App\Http\Controllers\Api\AdAccountsController::class, 'store']);
@@ -255,6 +364,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('analytics/modules', [\App\Http\Controllers\Api\AnalyticsController::class, 'modules']);
     Route::get('analytics/periods', [\App\Http\Controllers\Api\AnalyticsController::class, 'periods']);
     Route::get('analytics/{module}', [\App\Http\Controllers\Api\AnalyticsController::class, 'module']);
+    
+    // Individual Analytics Module Routes
+    Route::get('analytics/contacts', [\App\Http\Controllers\Api\AnalyticsController::class, 'contacts']);
+    Route::get('analytics/companies', [\App\Http\Controllers\Api\AnalyticsController::class, 'companies']);
+    Route::get('analytics/deals', [\App\Http\Controllers\Api\AnalyticsController::class, 'deals']);
+    Route::get('analytics/campaigns', [\App\Http\Controllers\Api\AnalyticsController::class, 'campaigns']);
+    Route::get('analytics/ads', [\App\Http\Controllers\Api\AnalyticsController::class, 'ads']);
+    Route::get('analytics/events', [\App\Http\Controllers\Api\AnalyticsController::class, 'events']);
+    Route::get('analytics/meetings', [\App\Http\Controllers\Api\AnalyticsController::class, 'meetings']);
+    Route::get('analytics/tasks', [\App\Http\Controllers\Api\AnalyticsController::class, 'tasks']);
+    Route::get('analytics/forecast', [\App\Http\Controllers\Api\AnalyticsController::class, 'forecast']);
+    Route::get('analytics/lead-scoring', [\App\Http\Controllers\Api\AnalyticsController::class, 'leadScoring']);
+    Route::get('analytics/journeys', [\App\Http\Controllers\Api\AnalyticsController::class, 'journeys']);
+    Route::get('analytics/visitor-intent', [\App\Http\Controllers\Api\AnalyticsController::class, 'visitorIntent']);
 
     // Campaign webhook (no auth required)
     Route::post('campaigns/events', [CampaignWebhookController::class, 'handleEvents']);

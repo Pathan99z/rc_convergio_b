@@ -27,12 +27,14 @@ class Campaign extends Model
         'type',
         'scheduled_at',
         'sent_at',
+        'archived_at',
         'total_recipients',
         'sent_count',
         'delivered_count',
         'opened_count',
         'clicked_count',
         'bounced_count',
+        'test_sent_count',
         'settings',
         'is_template',
         'tenant_id',
@@ -42,6 +44,7 @@ class Campaign extends Model
     protected $casts = [
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
+        'archived_at' => 'datetime',
         'settings' => 'array',
         'is_template' => 'boolean',
     ];
@@ -168,5 +171,37 @@ class Campaign extends Model
     public function isEvent(): bool
     {
         return $this->type === 'event';
+    }
+
+    /**
+     * Check if campaign is archived.
+     */
+    public function isArchived(): bool
+    {
+        return $this->status === 'archived';
+    }
+
+    /**
+     * Check if campaign is scheduled.
+     */
+    public function isScheduled(): bool
+    {
+        return $this->status === 'scheduled' && $this->scheduled_at !== null;
+    }
+
+    /**
+     * Scope a query to get archived campaigns.
+     */
+    public function scopeArchived($query)
+    {
+        return $query->where('status', 'archived');
+    }
+
+    /**
+     * Scope a query to get non-archived campaigns.
+     */
+    public function scopeNotArchived($query)
+    {
+        return $query->where('status', '!=', 'archived');
     }
 }

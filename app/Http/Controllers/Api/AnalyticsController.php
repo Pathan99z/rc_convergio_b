@@ -159,4 +159,100 @@ class AnalyticsController extends Controller
             'message' => 'Available time periods retrieved successfully'
         ]);
     }
+
+    /**
+     * Get contacts analytics.
+     */
+    public function contacts(Request $request): JsonResponse
+    {
+        return $this->module($request, 'contacts');
+    }
+
+    /**
+     * Get companies analytics.
+     */
+    public function companies(Request $request): JsonResponse
+    {
+        return $this->module($request, 'companies');
+    }
+
+    /**
+     * Get deals analytics.
+     */
+    public function deals(Request $request): JsonResponse
+    {
+        return $this->module($request, 'deals');
+    }
+
+    /**
+     * Get campaigns analytics.
+     */
+    public function campaigns(Request $request): JsonResponse
+    {
+        return $this->module($request, 'campaigns');
+    }
+
+    /**
+     * Get ads analytics.
+     */
+    public function ads(Request $request): JsonResponse
+    {
+        return $this->module($request, 'ads');
+    }
+
+    /**
+     * Get events analytics.
+     */
+    public function events(Request $request): JsonResponse
+    {
+        return $this->module($request, 'events');
+    }
+
+    /**
+     * Get meetings analytics.
+     */
+    public function meetings(Request $request): JsonResponse
+    {
+        return $this->module($request, 'meetings');
+    }
+
+    /**
+     * Get tasks analytics.
+     */
+    public function tasks(Request $request): JsonResponse
+    {
+        return $this->module($request, 'tasks');
+    }
+
+    /**
+     * Get forecast analytics.
+     */
+    public function forecast(Request $request): JsonResponse
+    {
+        return $this->module($request, 'forecast');
+    }
+
+    /**
+     * Get lead scoring analytics.
+     */
+    public function leadScoring(Request $request): JsonResponse
+    {
+        return $this->module($request, 'lead_scoring');
+    }
+
+    /**
+     * Get journeys analytics.
+     */
+    public function journeys(Request $request): JsonResponse
+    {
+        return $this->module($request, 'journeys');
+    }
+
+    /**
+     * Get visitor intent analytics.
+     */
+    public function visitorIntent(Request $request): JsonResponse
+    {
+        return $this->module($request, 'visitor_intent');
+    }
 }

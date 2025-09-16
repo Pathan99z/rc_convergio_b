@@ -25,6 +25,8 @@ class Event extends Model
         'location',
         'settings',
         'is_active',
+        'archived_at',
+        'cancelled_at',
         'tenant_id',
         'created_by',
     ];
@@ -38,6 +40,8 @@ class Event extends Model
         'scheduled_at' => 'datetime',
         'settings' => 'array',
         'is_active' => 'boolean',
+        'archived_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     /**

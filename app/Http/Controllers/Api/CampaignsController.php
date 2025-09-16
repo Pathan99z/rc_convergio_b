@@ -320,7 +320,7 @@ class CampaignsController extends Controller
             ->where('tenant_id', $tenantId)
             ->whereNotNull('email')
             ->whereNotExists(function ($q) {
-                $q->select(\DB::raw(1))
+                $q->select(DB::raw(1))
                   ->from('contact_subscriptions')
                   ->whereColumn('contact_subscriptions.contact_id', 'contacts.id')
                   ->where('contact_subscriptions.unsubscribed', true);

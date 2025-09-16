@@ -30,6 +30,7 @@ class Meeting extends Model
         'attendees',
         'notes',
         'completed_at',
+        'cancelled_at',
         'tenant_id',
     ];
 
@@ -41,6 +42,7 @@ class Meeting extends Model
     protected $casts = [
         'scheduled_at' => 'datetime',
         'completed_at' => 'datetime',
+        'cancelled_at' => 'datetime',
         'duration_minutes' => 'integer',
         'integration_data' => 'array',
         'attendees' => 'array',

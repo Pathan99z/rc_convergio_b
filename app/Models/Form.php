@@ -19,6 +19,8 @@ class Form extends Model
         'field_mapping',
         'consent_required',
         'settings',
+        'archived_at',
+        'cancelled_at',
         'created_by',
         'tenant_id',
     ];
@@ -28,6 +30,8 @@ class Form extends Model
         'field_mapping' => 'array',
         'consent_required' => 'boolean',
         'settings' => 'array',
+        'archived_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     /**

@@ -19,13 +19,18 @@ class ContactList extends Model
         'name',
         'description',
         'type',
+        'status',
         'rule',
+        'archived_at',
+        'cancelled_at',
         'created_by',
         'tenant_id',
     ];
 
     protected $casts = [
         'rule' => 'array',
+        'archived_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     /**

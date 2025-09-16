@@ -450,10 +450,10 @@ class AnalyticsService
             ->count();
         
         $highIntent = VisitorIntent::forTenant($tenantId)
-            ->where('intent_score', '>=', 80)
+            ->where('score', '>=', 80)
             ->count();
         
-        $avgIntentScore = VisitorIntent::forTenant($tenantId)->avg('intent_score') ?? 0;
+        $avgIntentScore = VisitorIntent::forTenant($tenantId)->avg('score') ?? 0;
         
         return [
             'total' => $total,
