@@ -15,9 +15,9 @@ use Illuminate\Validation\Rule;
 class CampaignAutomationController extends Controller
 {
     /**
-     * Get all automation rules for a specific campaign.
+     * Get all automation rules for a specific campaign or all automations.
      */
-    public function index(Request $request, $campaignId): JsonResponse
+    public function index(Request $request, $campaignId = null): JsonResponse
     {
         // Get tenant_id from header or use user's organization as fallback (same as CampaignsController)
         $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
@@ -31,15 +31,19 @@ class CampaignAutomationController extends Controller
             }
         }
 
-        // Verify campaign exists and belongs to tenant
-        $campaign = Campaign::where('id', $campaignId)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
+        $query = CampaignAutomation::where('tenant_id', $tenantId);
 
-        $automations = CampaignAutomation::where('campaign_id', $campaignId)
-            ->where('tenant_id', $tenantId)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        // If campaignId is provided, filter by it and verify campaign exists
+        if ($campaignId !== null) {
+            // Verify campaign exists and belongs to tenant
+            $campaign = Campaign::where('id', $campaignId)
+                ->where('tenant_id', $tenantId)
+                ->firstOrFail();
+            
+            $query->where('campaign_id', $campaignId);
+        }
+
+        $automations = $query->orderBy('created_at', 'desc')->get();
 
         return response()->json([
             'data' => $automations,

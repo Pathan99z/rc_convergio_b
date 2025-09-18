@@ -185,7 +185,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('campaigns/automations/{automationId}', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'destroy'])->whereNumber('automationId');
     Route::get('campaigns/automations/{id}/logs', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'logs'])->whereNumber('id');
     Route::get('campaigns/automations/options', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'options']);
-
+    Route::get('campaigns/automations', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'index']);
     // Independent Email Automations (New Professional System)
     Route::get('automations', [\App\Http\Controllers\Api\AutomationController::class, 'index']);
     Route::post('automations', [\App\Http\Controllers\Api\AutomationController::class, 'store']);

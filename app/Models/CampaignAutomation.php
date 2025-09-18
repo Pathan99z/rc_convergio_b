@@ -88,8 +88,9 @@ class CampaignAutomation extends Model
     {
         return [
             'form_submitted' => 'Form Submitted',
-            'segment_joined' => 'Segment Joined',
             'contact_created' => 'Contact Created',
+            'email_opened' => 'Email Opened',
+            'link_clicked' => 'Link Clicked',
             'deal_created' => 'Deal Created',
             'deal_updated' => 'Deal Updated',
         ];
