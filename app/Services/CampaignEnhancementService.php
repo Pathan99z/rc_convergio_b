@@ -28,10 +28,20 @@ class CampaignEnhancementService
             // Send test emails
             $sentEmails = [];
             foreach ($testEmails as $email) {
-                // Here you would integrate with your email service
-                // For now, we'll just log the test email
-                Log::info("Test email sent for campaign {$campaign->id} to {$email}");
-                $sentEmails[] = $email;
+                try {
+                    // Send actual test email using Laravel Mail
+                    Mail::raw($this->getTestEmailContent($campaign), function ($message) use ($campaign, $email) {
+                        $message->to($email)
+                                ->subject('[TEST] ' . $campaign->subject)
+                                ->from(config('mail.from.address'), config('mail.from.name'));
+                    });
+                    
+                    Log::info("Test email sent successfully for campaign {$campaign->id} to {$email}");
+                    $sentEmails[] = $email;
+                } catch (\Exception $e) {
+                    Log::error("Failed to send test email for campaign {$campaign->id} to {$email}: " . $e->getMessage());
+                    throw new \Exception("Failed to send test email to {$email}: " . $e->getMessage());
+                }
             }
 
             DB::commit();
@@ -622,5 +632,22 @@ class CampaignEnhancementService
         $score -= count($errors) * 20; // Each error reduces score by 20
         $score -= count($warnings) * 5; // Each warning reduces score by 5
         return max(0, $score);
+    }
+
+    /**
+     * Generate test email content.
+     */
+    private function getTestEmailContent(Campaign $campaign): string
+    {
+        $content = "This is a test email for campaign: {$campaign->name}\n\n";
+        $content .= "Subject: {$campaign->subject}\n\n";
+        $content .= "Content:\n";
+        $content .= strip_tags($campaign->content) . "\n\n";
+        $content .= "---\n";
+        $content .= "This is a test email sent from RC Convergio CRM.\n";
+        $content .= "Campaign ID: {$campaign->id}\n";
+        $content .= "Sent at: " . now()->format('Y-m-d H:i:s') . "\n";
+        
+        return $content;
     }
 }

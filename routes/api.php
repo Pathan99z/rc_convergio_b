@@ -41,6 +41,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('tasks/today', [TasksController::class, 'today']);
     Route::get('contacts/recent', [ContactsController::class, 'recent']);
     Route::get('campaigns/metrics', [CampaignsController::class, 'metrics']);
+    Route::get('campaigns/metrics/trends', [CampaignsController::class, 'trends']);
 
     // Email verification required for sensitive operations
     Route::middleware(['verified'])->group(function () {
@@ -162,6 +163,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('campaigns', [\App\Http\Controllers\Api\CampaignsController::class, 'index']);
     Route::post('campaigns', [\App\Http\Controllers\Api\CampaignsController::class, 'store']);
     Route::get('campaigns/templates', [\App\Http\Controllers\Api\CampaignsController::class, 'templates']);
+    Route::post('campaigns/from-template/{templateId}', [\App\Http\Controllers\Api\CampaignsController::class, 'createFromTemplate'])->whereNumber('templateId');
     Route::get('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'show'])->whereNumber('id');
     Route::patch('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'update'])->whereNumber('id');
     Route::put('campaigns/{id}', [\App\Http\Controllers\Api\CampaignsController::class, 'update'])->whereNumber('id');
@@ -175,11 +177,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('campaigns/{id}/recipients', [\App\Http\Controllers\Api\CampaignsController::class, 'removeRecipients'])->whereNumber('id');
     Route::get('campaigns/{id}/metrics', [\App\Http\Controllers\Api\CampaignsController::class, 'metrics'])->whereNumber('id');
 
-    // Campaign Automations
+    // Campaign Automations (Legacy - Backward Compatible)
     Route::get('campaigns/{id}/automations', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'index'])->whereNumber('id');
     Route::post('campaigns/{id}/automations', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'store'])->whereNumber('id');
+    Route::put('campaigns/automations/{id}', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'update'])->whereNumber('id');
+    Route::patch('campaigns/automations/{id}/status', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'updateStatus'])->whereNumber('id');
     Route::delete('campaigns/automations/{automationId}', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'destroy'])->whereNumber('automationId');
+    Route::get('campaigns/automations/{id}/logs', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'logs'])->whereNumber('id');
     Route::get('campaigns/automations/options', [\App\Http\Controllers\Api\CampaignAutomationController::class, 'options']);
+
+    // Independent Email Automations (New Professional System)
+    Route::get('automations', [\App\Http\Controllers\Api\AutomationController::class, 'index']);
+    Route::post('automations', [\App\Http\Controllers\Api\AutomationController::class, 'store']);
+    Route::get('automations/{id}', [\App\Http\Controllers\Api\AutomationController::class, 'show'])->whereNumber('id');
+    Route::put('automations/{id}', [\App\Http\Controllers\Api\AutomationController::class, 'update'])->whereNumber('id');
+    Route::delete('automations/{id}', [\App\Http\Controllers\Api\AutomationController::class, 'destroy'])->whereNumber('id');
+    Route::get('automations/options', [\App\Http\Controllers\Api\AutomationController::class, 'options']);
+    Route::get('automations/{id}/logs', [\App\Http\Controllers\Api\AutomationController::class, 'logs'])->whereNumber('id');
 
     // Ad Campaigns
     Route::post('campaigns/{id}/ads', [\App\Http\Controllers\Api\CampaignsController::class, 'createAd'])->whereNumber('id');
@@ -441,6 +455,12 @@ Route::prefix('public')->group(function () {
     // Campaign tracking
     Route::get('campaigns/track/open', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'open'])->name('campaigns.track.open');
     Route::get('campaigns/track/click', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'click'])->name('campaigns.track.click');
+    Route::get('campaigns/track/bounce', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'bounce'])->name('campaigns.track.bounce');
+    
+    // Campaign reporting endpoints
+    Route::get('campaigns/{campaign}/opens', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getOpensByCampaign'])->name('campaigns.opens')->where('campaign', '[0-9]+');
+    Route::get('campaigns/{campaign}/clicks', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getClicksByCampaign'])->name('campaigns.clicks')->where('campaign', '[0-9]+');
+    Route::get('campaigns/{campaign}/bounces', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getBouncesByCampaign'])->name('campaigns.bounces')->where('campaign', '[0-9]+');
     // Campaign unsubscribe
     Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
 });

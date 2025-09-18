@@ -4,11 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
-class CampaignAutomation extends Model
+class Automation extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.
@@ -17,16 +19,13 @@ class CampaignAutomation extends Model
      */
     protected $fillable = [
         'name',
-        'description',
-        'campaign_id',
-        'template_id',
-        'content_type',
         'trigger_event',
         'delay_minutes',
         'action',
         'metadata',
         'is_active',
         'tenant_id',
+        'created_by',
     ];
 
     /**
@@ -38,24 +37,7 @@ class CampaignAutomation extends Model
         'metadata' => 'array',
         'delay_minutes' => 'integer',
         'is_active' => 'boolean',
-        'content_type' => 'string',
     ];
-
-    /**
-     * Get the campaign that owns the automation.
-     */
-    public function campaign(): BelongsTo
-    {
-        return $this->belongsTo(Campaign::class);
-    }
-
-    /**
-     * Get the template used by the automation.
-     */
-    public function template(): BelongsTo
-    {
-        return $this->belongsTo(CampaignTemplate::class, 'template_id');
-    }
 
     /**
      * Get the tenant that owns the automation.
@@ -66,11 +48,35 @@ class CampaignAutomation extends Model
     }
 
     /**
+     * Get the user who created the automation.
+     */
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Get the automation logs for this automation.
+     */
+    public function logs(): HasMany
+    {
+        return $this->hasMany(AutomationLog::class);
+    }
+
+    /**
      * Scope a query to only include automations for a specific tenant.
      */
     public function scopeForTenant($query, $tenantId)
     {
         return $query->where('tenant_id', $tenantId);
+    }
+
+    /**
+     * Scope a query to only include active automations.
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
     }
 
     /**
@@ -87,11 +93,10 @@ class CampaignAutomation extends Model
     public static function getAvailableTriggerEvents(): array
     {
         return [
-            'form_submitted' => 'Form Submitted',
-            'segment_joined' => 'Segment Joined',
             'contact_created' => 'Contact Created',
-            'deal_created' => 'Deal Created',
-            'deal_updated' => 'Deal Updated',
+            'form_submitted' => 'Form Submitted',
+            'email_opened' => 'Email Opened',
+            'link_clicked' => 'Link Clicked',
         ];
     }
 
@@ -102,8 +107,17 @@ class CampaignAutomation extends Model
     {
         return [
             'send_email' => 'Send Email',
-            'add_to_segment' => 'Add to Segment',
-            'update_contact' => 'Update Contact',
+            'add_tag' => 'Add Tag',
+            'update_field' => 'Update Field',
+            'create_task' => 'Create Task',
         ];
+    }
+
+    /**
+     * Check if the automation is valid for execution.
+     */
+    public function canExecute(): bool
+    {
+        return $this->is_active && !$this->trashed();
     }
 }

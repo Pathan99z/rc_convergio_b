@@ -5,7 +5,11 @@ namespace App\Services;
 use App\Jobs\ProcessCampaignAutomation;
 use App\Models\CampaignAutomation;
 use App\Models\Contact;
+use App\Models\Campaign;
+use App\Models\CampaignTemplate;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class CampaignAutomationService
 {
@@ -28,9 +32,10 @@ class CampaignAutomationService
                 return;
             }
 
-            // Find all automations for this trigger event and tenant
+            // Find all active automations for this trigger event and tenant
             $automations = CampaignAutomation::where('trigger_event', $triggerEvent)
                 ->where('tenant_id', $contact->tenant_id)
+                ->where('is_active', true)
                 ->get();
 
             Log::info('Found automations for trigger', [
@@ -39,9 +44,9 @@ class CampaignAutomationService
                 'automation_count' => $automations->count()
             ]);
 
-            // Dispatch automation jobs
+            // Process automations immediately (synchronously)
             foreach ($automations as $automation) {
-                $this->dispatchAutomation($automation, $contactId, $triggerData);
+                $this->processAutomation($automation, $contactId, $triggerData);
             }
 
         } catch (\Exception $e) {
@@ -55,25 +60,44 @@ class CampaignAutomationService
     }
 
     /**
-     * Dispatch a single automation job.
+     * Process a single automation immediately.
      */
-    private function dispatchAutomation(CampaignAutomation $automation, int $contactId, array $triggerData = []): void
+    private function processAutomation(CampaignAutomation $automation, int $contactId, array $triggerData = []): void
     {
         try {
-            // Dispatch the automation job with delay
-            $job = new ProcessCampaignAutomation($automation->id, $contactId, $triggerData);
-            dispatch($job)->delay(now()->addMinutes($automation->delay_minutes));
-
-            Log::info('Automation job dispatched', [
+            Log::info('Processing automation immediately', [
                 'automation_id' => $automation->id,
                 'campaign_id' => $automation->campaign_id,
                 'contact_id' => $contactId,
-                'delay_minutes' => $automation->delay_minutes,
-                'trigger_event' => $automation->trigger_event
+                'trigger_event' => $automation->trigger_event,
+                'action' => $automation->action
+            ]);
+
+            // Get the campaign and contact
+            $campaign = \App\Models\Campaign::find($automation->campaign_id);
+            $contact = Contact::find($contactId);
+
+            if (!$campaign) {
+                Log::error('Campaign not found for automation', ['campaign_id' => $automation->campaign_id]);
+                return;
+            }
+
+            if (!$contact) {
+                Log::error('Contact not found for automation', ['contact_id' => $contactId]);
+                return;
+            }
+
+            // Process the automation action immediately
+            $this->processAction($automation, $campaign, $contact);
+
+            Log::info('Automation processed successfully', [
+                'automation_id' => $automation->id,
+                'campaign_id' => $campaign->id,
+                'contact_id' => $contactId
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Failed to dispatch automation job', [
+            Log::error('Failed to process automation', [
                 'automation_id' => $automation->id,
                 'contact_id' => $contactId,
                 'error' => $e->getMessage()
@@ -139,6 +163,290 @@ class CampaignAutomationService
             'changes' => $changes,
             'triggered_at' => now()->toISOString()
         ]);
+    }
+
+    /**
+     * Process the automation action.
+     */
+    private function processAction(CampaignAutomation $automation, Campaign $campaign, Contact $contact): void
+    {
+        switch ($automation->action) {
+            case 'send_email':
+                $this->sendEmail($automation, $campaign, $contact);
+                break;
+                
+            case 'add_to_segment':
+                $this->addToSegment($automation, $contact);
+                break;
+                
+            case 'update_contact':
+                $this->updateContact($automation, $contact);
+                break;
+                
+            default:
+                Log::warning('Unknown automation action', [
+                    'action' => $automation->action,
+                    'automation_id' => $automation->id
+                ]);
+        }
+    }
+
+    /**
+     * Send email immediately using Laravel Mail.
+     */
+    private function sendEmail(CampaignAutomation $automation, Campaign $campaign, Contact $contact): void
+    {
+        try {
+            // Determine content source based on automation configuration
+            if ($automation->content_type === 'template' && $automation->template_id) {
+                // Use template content (new professional approach)
+                $emailContent = $this->getTemplateContent($automation->template_id, $contact);
+                $subject = $this->getTemplateSubject($automation->template_id, $contact);
+            } else {
+                // Use campaign content (backward compatibility)
+                $emailContent = $this->generateEmailContent($campaign, $contact);
+                $subject = $campaign->subject;
+            }
+            
+            // Send email immediately using Laravel Mail
+            Mail::html($emailContent, function ($message) use ($subject, $contact) {
+                $message->to($contact->email, $contact->first_name . ' ' . $contact->last_name)
+                        ->subject($subject)
+                        ->from(config('mail.from.address'), config('mail.from.name'));
+            });
+
+            // Log the automation execution
+            $this->logAutomationExecution($automation, $contact, 'success');
+
+            Log::info('Automation email sent successfully', [
+                'automation_id' => $automation->id,
+                'campaign_id' => $campaign->id,
+                'template_id' => $automation->template_id,
+                'content_type' => $automation->content_type,
+                'contact_id' => $contact->id,
+                'email' => $contact->email
+            ]);
+
+        } catch (\Exception $e) {
+            // Log failed execution
+            $this->logAutomationExecution($automation, $contact, 'failed', $e->getMessage());
+            
+            Log::error('Failed to send automation email', [
+                'automation_id' => $automation->id,
+                'campaign_id' => $campaign->id,
+                'template_id' => $automation->template_id,
+                'content_type' => $automation->content_type,
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Generate email content from campaign.
+     */
+    private function generateEmailContent(Campaign $campaign, Contact $contact): string
+    {
+        $content = $campaign->content;
+        
+        // Replace placeholders with contact data
+        $placeholders = [
+            '{{first_name}}' => $contact->first_name,
+            '{{last_name}}' => $contact->last_name,
+            '{{email}}' => $contact->email,
+            '{{phone}}' => $contact->phone ?? '',
+            '{{company}}' => $contact->company->name ?? '',
+        ];
+        
+        foreach ($placeholders as $placeholder => $value) {
+            $content = str_replace($placeholder, $value, $content);
+        }
+        
+        return $content;
+    }
+
+    /**
+     * Get template content with personalization.
+     */
+    private function getTemplateContent(int $templateId, Contact $contact): string
+    {
+        $template = CampaignTemplate::find($templateId);
+        if (!$template) {
+            throw new \Exception("Template not found: {$templateId}");
+        }
+
+        $content = $template->content;
+        
+        // Replace placeholders with contact data
+        $placeholders = [
+            '{{first_name}}' => $contact->first_name,
+            '{{last_name}}' => $contact->last_name,
+            '{{email}}' => $contact->email,
+            '{{phone}}' => $contact->phone ?? '',
+            '{{company}}' => $contact->company->name ?? '',
+        ];
+        
+        foreach ($placeholders as $placeholder => $value) {
+            $content = str_replace($placeholder, $value, $content);
+        }
+        
+        return $content;
+    }
+
+    /**
+     * Get template subject with personalization.
+     */
+    private function getTemplateSubject(int $templateId, Contact $contact): string
+    {
+        $template = CampaignTemplate::find($templateId);
+        if (!$template) {
+            throw new \Exception("Template not found: {$templateId}");
+        }
+
+        $subject = $template->subject;
+        
+        // Replace placeholders with contact data
+        $placeholders = [
+            '{{first_name}}' => $contact->first_name,
+            '{{last_name}}' => $contact->last_name,
+            '{{email}}' => $contact->email,
+            '{{phone}}' => $contact->phone ?? '',
+            '{{company}}' => $contact->company->name ?? '',
+        ];
+        
+        foreach ($placeholders as $placeholder => $value) {
+            $subject = str_replace($placeholder, $value, $subject);
+        }
+        
+        return $subject;
+    }
+
+    /**
+     * Add contact to a segment.
+     */
+    private function addToSegment(CampaignAutomation $automation, Contact $contact): void
+    {
+        $segmentId = $automation->metadata['segment_id'] ?? null;
+        
+        if (!$segmentId) {
+            Log::warning('No segment_id in automation metadata', [
+                'automation_id' => $automation->id
+            ]);
+            return;
+        }
+
+        // Add contact to segment logic here
+        // This would depend on your segment implementation
+        Log::info('Contact added to segment via automation', [
+            'contact_id' => $contact->id,
+            'segment_id' => $segmentId,
+            'automation_id' => $automation->id
+        ]);
+    }
+
+    /**
+     * Update contact with automation metadata.
+     */
+    private function updateContact(CampaignAutomation $automation, Contact $contact): void
+    {
+        $updateData = $automation->metadata['contact_updates'] ?? [];
+        
+        if (empty($updateData)) {
+            Log::warning('No contact_updates in automation metadata', [
+                'automation_id' => $automation->id
+            ]);
+            return;
+        }
+
+        // Update contact with the specified data
+        $contact->update($updateData);
+        
+        Log::info('Contact updated via automation', [
+            'contact_id' => $contact->id,
+            'updates' => $updateData,
+            'automation_id' => $automation->id
+        ]);
+    }
+
+    /**
+     * Log automation execution.
+     */
+    private function logAutomationExecution(CampaignAutomation $automation, Contact $contact, string $status, ?string $errorMessage = null): void
+    {
+        try {
+            DB::table('campaign_automation_logs')->insert([
+                'automation_id' => $automation->id,
+                'contact_id' => $contact->id,
+                'executed_at' => now(),
+                'status' => $status,
+                'error_message' => $errorMessage,
+                'tenant_id' => $automation->tenant_id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to log automation execution', [
+                'automation_id' => $automation->id,
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Trigger automations for email opened event.
+     */
+    public function triggerEmailOpened(int $campaignId, int $contactId): void
+    {
+        Log::info('Email opened automation triggered', [
+            'campaign_id' => $campaignId,
+            'contact_id' => $contactId
+        ]);
+
+        // Find automations for this specific campaign
+        $automations = CampaignAutomation::where('trigger_event', 'email_opened')
+            ->where('campaign_id', $campaignId)  // Specific campaign only
+            ->where('is_active', true)
+            ->get();
+
+        Log::info('Found email opened automations', [
+            'campaign_id' => $campaignId,
+            'contact_id' => $contactId,
+            'automation_count' => $automations->count()
+        ]);
+
+        foreach ($automations as $automation) {
+            $this->processAutomation($automation, $contactId);
+        }
+    }
+
+    /**
+     * Trigger automations for link clicked event.
+     */
+    public function triggerLinkClicked(int $campaignId, int $contactId, ?string $linkUrl = null): void
+    {
+        Log::info('Link clicked automation triggered', [
+            'campaign_id' => $campaignId,
+            'contact_id' => $contactId,
+            'link_url' => $linkUrl
+        ]);
+
+        // Find automations for this specific campaign
+        $automations = CampaignAutomation::where('trigger_event', 'link_clicked')
+            ->where('campaign_id', $campaignId)  // Specific campaign only
+            ->where('is_active', true)
+            ->get();
+
+        Log::info('Found link clicked automations', [
+            'campaign_id' => $campaignId,
+            'contact_id' => $contactId,
+            'automation_count' => $automations->count()
+        ]);
+
+        foreach ($automations as $automation) {
+            $this->processAutomation($automation, $contactId);
+        }
     }
 
     /**

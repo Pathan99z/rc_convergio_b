@@ -9,6 +9,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ProcessCampaignAutomation implements ShouldQueue
@@ -125,18 +126,57 @@ class ProcessCampaignAutomation implements ShouldQueue
      */
     private function sendEmail(CampaignAutomation $automation, Campaign $campaign, Contact $contact): void
     {
-        // Use the existing SendCampaignEmails job but with a single recipient
-        $recipients = collect([$contact]);
-        
-        // Dispatch the existing SendCampaignEmails job
-        \App\Jobs\SendCampaignEmails::dispatch($campaign, $recipients)
-            ->delay(now()->addMinutes($automation->delay_minutes));
+        try {
+            // First, add the contact as a recipient to the campaign
+            $this->addContactAsRecipient($campaign, $contact);
             
-        Log::info('Email automation dispatched', [
-            'campaign_id' => $campaign->id,
-            'contact_id' => $contact->id,
-            'delay_minutes' => $automation->delay_minutes
-        ]);
+            // Then dispatch the SendCampaignEmails job
+            \App\Jobs\SendCampaignEmails::dispatch($campaign->id)
+                ->delay(now()->addMinutes($automation->delay_minutes));
+                
+            Log::info('Email automation dispatched', [
+                'campaign_id' => $campaign->id,
+                'contact_id' => $contact->id,
+                'delay_minutes' => $automation->delay_minutes
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to dispatch email automation', [
+                'campaign_id' => $campaign->id,
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Add contact as a recipient to the campaign.
+     */
+    private function addContactAsRecipient(Campaign $campaign, Contact $contact): void
+    {
+        // Check if contact is already a recipient
+        $existingRecipient = DB::table('campaign_recipients')
+            ->where('campaign_id', $campaign->id)
+            ->where('contact_id', $contact->id)
+            ->first();
+
+        if (!$existingRecipient) {
+            // Add contact as recipient
+            DB::table('campaign_recipients')->insert([
+                'campaign_id' => $campaign->id,
+                'contact_id' => $contact->id,
+                'email' => $contact->email,
+                'status' => 'pending',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            Log::info('Contact added as campaign recipient for automation', [
+                'campaign_id' => $campaign->id,
+                'contact_id' => $contact->id,
+                'email' => $contact->email
+            ]);
+        }
     }
 
     /**

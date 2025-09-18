@@ -7,6 +7,7 @@ use App\Http\Requests\Contacts\StoreContactRequest;
 use App\Http\Requests\Contacts\UpdateContactRequest;
 use App\Jobs\ImportContactsJob;
 use App\Models\Contact;
+use App\Services\CampaignAutomationService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,10 @@ use Illuminate\Validation\ValidationException;
 
 class ContactsController extends Controller
 {
-    public function __construct(private CacheRepository $cache) {}
+    public function __construct(
+        private CacheRepository $cache,
+        private CampaignAutomationService $automationService
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -109,6 +113,21 @@ class ContactsController extends Controller
         $data['tenant_id'] = $tenantId;
 
         $contact = Contact::create($data);
+
+        // Trigger automation for contact creation
+        try {
+            $this->automationService->triggerContactCreated($contact->id, $data);
+            Log::info('Contact creation automation triggered', [
+                'contact_id' => $contact->id,
+                'email' => $contact->email,
+                'tenant_id' => $contact->tenant_id
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to trigger contact creation automation', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage()
+            ]);
+        }
 
         $response = [
             'data' => $contact,

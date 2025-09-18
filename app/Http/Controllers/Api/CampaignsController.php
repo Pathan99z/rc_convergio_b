@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log as FrameworkLog;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -82,6 +83,52 @@ class CampaignsController extends Controller
         ]);
     }
 
+    /**
+     * Create a campaign from a template
+     */
+    public function createFromTemplate(Request $request, int $templateId): JsonResponse
+    {
+        $this->authorize('create', Campaign::class);
+
+        // Get tenant_id from header or use user's organization as fallback
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        // Find the template
+        $template = \App\Models\CampaignTemplate::where('id', $templateId)
+            ->where('tenant_id', $tenantId)
+            ->where('is_active', true)
+            ->firstOrFail();
+
+        // Create campaign from template
+        $campaign = Campaign::create([
+            'name' => $template->name . ' (Copy)',
+            'description' => $template->description,
+            'subject' => $template->subject,
+            'content' => $template->content,
+            'type' => $template->type,
+            'status' => 'draft',
+            'tenant_id' => $tenantId,
+            'created_by' => $request->user()->id,
+            'settings' => [],
+        ]);
+
+        // Increment template usage count
+        $template->increment('usage_count');
+
+        return response()->json([
+            'message' => 'Campaign created from template successfully',
+            'data' => new CampaignResource($campaign->load(['recipients'])),
+        ], 201);
+    }
+
     public function store(StoreCampaignRequest $request): JsonResponse
     {
         $this->authorize('create', Campaign::class);
@@ -99,6 +146,19 @@ class CampaignsController extends Controller
         }
 
         $data = $request->validated();
+        
+        // If this is a template, validate that description is required
+        if (isset($data['is_template']) && $data['is_template']) {
+            if (empty($data['description'])) {
+                return response()->json([
+                    'message' => 'The description field is required for templates.',
+                    'errors' => [
+                        'description' => ['The description field is required for templates.']
+                    ]
+                ], 422);
+            }
+        }
+        
         $data['tenant_id'] = $tenantId;
         $data['created_by'] = $request->user()->id;
         $data['status'] = 'draft';
@@ -109,6 +169,45 @@ class CampaignsController extends Controller
             'segment_id' => $data['segment_id'] ?? null,
         ]);
 
+        // If this is a template, save ONLY to campaign_templates table (not campaigns)
+        if (isset($data['is_template']) && $data['is_template']) {
+            // Log what we're receiving for debugging
+            Log::info('Template creation data received', [
+                'name' => $data['name'] ?? 'NOT_SET',
+                'description' => $data['description'] ?? 'NOT_SET',
+                'subject' => $data['subject'] ?? 'NOT_SET',
+                'content' => $data['content'] ?? 'NOT_SET',
+                'all_data' => $data
+            ]);
+            
+            $template = \App\Models\CampaignTemplate::create([
+                'name' => $data['name'],
+                'description' => $data['description'] ?? null,
+                'subject' => $data['subject'],
+                'content' => $data['content'],
+                'type' => $data['type'] ?? 'email',
+                'category' => 'custom',
+                'is_active' => true,
+                'is_public' => false,
+                'usage_count' => 0,
+                'tenant_id' => $tenantId,
+                'created_by' => $request->user()->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Template saved successfully',
+                'data' => [
+                    'id' => $template->id,
+                    'name' => $template->name,
+                    'subject' => $template->subject,
+                    'content' => $template->content,
+                    'type' => $template->type,
+                    'is_template' => true,
+                ]
+            ], 201);
+        }
+
+        // If this is a regular campaign, save to campaigns table
         $campaign = Campaign::create($data);
 
         return response()->json([
@@ -159,6 +258,29 @@ class CampaignsController extends Controller
         // If the request intends to only toggle is_template via PATCH, allow partial update
         if ($request->isMethod('patch') && array_keys($update) === ['is_template']) {
             $campaign->update(['is_template' => (bool) $update['is_template']]);
+            
+            // Handle template creation/deletion in campaign_templates table
+            if ($update['is_template']) {
+                // Create template in campaign_templates table
+                \App\Models\CampaignTemplate::updateOrCreate(
+                    ['name' => $campaign->name, 'tenant_id' => $campaign->tenant_id],
+                    [
+                        'description' => $campaign->description,
+                        'subject' => $campaign->subject,
+                        'content' => $campaign->content,
+                        'type' => $campaign->type ?? 'email',
+                        'category' => 'custom',
+                        'is_active' => true,
+                        'is_public' => false,
+                        'created_by' => $campaign->created_by,
+                    ]
+                );
+            } else {
+                // Remove template from campaign_templates table
+                \App\Models\CampaignTemplate::where('name', $campaign->name)
+                    ->where('tenant_id', $campaign->tenant_id)
+                    ->delete();
+            }
         } else {
             // Merge recipient fields into settings without breaking existing keys
             $settings = array_merge($campaign->settings ?? [], [
@@ -168,6 +290,23 @@ class CampaignsController extends Controller
             ]);
             $update['settings'] = $settings;
             $campaign->update($update);
+            
+            // If this is a template, also update it in campaign_templates table
+            if ($campaign->is_template) {
+                \App\Models\CampaignTemplate::updateOrCreate(
+                    ['name' => $campaign->name, 'tenant_id' => $campaign->tenant_id],
+                    [
+                        'description' => $campaign->description,
+                        'subject' => $campaign->subject,
+                        'content' => $campaign->content,
+                        'type' => $campaign->type ?? 'email',
+                        'category' => 'custom',
+                        'is_active' => true,
+                        'is_public' => false,
+                        'created_by' => $campaign->created_by,
+                    ]
+                );
+            }
         }
 
         return response()->json([
@@ -648,10 +787,19 @@ class CampaignsController extends Controller
 
         // Use authenticated tenant scoping consistently
         $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
 
-        $templates = Campaign::where('tenant_id', $tenantId)
-            ->where('is_template', true)
-            ->select(['id', 'name', 'subject', 'content', 'created_at', 'is_template'])
+        // Get templates from campaign_templates table (not campaigns table)
+        $templates = \App\Models\CampaignTemplate::where('tenant_id', $tenantId)
+            ->where('is_active', true)
+            ->select(['id', 'name', 'description', 'subject', 'content', 'type', 'created_at', 'usage_count'])
             ->orderBy('created_at', 'desc')
             ->paginate(min((int) $request->query('per_page', 15), 100));
 

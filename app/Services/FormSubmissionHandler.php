@@ -57,6 +57,12 @@ class FormSubmissionHandler
                 $payload
             );
 
+            // 6. Also trigger contact_created automations (for manual contact creation automations)
+            $this->automationService->triggerContactCreated(
+                $contactResult['contact']->id,
+                $contactData
+            );
+
             // Ensure we link the existing submission (if passed) to company/contact
             if ($submission && $companyResult['company'] && empty($submission->company_id)) {
                 $submission->update(['company_id' => $companyResult['company']->id]);

@@ -4,12 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CampaignRecipient;
+use App\Services\CampaignAutomationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class CampaignWebhookController extends Controller
 {
+    public function __construct(
+        private CampaignAutomationService $automationService
+    ) {}
     public function handleEvents(Request $request): JsonResponse
     {
         // Verify webhook signature (implement based on your email provider)
@@ -96,6 +100,22 @@ class CampaignWebhookController extends Controller
                     'opened_at' => $timestamp,
                     'metadata' => array_merge($recipient->metadata ?? [], $data),
                 ]);
+                
+                // Trigger email opened automation (if contact exists)
+                if ($recipient->contact_id) {
+                    try {
+                        $this->automationService->triggerEmailOpened(
+                            $recipient->campaign_id, 
+                            $recipient->contact_id
+                        );
+                    } catch (\Exception $e) {
+                        Log::error('Failed to trigger email opened automation', [
+                            'campaign_id' => $recipient->campaign_id,
+                            'contact_id' => $recipient->contact_id,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
                 break;
 
             case 'clicked':
@@ -105,6 +125,23 @@ class CampaignWebhookController extends Controller
                     'clicked_at' => $timestamp,
                     'metadata' => array_merge($recipient->metadata ?? [], $data),
                 ]);
+                
+                // Trigger link clicked automation (if contact exists)
+                if ($recipient->contact_id) {
+                    try {
+                        $this->automationService->triggerLinkClicked(
+                            $recipient->campaign_id, 
+                            $recipient->contact_id,
+                            $data['url'] ?? null
+                        );
+                    } catch (\Exception $e) {
+                        Log::error('Failed to trigger link clicked automation', [
+                            'campaign_id' => $recipient->campaign_id,
+                            'contact_id' => $recipient->contact_id,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
                 break;
 
             case 'bounced':

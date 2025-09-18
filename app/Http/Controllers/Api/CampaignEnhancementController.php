@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Carbon\Carbon;
@@ -268,11 +269,11 @@ class CampaignEnhancementController extends Controller
     public function createTemplate(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $tenantId = $user->tenant_id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
+            'description' => 'required|string',
             'subject' => 'required|string|max:255',
             'content' => 'required|string',
             'type' => ['required', Rule::in(['email', 'sms'])],
@@ -283,6 +284,13 @@ class CampaignEnhancementController extends Controller
         ]);
 
         try {
+            // Log what we're receiving for debugging
+            Log::info('Template creation via CampaignEnhancementController', [
+                'validated_data' => $validated,
+                'tenant_id' => $tenantId,
+                'user_id' => $user->id
+            ]);
+            
             $template = CampaignTemplate::create([
                 ...$validated,
                 'tenant_id' => $tenantId,
@@ -311,11 +319,11 @@ class CampaignEnhancementController extends Controller
     public function updateTemplate(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
-        $tenantId = $user->tenant_id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
-            'description' => 'nullable|string',
+            'description' => 'sometimes|required|string',
             'subject' => 'sometimes|string|max:255',
             'content' => 'sometimes|string',
             'type' => ['sometimes', Rule::in(['email', 'sms'])],
@@ -351,7 +359,7 @@ class CampaignEnhancementController extends Controller
     public function deleteTemplate(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
-        $tenantId = $user->tenant_id;
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         try {
             $template = CampaignTemplate::forTenant($tenantId)->findOrFail($id);
