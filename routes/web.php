@@ -16,3 +16,4 @@ Route::get('/track/open/{recipientId}', [TrackingController::class, 'open'])
 Route::get('/track/click/{recipientId}', [TrackingController::class, 'click'])
     ->name('track.click')
     ->where('recipientId', '[0-9]+');
+

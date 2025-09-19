@@ -21,6 +21,8 @@ use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\UsersController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\FeatureStatusController;
+use App\Http\Controllers\Api\FacebookOAuthController;
+use App\Http\Controllers\Api\GoogleOAuthController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -315,6 +317,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('ad-accounts/{id}', [\App\Http\Controllers\Api\AdAccountsController::class, 'destroy'])->whereNumber('id');
     Route::get('ad-accounts/providers', [\App\Http\Controllers\Api\AdAccountsController::class, 'providers']);
 
+    // Facebook OAuth Integration
+    Route::prefix('facebook')->group(function () {
+        Route::get('oauth/redirect', [FacebookOAuthController::class, 'redirect']);
+        Route::get('ad-accounts', [FacebookOAuthController::class, 'getAdAccounts']);
+        Route::post('disconnect', [FacebookOAuthController::class, 'disconnect']);
+        Route::post('refresh', [FacebookOAuthController::class, 'refresh']);
+    });
+
+    // Google OAuth Integration
+    Route::prefix('google')->group(function () {
+        Route::get('oauth/redirect', [GoogleOAuthController::class, 'redirect']);
+        Route::get('ad-accounts', [GoogleOAuthController::class, 'getAdAccounts']);
+        Route::post('disconnect', [GoogleOAuthController::class, 'disconnect']);
+        Route::post('refresh', [GoogleOAuthController::class, 'refresh']);
+    });
+
     // Events
     Route::get('events', [\App\Http\Controllers\Api\EventsController::class, 'index']);
     Route::post('events', [\App\Http\Controllers\Api\EventsController::class, 'store']);
@@ -464,5 +482,12 @@ Route::prefix('public')->group(function () {
     // Campaign unsubscribe
     Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
 });
+
+// Facebook OAuth Callback (no auth required)
+Route::get('oauth/facebook/callback', [FacebookOAuthController::class, 'callback']);
+
+// Google OAuth Callback (no auth required)
+Route::get('oauth/google/callback', [GoogleOAuthController::class, 'callback']);
+
 
 

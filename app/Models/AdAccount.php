@@ -110,4 +110,42 @@ class AdAccount extends Model
             return [];
         }
     }
+
+    /**
+     * Get Facebook access token from credentials.
+     */
+    public function getFacebookAccessToken(): ?string
+    {
+        if ($this->provider !== 'facebook') {
+            return null;
+        }
+
+        $credentials = $this->credentials;
+        return $credentials['access_token'] ?? null;
+    }
+
+    /**
+     * Check if this is a Facebook ad account.
+     */
+    public function isFacebookAccount(): bool
+    {
+        return $this->provider === 'facebook';
+    }
+
+    /**
+     * Get Facebook user information from credentials.
+     */
+    public function getFacebookUserInfo(): ?array
+    {
+        if (!$this->isFacebookAccount()) {
+            return null;
+        }
+
+        $credentials = $this->credentials;
+        return [
+            'user_id' => $credentials['user_id'] ?? null,
+            'user_name' => $credentials['user_name'] ?? null,
+            'user_email' => $credentials['user_email'] ?? null,
+        ];
+    }
 }
