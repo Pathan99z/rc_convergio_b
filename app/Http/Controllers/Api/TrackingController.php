@@ -111,7 +111,7 @@ class TrackingController extends Controller
         $tenantId = $user->tenant_id;
 
         $query = VisitorIntent::where('tenant_id', $tenantId)
-            ->with(['company:id,name', 'contact:id,name,email']);
+            ->with(['company:id,name', 'contact:id,first_name,last_name,email']);
 
         // Filter by company if provided
         if ($request->has('company_id')) {

@@ -344,6 +344,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('events/{eventId}/attendees/{attendeeId}/attended', [\App\Http\Controllers\Api\EventsController::class, 'markAttended'])->whereNumber(['eventId', 'attendeeId']);
     Route::get('events/types', [\App\Http\Controllers\Api\EventsController::class, 'getEventTypes']);
     Route::get('events/rsvp-statuses', [\App\Http\Controllers\Api\EventsController::class, 'getRsvpStatuses']);
+    Route::get('events/analytics', [\App\Http\Controllers\Api\EventsController::class, 'getEventsAnalytics']);
+    
+    // Event sharing and professional features
+    Route::get('events/{id}/share-link', [\App\Http\Controllers\Api\EventsController::class, 'getShareLink'])->whereNumber('id');
+    Route::get('events/{id}/qr-code', [\App\Http\Controllers\Api\EventsController::class, 'getQrCode'])->whereNumber('id');
+    Route::get('events/{id}/calendar', [\App\Http\Controllers\Api\EventsController::class, 'getCalendarEvent'])->whereNumber('id');
+    Route::get('events/{id}/calendar/ical', [\App\Http\Controllers\Api\EventsController::class, 'downloadIcal'])->whereNumber('id');
+    Route::post('events/{id}/send-invitations', [\App\Http\Controllers\Api\EventsController::class, 'sendInvitations'])->whereNumber('id');
+    Route::get('events/{id}/analytics', [\App\Http\Controllers\Api\EventsController::class, 'getAnalytics'])->whereNumber('id');
 
     // Visitor Intent Tracking
     Route::post('tracking/events', [\App\Http\Controllers\Api\TrackingController::class, 'logEvent']);
@@ -413,6 +422,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Campaign webhook (no auth required)
     Route::post('campaigns/events', [CampaignWebhookController::class, 'handleEvents']);
+    
+    // Zoom webhook (no auth required)
+    Route::post('webhooks/zoom/events', [\App\Http\Controllers\Api\ZoomWebhookController::class, 'handleWebhook']);
 
     // Forms resource
     Route::get('forms', [FormsController::class, 'index']);
@@ -470,6 +482,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::prefix('public')->group(function () {
     Route::get('forms/{id}', [PublicFormController::class, 'show'])->whereNumber('id');
     Route::post('forms/{id}/submit', [PublicFormController::class, 'submit'])->whereNumber('id');
+    
+    // Public event registration
+    Route::get('events/{id}', [\App\Http\Controllers\Api\PublicEventController::class, 'show'])->whereNumber('id');
+    Route::post('events/{id}/register', [\App\Http\Controllers\Api\PublicEventController::class, 'register'])->whereNumber('id');
+    Route::get('events/{id}/rsvp', [\App\Http\Controllers\Api\PublicEventController::class, 'rsvp'])->whereNumber('id');
     // Campaign tracking
     Route::get('campaigns/track/open', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'open'])->name('campaigns.track.open');
     Route::get('campaigns/track/click', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'click'])->name('campaigns.track.click');

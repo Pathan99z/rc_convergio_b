@@ -3,28 +3,49 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Events\StoreEventRequest;
+use App\Http\Requests\Events\UpdateEventRequest;
+use App\Http\Requests\Events\AddAttendeeRequest;
+use App\Http\Resources\EventResource;
+use App\Http\Resources\EventAttendeeResource;
 use App\Models\Event;
 use App\Models\EventAttendee;
 use App\Models\Contact;
+use App\Services\EventService;
+use App\Services\ZoomIntegrationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class EventsController extends Controller
 {
+    public function __construct(
+        private EventService $eventService,
+        private ZoomIntegrationService $zoomService
+    ) {}
     /**
      * Get all events for the authenticated user's tenant.
      */
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', Event::class);
+
         $user = Auth::user();
         $tenantId = $user->tenant_id;
 
+        // Log for debugging tenant isolation
+        Log::info('Events index request', [
+            'tenant_id' => $tenantId,
+            'user_id' => $user->id,
+            'filters' => $request->query()
+        ]);
+
         $query = Event::where('tenant_id', $tenantId)
             ->with(['attendees' => function ($query) {
-                $query->with('contact:id,name,email');
+                $query->with('contact:id,first_name,last_name,email');
             }]);
 
         // Filter by type if provided
@@ -47,11 +68,16 @@ class EventsController extends Controller
             }
         }
 
-        $events = $query->orderBy('scheduled_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+        $filters = [
+            'type' => $request->get('type'),
+            'status' => $request->get('status'),
+            'per_page' => $request->get('per_page', 15),
+        ];
+
+        $events = $this->eventService->getEventsForTenant($tenantId, $filters);
 
         return response()->json([
-            'data' => $events->items(),
+            'data' => EventResource::collection($events->items()),
             'meta' => [
                 'current_page' => $events->currentPage(),
                 'last_page' => $events->lastPage(),
@@ -65,42 +91,94 @@ class EventsController extends Controller
     /**
      * Create a new event.
      */
-    public function store(Request $request): JsonResponse
+    public function store(StoreEventRequest $request): JsonResponse
     {
+        $this->authorize('create', Event::class);
+
         $user = Auth::user();
         $tenantId = $user->tenant_id;
 
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'type' => [
-                'required',
-                'string',
-                Rule::in(array_keys(Event::getAvailableTypes()))
-            ],
-            'scheduled_at' => 'required|date|after:now',
-            'location' => 'nullable|string|max:255',
-            'settings' => 'nullable|array',
-        ]);
+        $validated = $request->validated();
 
         try {
             DB::beginTransaction();
 
-            $event = Event::create([
-                'name' => $validated['name'],
-                'description' => $validated['description'],
-                'type' => $validated['type'],
-                'scheduled_at' => $validated['scheduled_at'],
-                'location' => $validated['location'],
-                'settings' => $validated['settings'] ?? [],
+            // Parse scheduled_at with proper Carbon UTC conversion
+            if (isset($validated['scheduled_at'])) {
+                $validated['scheduled_at'] = \Carbon\Carbon::parse($validated['scheduled_at'])->utc();
+            }
+
+            // ALWAYS enforce tenant_id and created_by for security
+            $eventData = array_merge($validated, [
                 'tenant_id' => $tenantId,
                 'created_by' => $user->id,
             ]);
 
+            // Log the data being created for debugging
+            Log::info('Creating event with data:', [
+                'tenant_id' => $tenantId,
+                'created_by' => $user->id,
+                'name' => $validated['name'] ?? 'N/A',
+                'type' => $validated['type'] ?? 'N/A',
+                'scheduled_at' => $validated['scheduled_at'] ?? 'N/A',
+                'scheduled_at_parsed' => $validated['scheduled_at']->toISOString() ?? 'N/A'
+            ]);
+
+            $event = $this->eventService->createEvent($validated, $tenantId, $user->id);
+
+            // Create Zoom meeting if it's a webinar and location is not provided
+            // This will work in both mock mode and real Zoom mode
+            if ($validated['type'] === 'webinar' && empty($validated['location'])) {
+                Log::info('Attempting to create Zoom meeting for webinar event', [
+                    'event_id' => $event->id,
+                    'event_name' => $event->name,
+                    'scheduled_at' => $event->scheduled_at
+                ]);
+                
+                $zoomResult = $this->zoomService->createMeeting($event);
+                
+                Log::info('Zoom service result', [
+                    'event_id' => $event->id,
+                    'zoom_result' => $zoomResult
+                ]);
+                
+                if ($zoomResult['success']) {
+                    // Update event with Zoom meeting details
+                    $event->update([
+                        'location' => $zoomResult['join_url'],
+                        'settings' => array_merge($event->settings ?? [], [
+                            'zoom_meeting_id' => $zoomResult['meeting_id'],
+                            'zoom_password' => $zoomResult['password'],
+                            'zoom_start_url' => $zoomResult['start_url'],
+                        ])
+                    ]);
+                    
+                    Log::info('Zoom meeting created for event', [
+                        'event_id' => $event->id,
+                        'meeting_id' => $zoomResult['meeting_id'],
+                        'join_url' => $zoomResult['join_url']
+                    ]);
+                } else {
+                    Log::warning('Failed to create Zoom meeting for event', [
+                        'event_id' => $event->id,
+                        'error' => $zoomResult['error']
+                    ]);
+                    
+                    // Don't fail the event creation if Zoom fails
+                    // The event will be created without Zoom integration
+                }
+            } else {
+                Log::info('Skipping Zoom meeting creation', [
+                    'event_id' => $event->id,
+                    'type' => $validated['type'],
+                    'location_provided' => !empty($validated['location'])
+                ]);
+            }
+
             DB::commit();
 
             return response()->json([
-                'data' => $event->load(['attendees.contact:id,name,email']),
+                'data' => new EventResource($event),
                 'message' => 'Event created successfully'
             ], 201);
 
@@ -123,8 +201,10 @@ class EventsController extends Controller
 
         $event = Event::where('id', $id)
             ->where('tenant_id', $tenantId)
-            ->with(['attendees.contact:id,name,email'])
+            ->with(['attendees.contact:id,first_name,last_name,email'])
             ->firstOrFail();
+
+        $this->authorize('view', $event);
 
         // Add RSVP statistics
         $event->rsvp_stats = $event->getRsvpStats();
@@ -138,7 +218,7 @@ class EventsController extends Controller
     /**
      * Update an event.
      */
-    public function update(Request $request, $id): JsonResponse
+    public function update(UpdateEventRequest $request, $id): JsonResponse
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
@@ -147,25 +227,20 @@ class EventsController extends Controller
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
 
-        $validated = $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'description' => 'nullable|string',
-            'type' => [
-                'sometimes',
-                'string',
-                Rule::in(array_keys(Event::getAvailableTypes()))
-            ],
-            'scheduled_at' => 'sometimes|date',
-            'location' => 'nullable|string|max:255',
-            'settings' => 'nullable|array',
-            'is_active' => 'sometimes|boolean',
-        ]);
+        $this->authorize('update', $event);
+
+        $validated = $request->validated();
+
+        // Parse scheduled_at with proper Carbon UTC conversion if provided
+        if (isset($validated['scheduled_at'])) {
+            $validated['scheduled_at'] = \Carbon\Carbon::parse($validated['scheduled_at'])->utc();
+        }
 
         try {
             $event->update($validated);
 
             return response()->json([
-                'data' => $event->load(['attendees.contact:id,name,email']),
+                'data' => $event->load(['attendees.contact:id,first_name,last_name,email']),
                 'message' => 'Event updated successfully'
             ]);
 
@@ -189,6 +264,8 @@ class EventsController extends Controller
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
 
+        $this->authorize('delete', $event);
+
         try {
             $event->delete();
 
@@ -207,7 +284,7 @@ class EventsController extends Controller
     /**
      * Add an attendee to an event (RSVP).
      */
-    public function addAttendee(Request $request, $eventId): JsonResponse
+    public function addAttendee(AddAttendeeRequest $request, $eventId): JsonResponse
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
@@ -217,15 +294,9 @@ class EventsController extends Controller
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
 
-        $validated = $request->validate([
-            'contact_id' => 'required|exists:contacts,id',
-            'rsvp_status' => [
-                'required',
-                'string',
-                Rule::in(array_keys(EventAttendee::getAvailableRsvpStatuses()))
-            ],
-            'metadata' => 'nullable|array',
-        ]);
+        $this->authorize('addAttendee', $event);
+
+        $validated = $request->validated();
 
         // Verify contact belongs to same tenant
         $contact = Contact::where('id', $validated['contact_id'])
@@ -245,21 +316,21 @@ class EventsController extends Controller
                 $existingAttendee->updateRsvpStatus($validated['rsvp_status']);
                 $attendee = $existingAttendee;
             } else {
-                // Create new attendee
+                // Create new attendee with tenant isolation
                 $attendee = EventAttendee::create([
                     'event_id' => $eventId,
                     'contact_id' => $validated['contact_id'],
                     'rsvp_status' => $validated['rsvp_status'],
                     'rsvp_at' => now(),
                     'metadata' => $validated['metadata'] ?? [],
-                    'tenant_id' => $tenantId,
+                    'tenant_id' => $tenantId, // Always enforce tenant isolation
                 ]);
             }
 
             DB::commit();
 
             return response()->json([
-                'data' => $attendee->load('contact:id,name,email'),
+                'data' => $attendee->load('contact:id,first_name,last_name,email'),
                 'message' => 'Attendee added successfully'
             ], 201);
 
@@ -285,9 +356,11 @@ class EventsController extends Controller
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
 
+        $this->authorize('viewAttendees', $event);
+
         $query = EventAttendee::where('event_id', $eventId)
             ->where('tenant_id', $tenantId)
-            ->with('contact:id,name,email');
+            ->with('contact:id,first_name,last_name,email');
 
         // Filter by RSVP status if provided
         if ($request->has('rsvp_status')) {
@@ -327,6 +400,8 @@ class EventsController extends Controller
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
 
+        $this->authorize('markAttendance', $event);
+
         $attendee = EventAttendee::where('id', $attendeeId)
             ->where('event_id', $eventId)
             ->where('tenant_id', $tenantId)
@@ -336,7 +411,7 @@ class EventsController extends Controller
             $attendee->markAsAttended();
 
             return response()->json([
-                'data' => $attendee->load('contact:id,name,email'),
+                'data' => $attendee->load('contact:id,first_name,last_name,email'),
                 'message' => 'Attendee marked as attended'
             ]);
 
@@ -369,4 +444,207 @@ class EventsController extends Controller
             'message' => 'RSVP statuses retrieved successfully'
         ]);
     }
+
+    /**
+     * Get shareable link for an event.
+     */
+    public function getShareLink($id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $event = Event::where('id', $id)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $this->authorize('view', $event);
+
+        $publicUrl = url("/api/public/events/{$id}");
+        $shortUrl = $this->eventService->generateShortUrl($publicUrl);
+
+        return response()->json([
+            'data' => [
+                'event_id' => $event->id,
+                'event_name' => $event->name,
+                'public_url' => $publicUrl,
+                'short_url' => $shortUrl,
+                'qr_code_url' => url("/api/events/{$id}/qr-code"),
+                'share_text' => "Join {$event->name} on " . $event->scheduled_at->format('M d, Y \a\t g:i A') . " - {$publicUrl}",
+            ],
+            'message' => 'Share link generated successfully'
+        ]);
+    }
+
+    /**
+     * Generate QR code for event sharing.
+     */
+    public function getQrCode($id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $event = Event::where('id', $id)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $this->authorize('view', $event);
+
+        // Generate frontend public URL (not API URL)
+        $frontendPublicUrl = $this->eventService->generateFrontendPublicUrl($event->id);
+        $qrCodeData = $this->eventService->generateQrCode($frontendPublicUrl);
+
+        return response()->json([
+            'data' => [
+                'event_id' => $event->id,
+                'qr_code' => $qrCodeData,
+                'public_url' => $frontendPublicUrl, // Frontend URL, not API URL
+            ],
+            'message' => 'QR code generated successfully'
+        ]);
+    }
+
+    /**
+     * Get calendar event data (iCal format).
+     */
+    public function getCalendarEvent($id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $event = Event::where('id', $id)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $this->authorize('view', $event);
+
+        $calendarData = $this->eventService->generateCalendarEvent($event);
+
+        return response()->json([
+            'data' => [
+                'event_id' => $event->id,
+                'calendar_data' => $calendarData,
+                'google_calendar_url' => $calendarData['google_url'],
+                'outlook_calendar_url' => $calendarData['outlook_url'],
+                'ical_download_url' => url("/api/events/{$id}/calendar/ical"),
+            ],
+            'message' => 'Calendar event data generated successfully'
+        ]);
+    }
+
+    /**
+     * Send event invitations to contacts using existing email templates.
+     */
+    public function sendInvitations(Request $request, $id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $event = Event::where('id', $id)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $this->authorize('view', $event);
+
+        $request->validate([
+            'contact_ids' => 'required|array',
+            'contact_ids.*' => 'integer|exists:contacts,id',
+            'template_id' => 'nullable|integer|exists:campaign_templates,id',
+            'subject' => 'nullable|string|max:255',
+            'message' => 'nullable|string|max:1000',
+            'send_email' => 'boolean',
+        ]);
+
+        $contactIds = $request->input('contact_ids');
+        $templateId = $request->input('template_id');
+        $subject = $request->input('subject', "You're invited to: {$event->name}");
+        $message = $request->input('message', '');
+        $sendEmail = $request->boolean('send_email', true);
+
+        // Verify all contacts belong to the same tenant
+        $contacts = Contact::whereIn('id', $contactIds)
+            ->where('tenant_id', $tenantId)
+            ->get();
+
+        if ($contacts->count() !== count($contactIds)) {
+            return response()->json([
+                'message' => 'Some contacts not found or do not belong to your tenant'
+            ], 400);
+        }
+
+        $result = $this->eventService->sendInvitationsWithTemplate($event, $contacts, $templateId, $subject, $message, $sendEmail);
+
+        return response()->json([
+            'data' => $result,
+            'message' => 'Invitations sent successfully'
+        ]);
+    }
+
+
+    /**
+     * Get events analytics and statistics overview.
+     */
+    public function getEventsAnalytics(): JsonResponse
+    {
+        $this->authorize('viewAny', Event::class);
+
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $analytics = $this->eventService->getEventsAnalytics($tenantId);
+
+        return response()->json([
+            'data' => $analytics,
+            'message' => 'Events analytics retrieved successfully'
+        ]);
+    }
+
+    /**
+     * Get event analytics and statistics.
+     */
+    public function getAnalytics($id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $event = Event::where('id', $id)
+            ->where('tenant_id', $tenantId)
+            ->with(['attendees.contact'])
+            ->firstOrFail();
+
+        $this->authorize('view', $event);
+
+        $analytics = $this->eventService->getEventAnalytics($event);
+
+        return response()->json([
+            'data' => $analytics,
+            'message' => 'Event analytics retrieved successfully'
+        ]);
+    }
+
+    /**
+     * Download iCal file for event.
+     */
+    public function downloadIcal($id)
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $event = Event::where('id', $id)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $this->authorize('view', $event);
+
+        $calendarData = $this->eventService->generateCalendarEvent($event);
+        $icalData = $calendarData['ical_data'];
+
+        $filename = 'event-' . $event->id . '-' . now()->format('Y-m-d') . '.ics';
+
+        return response($icalData, 200, [
+            'Content-Type' => 'text/calendar; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control' => 'no-cache, must-revalidate',
+        ]);
+    }
 }
+

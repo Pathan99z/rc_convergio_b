@@ -55,6 +55,14 @@ class Contact extends Model
     }
 
     /**
+     * Get the full name of the contact.
+     */
+    public function getNameAttribute(): string
+    {
+        return trim($this->first_name . ' ' . $this->last_name);
+    }
+
+    /**
      * Get the contact's subscription status
      */
     public function subscription(): BelongsTo

@@ -17,7 +17,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // Register feature restriction middleware
         $middleware->alias([
             'feature.restrict' => \App\Http\Middleware\FeatureRestrictionMiddleware::class,
+            'security.headers' => \App\Http\Middleware\SecurityHeadersMiddleware::class,
         ]);
+        
+        // Apply security headers to all requests
+        $middleware->append(\App\Http\Middleware\SecurityHeadersMiddleware::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
