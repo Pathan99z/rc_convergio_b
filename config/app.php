@@ -30,6 +30,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Development Mode Settings
+    |--------------------------------------------------------------------------
+    |
+    | These settings help reduce load during development by disabling
+    | heavy processing features like buyer intent jobs.
+    |
+    */
+
+    'dev_mode' => [
+        'disable_buyer_intent_processing' => env('DISABLE_BUYER_INTENT_DEV', true),
+        'disable_queue_workers' => env('DISABLE_QUEUE_DEV', true),
+        'reduce_polling_frequency' => env('REDUCE_POLLING_DEV', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Debug Mode
     |--------------------------------------------------------------------------
     |

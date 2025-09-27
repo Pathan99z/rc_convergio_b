@@ -34,6 +34,13 @@ Route::prefix('auth')->group(function () {
     Route::post('resend-verification', [AuthController::class, 'resendVerificationEmail'])->middleware('throttle:3,1');
 });
 
+// Public tracking endpoint for external websites
+Route::post('tracking/events', [\App\Http\Controllers\Api\TrackingController::class, 'logEvent']);
+
+// Public download endpoints for exports and reports (no auth required for temporary download URLs)
+Route::get('tracking/export/{jobId}/download', [\App\Http\Controllers\Api\AsyncExportController::class, 'downloadExport']);
+Route::get('tracking/reports/{jobId}/download', [\App\Http\Controllers\Api\AsyncReportController::class, 'downloadReport']);
+
 Route::middleware(['auth:sanctum'])->group(function () {
     // Aggregated dashboard
     Route::get('dashboard', [DashboardController::class, 'index']);
@@ -355,11 +362,46 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('events/{id}/analytics', [\App\Http\Controllers\Api\EventsController::class, 'getAnalytics'])->whereNumber('id');
 
     // Visitor Intent Tracking
-    Route::post('tracking/events', [\App\Http\Controllers\Api\TrackingController::class, 'logEvent']);
     Route::get('tracking/intent', [\App\Http\Controllers\Api\TrackingController::class, 'getIntentSignals']);
     Route::get('tracking/analytics', [\App\Http\Controllers\Api\TrackingController::class, 'getIntentAnalytics']);
     Route::get('tracking/actions', [\App\Http\Controllers\Api\TrackingController::class, 'getAvailableActions']);
     Route::get('tracking/intent-levels', [\App\Http\Controllers\Api\TrackingController::class, 'getIntentLevels']);
+    Route::get('tracking/visitor-intent-analytics', [\App\Http\Controllers\Api\TrackingController::class, 'getVisitorIntentAnalytics']);
+    Route::get('tracking/visitor-stats', [\App\Http\Controllers\Api\TrackingController::class, 'getVisitorStats']);
+    
+    // Tracking Script Generator
+    Route::get('tracking/script', [\App\Http\Controllers\Api\TrackingController::class, 'getTrackingScript']);
+    
+    // Scoring Configuration Management
+    Route::get('tracking/scoring/config', [\App\Http\Controllers\Api\TrackingController::class, 'getScoringConfig']);
+    Route::put('tracking/scoring/config', [\App\Http\Controllers\Api\TrackingController::class, 'updateScoringConfig']);
+    Route::get('tracking/scoring/stats', [\App\Http\Controllers\Api\TrackingController::class, 'getScoringStats']);
+    Route::post('tracking/scoring/test', [\App\Http\Controllers\Api\TrackingController::class, 'testScoring']);
+    Route::get('tracking/url-stats', [\App\Http\Controllers\Api\TrackingController::class, 'getUrlStats']);
+
+    // Campaign Intent Integration (NEW - doesn't interfere with existing campaign functionality)
+    Route::post('campaigns/intent-webhook', [\App\Http\Controllers\Api\CampaignIntentWebhookController::class, 'handleIntentEvents']);
+    Route::get('campaigns/intent-stats', [\App\Http\Controllers\Api\CampaignIntentWebhookController::class, 'getCampaignIntentStats']);
+
+    // Async Exports & Reports (NEW - doesn't interfere with existing functionality)
+    Route::post('tracking/export', [\App\Http\Controllers\Api\AsyncExportController::class, 'createExport']);
+    Route::get('tracking/export/{jobId}/status', [\App\Http\Controllers\Api\AsyncExportController::class, 'getExportStatus']);
+    Route::get('tracking/exports', [\App\Http\Controllers\Api\AsyncExportController::class, 'listExports']);
+    
+    Route::post('tracking/reports', [\App\Http\Controllers\Api\AsyncReportController::class, 'createReport']);
+    Route::get('tracking/reports/{jobId}/status', [\App\Http\Controllers\Api\AsyncReportController::class, 'getReportStatus']);
+    Route::get('tracking/reports', [\App\Http\Controllers\Api\AsyncReportController::class, 'listReports']);
+    
+    // Intent Event Management (CRUD)
+    Route::get('tracking/events/{id}', [\App\Http\Controllers\Api\TrackingEventController::class, 'show'])->whereNumber('id');
+    Route::put('tracking/events/{id}', [\App\Http\Controllers\Api\TrackingEventController::class, 'update'])->whereNumber('id');
+    Route::delete('tracking/events/{id}', [\App\Http\Controllers\Api\TrackingEventController::class, 'destroy'])->whereNumber('id');
+    
+    // Module Integration APIs
+    Route::get('tracking/contacts/{id}/intent', [\App\Http\Controllers\Api\TrackingController::class, 'getContactIntent'])->whereNumber('id');
+    Route::get('tracking/companies/{id}/intent', [\App\Http\Controllers\Api\TrackingController::class, 'getCompanyIntent'])->whereNumber('id');
+    Route::get('tracking/campaigns/{id}/intent', [\App\Http\Controllers\Api\TrackingController::class, 'getCampaignIntent'])->whereNumber('id');
+    Route::get('tracking/events/{id}/intent', [\App\Http\Controllers\Api\TrackingController::class, 'getEventIntent'])->whereNumber('id');
 
     // Lead Scoring Rules
     Route::get('lead-scoring/rules', [\App\Http\Controllers\Api\LeadScoringController::class, 'getRules']);

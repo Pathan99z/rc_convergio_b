@@ -2,26 +2,23 @@
 
 namespace App\Models;
 
+use App\Models\Traits\HasTenantScope;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class VisitorIntent extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes, HasTenantScope;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
-        'company_id',
         'contact_id',
+        'company_id',
         'page_url',
-        'duration_seconds',
-        'action',
         'score',
+        'intent_level',
+        'action',
         'metadata',
         'session_id',
         'ip_address',
@@ -29,27 +26,21 @@ class VisitorIntent extends Model
         'tenant_id',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
     protected $casts = [
-        'duration_seconds' => 'integer',
-        'score' => 'integer',
         'metadata' => 'array',
+        'score' => 'integer',
     ];
 
     /**
-     * Get the company associated with the visitor intent.
+     * Boot the model.
      */
-    public function company(): BelongsTo
+    protected static function booted(): void
     {
-        return $this->belongsTo(Company::class);
+        static::bootHasTenantScope();
     }
 
     /**
-     * Get the contact associated with the visitor intent.
+     * Get the contact that owns the visitor intent.
      */
     public function contact(): BelongsTo
     {
@@ -57,43 +48,66 @@ class VisitorIntent extends Model
     }
 
     /**
-     * Get the tenant that owns the visitor intent.
+     * Get the company that owns the visitor intent.
      */
-    public function tenant(): BelongsTo
+    public function company(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'tenant_id');
+        return $this->belongsTo(Company::class);
     }
 
     /**
-     * Scope a query to only include visitor intents for a specific tenant.
+     * Get available tracking actions.
      */
-    public function scopeForTenant($query, $tenantId)
+    public static function getAvailableActions(): array
     {
-        return $query->where('tenant_id', $tenantId);
+        return [
+            'visit' => 'Page Visit',
+            'page_view' => 'Page View',
+            'form_fill' => 'Form Fill',
+            'download' => 'Download',
+            'email_open' => 'Email Open',
+            'email_click' => 'Email Click',
+            'video_watch' => 'Video Watch',
+            'demo_request' => 'Demo Request',
+            'pricing_view' => 'Pricing View',
+            'contact_form' => 'Contact Form',
+            'chat_start' => 'Chat Start',
+            'whitepaper_download' => 'Whitepaper Download',
+            'case_study_view' => 'Case Study View',
+            'product_tour' => 'Product Tour',
+            'trial_signup' => 'Trial Signup',
+            'purchase_intent' => 'Purchase Intent',
+        ];
     }
 
     /**
-     * Scope a query to only include visitor intents for a specific company.
+     * Get intent level based on score.
      */
-    public function scopeForCompany($query, $companyId)
+    public function getIntentLevelAttribute(): string
     {
-        return $query->where('company_id', $companyId);
+        $score = $this->score;
+        
+        if ($score >= 80) return 'very_high';
+        if ($score >= 60) return 'high';
+        if ($score >= 40) return 'medium';
+        if ($score >= 20) return 'low';
+        return 'very_low';
     }
 
     /**
-     * Scope a query to only include visitor intents for a specific contact.
+     * Get intent level label.
      */
-    public function scopeForContact($query, $contactId)
+    public function getIntentLevelLabelAttribute(): string
     {
-        return $query->where('contact_id', $contactId);
-    }
+        $labels = [
+            'very_high' => 'Very High Intent',
+            'high' => 'High Intent',
+            'medium' => 'Medium Intent',
+            'low' => 'Low Intent',
+            'very_low' => 'Very Low Intent',
+        ];
 
-    /**
-     * Scope a query to only include visitor intents with a specific action.
-     */
-    public function scopeWithAction($query, $action)
-    {
-        return $query->where('action', $action);
+        return $labels[$this->intent_level] ?? 'Unknown';
     }
 
     /**
@@ -113,97 +127,50 @@ class VisitorIntent extends Model
     }
 
     /**
-     * Scope a query to only include visitor intents for a specific session.
+     * Scope a query to only include visitor intents for a specific action.
      */
-    public function scopeForSession($query, $sessionId)
+    public function scopeForAction($query, $action)
     {
-        return $query->where('session_id', $sessionId);
+        return $query->where('action', $action);
     }
 
     /**
-     * Get available visitor actions.
+     * Scope a query to only include visitor intents for a specific contact.
      */
-    public static function getAvailableActions(): array
+    public function scopeForContact($query, $contactId)
     {
-        return [
-            'visit' => 'Page Visit',
-            'download' => 'File Download',
-            'form_fill' => 'Form Submission',
-            'click' => 'Button/Link Click',
-            'scroll' => 'Page Scroll',
-            'hover' => 'Element Hover',
-        ];
+        return $query->where('contact_id', $contactId);
     }
 
     /**
-     * Calculate intent score based on action and duration.
+     * Scope a query to only include visitor intents for a specific company.
      */
-    public static function calculateScore(string $action, int $durationSeconds = 0, array $metadata = []): int
+    public function scopeForCompany($query, $companyId)
     {
-        $baseScores = [
-            'visit' => 5,
-            'scroll' => 10,
-            'hover' => 15,
-            'click' => 20,
-            'download' => 30,
-            'form_fill' => 50,
-        ];
-
-        $score = $baseScores[$action] ?? 5;
-
-        // Add duration bonus (up to 20 points)
-        if ($durationSeconds > 0) {
-            $durationBonus = min(20, intval($durationSeconds / 10));
-            $score += $durationBonus;
-        }
-
-        // Add metadata bonuses
-        if (isset($metadata['page_depth']) && $metadata['page_depth'] > 3) {
-            $score += 10; // Deep page engagement
-        }
-
-        if (isset($metadata['return_visitor']) && $metadata['return_visitor']) {
-            $score += 15; // Return visitor bonus
-        }
-
-        if (isset($metadata['high_value_page']) && $metadata['high_value_page']) {
-            $score += 25; // High-value page bonus
-        }
-
-        return min(100, $score); // Cap at 100
+        return $query->where('company_id', $companyId);
     }
 
     /**
-     * Get intent level based on score.
+     * Scope a query to only include visitor intents within a date range.
      */
-    public function getIntentLevel(): string
+    public function scopeDateRange($query, $startDate, $endDate)
     {
-        if ($this->score >= 80) {
-            return 'very_high';
-        } elseif ($this->score >= 60) {
-            return 'high';
-        } elseif ($this->score >= 40) {
-            return 'medium';
-        } elseif ($this->score >= 20) {
-            return 'low';
-        } else {
-            return 'very_low';
-        }
+        return $query->whereBetween('created_at', [$startDate, $endDate]);
     }
 
     /**
-     * Get intent level label.
+     * Scope a query to only include visitor intents with medium intent.
      */
-    public function getIntentLevelLabel(): string
+    public function scopeMediumIntent($query)
     {
-        $levels = [
-            'very_high' => 'Very High Intent',
-            'high' => 'High Intent',
-            'medium' => 'Medium Intent',
-            'low' => 'Low Intent',
-            'very_low' => 'Very Low Intent',
-        ];
+        return $query->whereBetween('score', [40, 69]);
+    }
 
-        return $levels[$this->getIntentLevel()] ?? 'Unknown';
+    /**
+     * Scope a query to only include visitor intents with low intent.
+     */
+    public function scopeLowIntent($query)
+    {
+        return $query->where('score', '<', 40);
     }
 }

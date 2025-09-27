@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'feature.restrict' => \App\Http\Middleware\FeatureRestrictionMiddleware::class,
             'security.headers' => \App\Http\Middleware\SecurityHeadersMiddleware::class,
+            'disable.tracking.dev' => \App\Http\Middleware\DisableTrackingInDev::class,
         ]);
         
         // Apply security headers to all requests

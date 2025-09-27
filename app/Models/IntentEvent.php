@@ -56,6 +56,14 @@ class IntentEvent extends Model
     }
 
     /**
+     * Get the visitor sessions associated with the event.
+     */
+    public function visitorSessions()
+    {
+        return $this->belongsToMany(VisitorSession::class, 'session_id', 'session_id');
+    }
+
+    /**
      * Scope a query to only include events for a specific tenant.
      */
     public function scopeForTenant($query, $tenantId)
