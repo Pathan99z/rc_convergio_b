@@ -5,11 +5,28 @@ namespace App\Services;
 use App\Models\Meeting;
 use App\Models\Contact;
 use App\Models\User;
+use App\Services\GoogleMeetService;
+use App\Services\TeamsIntegrationService;
+use App\Services\OutlookIntegrationService;
+use App\Jobs\SendMeetingNotificationJob;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class MeetingService
 {
+    protected GoogleMeetService $googleMeetService;
+    protected ?TeamsIntegrationService $teamsService;
+    protected ?OutlookIntegrationService $outlookService;
+
+    public function __construct(
+        GoogleMeetService $googleMeetService,
+        ?TeamsIntegrationService $teamsService = null,
+        ?OutlookIntegrationService $outlookService = null
+    ) {
+        $this->googleMeetService = $googleMeetService;
+        $this->teamsService = $teamsService;
+        $this->outlookService = $outlookService;
+    }
     /**
      * Create a new meeting.
      */
@@ -18,17 +35,26 @@ class MeetingService
         try {
             DB::beginTransaction();
 
+            // Generate meeting integration data based on provider
+            $integrationData = $this->generateMeetingIntegrationData($data['integration_provider'] ?? 'manual', $data);
+
+            // Calculate end_time from scheduled_at and duration_minutes
+            $scheduledAt = \Carbon\Carbon::parse($data['scheduled_at']);
+            $durationMinutes = $data['duration_minutes'] ?? 30;
+            $endTime = $scheduledAt->copy()->addMinutes($durationMinutes);
+
             $meeting = Meeting::create([
                 'title' => $data['title'],
                 'description' => $data['description'] ?? null,
                 'contact_id' => $data['contact_id'],
-                'user_id' => $data['user_id'],
+                'user_id' => $data['user_id'] ?? 1, // Default user for testing
                 'scheduled_at' => $data['scheduled_at'],
-                'duration_minutes' => $data['duration_minutes'] ?? 30,
-                'location' => $data['location'] ?? null,
+                'end_time' => $endTime,
+                'duration_minutes' => $durationMinutes,
+                'location' => $this->generateMeetingLocation($data['integration_provider'] ?? 'manual'),
                 'status' => $data['status'] ?? 'scheduled',
                 'integration_provider' => $data['integration_provider'] ?? 'manual',
-                'integration_data' => $data['integration_data'] ?? null,
+                'integration_data' => $integrationData,
                 'attendees' => $data['attendees'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'tenant_id' => $tenantId,
@@ -44,7 +70,11 @@ class MeetingService
                 'contact_id' => $meeting->contact_id,
                 'user_id' => $meeting->user_id,
                 'scheduled_at' => $meeting->scheduled_at,
+                'integration_provider' => $meeting->integration_provider,
             ]);
+
+            // Dispatch notification job for meeting creation
+            SendMeetingNotificationJob::dispatch($meeting->id, 'created');
 
             return $meeting;
 
@@ -420,9 +450,189 @@ class MeetingService
     }
 
     /**
+     * Generate meeting integration data based on provider.
+     */
+    private function generateMeetingIntegrationData(string $provider, array $data): ?array
+    {
+        switch ($provider) {
+            case 'zoom':
+                return $this->generateZoomMeetingData($data);
+            case 'google':
+                return $this->generateGoogleMeetData($data);
+            case 'teams':
+                return $this->generateTeamsMeetingData($data);
+            case 'outlook':
+                return $this->generateOutlookMeetingData($data);
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Generate Zoom meeting data (mock for demo).
+     */
+    private function generateZoomMeetingData(array $data): array
+    {
+        $mockMeetingId = 'mock_zoom_' . time() . '_' . rand(1000, 9999);
+        $mockJoinUrl = 'https://zoom.us/j/' . $mockMeetingId;
+        $mockStartUrl = 'https://zoom.us/s/' . $mockMeetingId;
+        $mockPassword = 'mock' . rand(1000, 9999);
+
+        Log::info('Generating mock Zoom meeting data', [
+            'mock_meeting_id' => $mockMeetingId,
+            'title' => $data['title'] ?? 'Meeting'
+        ]);
+
+        return [
+            'meeting_id' => $mockMeetingId,
+            'join_url' => $mockJoinUrl,
+            'start_url' => $mockStartUrl,
+            'password' => $mockPassword,
+            'type' => 'scheduled_meeting',
+            'created_at' => now()->toISOString(),
+        ];
+    }
+
+    /**
+     * Generate Google Meet data (real integration).
+     */
+    private function generateGoogleMeetData(array $data): array
+    {
+        $result = $this->googleMeetService->createMeeting($data);
+        
+        // If Google Meet integration failed, throw an exception to prevent creating invalid meetings
+        if (!$result['success']) {
+            throw new \Exception($result['message'] ?? 'Google Meet integration failed');
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Generate Teams meeting data using real API.
+     */
+    private function generateTeamsMeetingData(array $data): array
+    {
+        if (!$this->teamsService) {
+            Log::warning('Teams service not available, using mock data', [
+                'title' => $data['title'] ?? 'Meeting'
+            ]);
+            return $this->generateMockTeamsData($data);
+        }
+
+        try {
+            $result = $this->teamsService->createMeeting($data);
+            
+            // If Teams integration failed, throw an exception to prevent creating invalid meetings
+            if (!$result['success']) {
+                throw new \Exception($result['message'] ?? 'Teams integration failed');
+            }
+            
+            return $result;
+        } catch (\Exception $e) {
+            Log::error('Teams meeting creation failed', [
+                'error' => $e->getMessage(),
+                'title' => $data['title'] ?? 'Meeting'
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Generate Outlook meeting data using real API.
+     */
+    private function generateOutlookMeetingData(array $data): array
+    {
+        if (!$this->outlookService) {
+            Log::warning('Outlook service not available, using mock data', [
+                'title' => $data['title'] ?? 'Meeting'
+            ]);
+            return $this->generateMockOutlookData($data);
+        }
+
+        try {
+            $result = $this->outlookService->createMeeting($data);
+            
+            // If Outlook integration failed, throw an exception to prevent creating invalid meetings
+            if (!$result['success']) {
+                throw new \Exception($result['message'] ?? 'Outlook integration failed');
+            }
+            
+            return $result;
+        } catch (\Exception $e) {
+            Log::error('Outlook meeting creation failed', [
+                'error' => $e->getMessage(),
+                'title' => $data['title'] ?? 'Meeting'
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Generate mock Teams data when service is not available.
+     */
+    private function generateMockTeamsData(array $data): array
+    {
+        $mockMeetingId = 'mock_teams_' . time() . '_' . rand(1000, 9999);
+        $mockJoinUrl = 'https://teams.microsoft.com/l/meetup-join/' . $mockMeetingId;
+
+        Log::info('Generating mock Teams meeting data', [
+            'mock_meeting_id' => $mockMeetingId,
+            'title' => $data['title'] ?? 'Meeting'
+        ]);
+
+        return [
+            'meeting_id' => $mockMeetingId,
+            'join_url' => $mockJoinUrl,
+            'type' => 'teams_meeting',
+            'created_at' => now()->toISOString(),
+        ];
+    }
+
+    /**
+     * Generate mock Outlook data when service is not available.
+     */
+    private function generateMockOutlookData(array $data): array
+    {
+        $mockMeetingId = 'mock_outlook_' . time() . '_' . rand(1000, 9999);
+        $mockJoinUrl = 'https://outlook.live.com/calendar/0/deeplink/compose?subject=' . urlencode($data['title'] ?? 'Meeting');
+
+        Log::info('Generating mock Outlook meeting data', [
+            'mock_meeting_id' => $mockMeetingId,
+            'title' => $data['title'] ?? 'Meeting'
+        ]);
+
+        return [
+            'meeting_id' => $mockMeetingId,
+            'join_url' => $mockJoinUrl,
+            'type' => 'outlook_meeting',
+            'created_at' => now()->toISOString(),
+        ];
+    }
+
+    /**
+     * Generate meeting location based on provider.
+     */
+    private function generateMeetingLocation(string $provider): string
+    {
+        switch ($provider) {
+            case 'zoom':
+                return 'Zoom Meeting';
+            case 'google':
+                return 'Google Meet';
+            case 'teams':
+                return 'Microsoft Teams';
+            case 'outlook':
+                return 'Outlook Meeting';
+            default:
+                return 'In-Person Meeting';
+        }
+    }
+
+    /**
      * Create activity record for meeting.
      */
-    private function createMeetingActivity(Meeting $meeting, string $action, array $metadata = []): void
+    public function createMeetingActivity(Meeting $meeting, string $action, array $metadata = []): void
     {
         // This would integrate with the existing activities system
         // For now, we'll just log it

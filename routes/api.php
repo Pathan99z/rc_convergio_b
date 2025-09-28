@@ -23,6 +23,8 @@ use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\FeatureStatusController;
 use App\Http\Controllers\Api\FacebookOAuthController;
 use App\Http\Controllers\Api\GoogleOAuthController;
+use App\Http\Controllers\Api\TeamsOAuthController;
+use App\Http\Controllers\Api\OutlookOAuthController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -437,10 +439,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Meetings
     Route::get('meetings', [\App\Http\Controllers\Api\MeetingsController::class, 'index']);
     Route::post('meetings', [\App\Http\Controllers\Api\MeetingsController::class, 'store']);
+    Route::get('meetings/{id}', [\App\Http\Controllers\Api\MeetingsController::class, 'show'])->whereNumber('id');
+    Route::put('meetings/{id}', [\App\Http\Controllers\Api\MeetingsController::class, 'update'])->whereNumber('id');
+    Route::delete('meetings/{id}', [\App\Http\Controllers\Api\MeetingsController::class, 'destroy'])->whereNumber('id');
+    Route::post('meetings/{id}/status', [\App\Http\Controllers\Api\MeetingsController::class, 'updateStatus'])->whereNumber('id');
+    Route::get('meetings/analytics', [\App\Http\Controllers\Api\MeetingsController::class, 'getAnalytics']);
+    Route::get('meetings/upcoming', [\App\Http\Controllers\Api\MeetingsController::class, 'getUpcoming']);
     Route::post('meetings/sync/google', [\App\Http\Controllers\Api\MeetingsController::class, 'syncGoogle']);
     Route::post('meetings/sync/outlook', [\App\Http\Controllers\Api\MeetingsController::class, 'syncOutlook']);
     Route::get('meetings/statuses', [\App\Http\Controllers\Api\MeetingsController::class, 'getStatuses']);
     Route::get('meetings/providers', [\App\Http\Controllers\Api\MeetingsController::class, 'getProviders']);
+
+        // Google OAuth for Meetings (moved outside auth middleware)
 
     // Analytics Dashboard
     Route::get('analytics/dashboard', [\App\Http\Controllers\Api\AnalyticsController::class, 'dashboard']);
@@ -547,6 +557,22 @@ Route::get('oauth/facebook/callback', [FacebookOAuthController::class, 'callback
 
 // Google OAuth Callback (no auth required)
 Route::get('oauth/google/callback', [GoogleOAuthController::class, 'callback']);
+
+// Meeting OAuth Callback (no auth required)
+Route::get('meetings/oauth/google/callback', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'callback']);
+
+// Meeting OAuth Routes (no auth required for redirect)
+Route::get('meetings/oauth/google', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'redirect']);
+Route::post('meetings/oauth/google/test', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'testMeet']);
+Route::post('meetings/oauth/google/force-real', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'forceRealMeet']);
+
+// Teams OAuth routes
+Route::get('meetings/oauth/teams', [TeamsOAuthController::class, 'redirect']);
+Route::get('meetings/oauth/teams/callback', [TeamsOAuthController::class, 'callback']);
+
+// Outlook OAuth routes
+Route::get('meetings/oauth/outlook', [OutlookOAuthController::class, 'redirect']);
+Route::get('meetings/oauth/outlook/callback', [OutlookOAuthController::class, 'callback']);
 
 
 

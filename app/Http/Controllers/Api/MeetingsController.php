@@ -3,9 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Meetings\StoreMeetingRequest;
+use App\Http\Requests\Meetings\UpdateMeetingRequest;
+use App\Http\Requests\Meetings\UpdateMeetingStatusRequest;
+use App\Http\Resources\MeetingResource;
+use App\Http\Resources\MeetingCollection;
 use App\Models\Meeting;
 use App\Models\Contact;
 use App\Services\MeetingService;
+use App\Jobs\SendMeetingNotificationJob;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -77,7 +83,7 @@ class MeetingsController extends Controller
         });
 
         return response()->json([
-            'data' => $meetings->items(),
+            'data' => MeetingResource::collection($meetings->items()),
             'meta' => [
                 'current_page' => $meetings->currentPage(),
                 'last_page' => $meetings->lastPage(),
@@ -91,33 +97,12 @@ class MeetingsController extends Controller
     /**
      * Create a new meeting.
      */
-    public function store(Request $request): JsonResponse
+    public function store(StoreMeetingRequest $request): JsonResponse
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
 
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'contact_id' => 'required|integer|exists:contacts,id',
-            'user_id' => 'nullable|integer|exists:users,id',
-            'scheduled_at' => 'required|date|after:now',
-            'duration_minutes' => 'nullable|integer|min:15|max:480',
-            'location' => 'nullable|string|max:255',
-            'status' => [
-                'nullable',
-                'string',
-                Rule::in(array_keys(Meeting::getAvailableStatuses()))
-            ],
-            'integration_provider' => [
-                'nullable',
-                'string',
-                Rule::in(array_keys(Meeting::getAvailableProviders()))
-            ],
-            'integration_data' => 'nullable|array',
-            'attendees' => 'nullable|array',
-            'notes' => 'nullable|string',
-        ]);
+        $validated = $request->validated();
 
         // Verify contact belongs to tenant
         $contact = Contact::forTenant($tenantId)->findOrFail($validated['contact_id']);
@@ -129,23 +114,21 @@ class MeetingsController extends Controller
             $meeting = $this->meetingService->createMeeting($validated, $tenantId);
 
             return response()->json([
-                'data' => [
-                    'id' => $meeting->id,
-                    'title' => $meeting->title,
-                    'contact_id' => $meeting->contact_id,
-                    'user_id' => $meeting->user_id,
-                    'scheduled_at' => $meeting->scheduled_at->toISOString(),
-                    'duration_minutes' => $meeting->duration_minutes,
-                    'location' => $meeting->location,
-                    'status' => $meeting->status,
-                    'provider' => $meeting->integration_provider,
-                    'link' => $meeting->getMeetingLink(),
-                    'summary' => $meeting->getSummary(),
-                ],
+                'data' => new MeetingResource($meeting->load(['contact', 'user'])),
                 'message' => 'Meeting created successfully'
             ], 201);
 
         } catch (\Exception $e) {
+            // Check if it's an authentication error for Google Meet
+            if (str_contains($e->getMessage(), 'authenticate with Google')) {
+                return response()->json([
+                    'message' => 'Google Meet authentication required',
+                    'error' => $e->getMessage(),
+                    'auth_required' => true,
+                    'auth_url' => 'http://127.0.0.1:8000/api/meetings/oauth/google'
+                ], 400);
+            }
+            
             return response()->json([
                 'message' => 'Failed to create meeting',
                 'error' => $e->getMessage()
@@ -238,6 +221,177 @@ class MeetingsController extends Controller
         return response()->json([
             'data' => Meeting::getAvailableProviders(),
             'message' => 'Integration providers retrieved successfully'
+        ]);
+    }
+
+    /**
+     * Show a specific meeting.
+     */
+    public function show(int $id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $meeting = Meeting::forTenant($tenantId)
+            ->with(['contact:id,first_name,last_name,email', 'user:id,name'])
+            ->findOrFail($id);
+
+        // Add additional data
+        $meeting->meeting_link = $meeting->getMeetingLink();
+        $meeting->meeting_id = $meeting->getMeetingId();
+        $meeting->duration_formatted = $meeting->getDurationFormatted();
+        $meeting->summary = $meeting->getSummary();
+        $meeting->is_upcoming = $meeting->isUpcoming();
+        $meeting->is_in_progress = $meeting->isInProgress();
+        $meeting->is_completed = $meeting->isCompleted();
+
+        return response()->json([
+            'data' => new MeetingResource($meeting),
+            'message' => 'Meeting retrieved successfully'
+        ]);
+    }
+
+    /**
+     * Update a meeting.
+     */
+    public function update(UpdateMeetingRequest $request, int $id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $meeting = Meeting::forTenant($tenantId)->findOrFail($id);
+
+        $validated = $request->validated();
+
+        try {
+            $meeting->update($validated);
+
+            // Create activity record
+            $this->meetingService->createMeetingActivity($meeting, 'updated', $validated);
+
+            // Dispatch notification job for meeting update
+            SendMeetingNotificationJob::dispatch($meeting->id, 'updated');
+
+            return response()->json([
+                'data' => new MeetingResource($meeting->fresh(['contact', 'user'])),
+                'message' => 'Meeting updated successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to update meeting',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete a meeting.
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $meeting = Meeting::forTenant($tenantId)->findOrFail($id);
+
+        try {
+            // Dispatch notification job for meeting cancellation before deletion
+            SendMeetingNotificationJob::dispatch($meeting->id, 'cancelled');
+            
+            $meeting->delete();
+
+            return response()->json([
+                'message' => 'Meeting deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to delete meeting',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update meeting status.
+     */
+    public function updateStatus(UpdateMeetingStatusRequest $request, int $id): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $validated = $request->validated();
+
+        try {
+            $meeting = $this->meetingService->updateMeetingStatus(
+                $id, 
+                $tenantId, 
+                $validated['status'], 
+                $validated['notes'] ?? null
+            );
+
+            return response()->json([
+                'data' => new MeetingResource($meeting->fresh(['contact', 'user'])),
+                'message' => 'Meeting status updated successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to update meeting status',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get meeting analytics.
+     */
+    public function getAnalytics(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+
+        $startDate = $request->get('start_date', now()->subDays(30)->toDateString());
+        $endDate = $request->get('end_date', now()->toDateString());
+
+        $meetings = Meeting::forTenant($tenantId)
+            ->whereBetween('scheduled_at', [$startDate, $endDate])
+            ->get();
+
+        $analytics = [
+            'total_meetings' => $meetings->count(),
+            'completed' => $meetings->where('status', 'completed')->count(),
+            'cancelled' => $meetings->where('status', 'cancelled')->count(),
+            'no_show' => $meetings->where('status', 'no_show')->count(),
+            'scheduled' => $meetings->where('status', 'scheduled')->count(),
+            'completion_rate' => $meetings->count() > 0 ? 
+                round(($meetings->where('status', 'completed')->count() / $meetings->count()) * 100, 2) : 0,
+            'average_duration' => $meetings->avg('duration_minutes'),
+            'by_provider' => $meetings->groupBy('integration_provider')->map->count(),
+            'by_status' => $meetings->groupBy('status')->map->count(),
+        ];
+
+        return response()->json([
+            'data' => $analytics,
+            'message' => 'Meeting analytics retrieved successfully'
+        ]);
+    }
+
+    /**
+     * Get upcoming meetings for dashboard.
+     */
+    public function getUpcoming(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id;
+        $limit = $request->get('limit', 10);
+
+        $meetings = $this->meetingService->getUpcomingMeetings($user->id, $tenantId, $limit);
+
+        return response()->json([
+            'data' => $meetings,
+            'message' => 'Upcoming meetings retrieved successfully'
         ]);
     }
 }

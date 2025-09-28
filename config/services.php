@@ -46,9 +46,10 @@ return [
     ],
 
     'google' => [
+        'enabled' => env('GOOGLE_ENABLED', true),
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
-        'redirect' => env('GOOGLE_REDIRECT_URI'),
+        'redirect_uri' => env('GOOGLE_REDIRECT_URI'),
     ],
 
     'zoom' => [
@@ -57,6 +58,22 @@ return [
         'client_secret' => env('ZOOM_CLIENT_SECRET'),
         'account_id' => env('ZOOM_ACCOUNT_ID'),
         'webhook_secret' => env('ZOOM_WEBHOOK_SECRET'),
+    ],
+
+    'teams' => [
+        'enabled' => env('TEAMS_ENABLED', false),
+        'client_id' => env('TEAMS_CLIENT_ID'),
+        'client_secret' => env('TEAMS_CLIENT_SECRET'),
+        'tenant_id' => env('TEAMS_TENANT_ID'),
+        'redirect_uri' => env('TEAMS_REDIRECT_URI'),
+    ],
+
+    'outlook' => [
+        'enabled' => env('OUTLOOK_ENABLED', false),
+        'client_id' => env('OUTLOOK_CLIENT_ID'),
+        'client_secret' => env('OUTLOOK_CLIENT_SECRET'),
+        'tenant_id' => env('OUTLOOK_TENANT_ID'),
+        'redirect_uri' => env('OUTLOOK_REDIRECT_URI'),
     ],
 
 ];

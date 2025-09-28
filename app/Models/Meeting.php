@@ -22,6 +22,7 @@ class Meeting extends Model
         'contact_id',
         'user_id',
         'scheduled_at',
+        'end_time',
         'duration_minutes',
         'location',
         'status',
@@ -41,6 +42,7 @@ class Meeting extends Model
      */
     protected $casts = [
         'scheduled_at' => 'datetime',
+        'end_time' => 'datetime',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'duration_minutes' => 'integer',
@@ -197,6 +199,11 @@ class Meeting extends Model
      */
     public function getEndTime(): \DateTime
     {
+        // Use stored end_time if available, otherwise calculate from scheduled_at + duration
+        if ($this->end_time) {
+            return $this->end_time;
+        }
+        
         return $this->scheduled_at->copy()->addMinutes($this->duration_minutes);
     }
 
@@ -205,7 +212,7 @@ class Meeting extends Model
      */
     public function getMeetingLink(): ?string
     {
-        return $this->integration_data['link'] ?? null;
+        return $this->integration_data['join_url'] ?? $this->integration_data['link'] ?? null;
     }
 
     /**
