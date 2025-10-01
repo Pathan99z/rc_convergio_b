@@ -59,13 +59,13 @@ class ContactEnrichmentService
     {
         $contactInfo = [];
 
-        // Common field mappings
+        // Common field mappings - expanded to handle any customer field names
         $fieldMappings = [
-            'email' => ['email', 'email_address', 'e-mail', 'emailaddress'],
-            'first_name' => ['first_name', 'firstname', 'fname', 'first', 'full_name'],
-            'last_name' => ['last_name', 'lastname', 'lname', 'last'],
-            'phone' => ['phone', 'phone_number', 'telephone', 'mobile'],
-            'company' => ['company', 'company_name', 'organization', 'business']
+            'email' => ['email', 'email_address', 'e-mail', 'emailaddress', 'mail', 'email_field', 'your_email'],
+            'first_name' => ['first_name', 'firstname', 'fname', 'first', 'full_name', 'name', 'your_name', 'contact_name', 'fullname'],
+            'last_name' => ['last_name', 'lastname', 'lname', 'last', 'surname', 'family_name'],
+            'phone' => ['phone', 'phone_number', 'telephone', 'mobile', 'tel', 'contact_number', 'phone_field', 'your_phone'],
+            'company' => ['company', 'company_name', 'organization', 'business', 'firm', 'corp', 'corporation', 'org', 'your_company']
         ];
 
         // Debug logging
@@ -205,14 +205,28 @@ class ContactEnrichmentService
         // Store visitor information in metadata (NOT in core CRM)
         $metadata = is_array($intentEvent->metadata) ? $intentEvent->metadata : (json_decode($intentEvent->metadata, true) ?? []);
         
-        // Store visitor data in metadata
+        // Build full name from available data - handle any field naming
+        $fullName = '';
+        if (isset($visitorData['first_name']) && !empty($visitorData['first_name'])) {
+            $fullName = $visitorData['first_name'];
+            if (isset($visitorData['last_name']) && !empty($visitorData['last_name'])) {
+                $fullName .= ' ' . $visitorData['last_name'];
+            }
+        } elseif (isset($visitorData['name']) && !empty($visitorData['name'])) {
+            $fullName = $visitorData['name'];
+        } elseif (isset($visitorData['full_name']) && !empty($visitorData['full_name'])) {
+            $fullName = $visitorData['full_name'];
+        }
+        
+        // Store visitor data in metadata - safe access to all fields
         $metadata['visitor_data'] = [
-            'name' => $visitorData['first_name'] . ' ' . ($visitorData['last_name'] ?? ''),
-            'email' => $visitorData['email'],
+            'name' => $fullName,
+            'email' => $visitorData['email'] ?? null,
             'phone' => $visitorData['phone'] ?? null,
             'company' => $visitorData['company'] ?? null,
             'captured_at' => now()->toISOString(),
-            'source' => 'form_submission'
+            'source' => 'form_submission',
+            'raw_form_data' => $visitorData // Store original form data for reference
         ];
         
         $metadata['visitor_enriched'] = true;

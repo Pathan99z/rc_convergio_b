@@ -50,7 +50,7 @@ class AnalyticsController extends Controller
         ];
 
         try {
-            $analytics = $this->analyticsService->getDashboardAnalytics($tenantId, $filters);
+            $analytics = $this->analyticsService->getDashboardAnalytics($tenantId, $filters['period']);
 
             // Filter modules if requested
             if (isset($validated['modules'])) {

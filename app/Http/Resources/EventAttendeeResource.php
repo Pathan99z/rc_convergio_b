@@ -52,3 +52,4 @@ class EventAttendeeResource extends JsonResource
 
 
 
+
