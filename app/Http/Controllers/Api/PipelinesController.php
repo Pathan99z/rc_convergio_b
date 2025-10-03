@@ -129,7 +129,7 @@ class PipelinesController extends Controller
 
     public function kanban(Request $request, int $id): JsonResponse
     {
-        $tenantId = (int) $request->header('X-Tenant-ID');
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
         $pipeline = Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('view', $pipeline);
