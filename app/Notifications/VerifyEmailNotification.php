@@ -3,12 +3,14 @@
 namespace App\Notifications;
 
 use Illuminate\Auth\Notifications\VerifyEmail as BaseVerifyEmail;
+use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Carbon;
 
 class VerifyEmailNotification extends BaseVerifyEmail
 {
+    use Queueable;
     protected function verificationUrl($notifiable): string
     {
         $temporarySignedUrl = URL::temporarySignedRoute(

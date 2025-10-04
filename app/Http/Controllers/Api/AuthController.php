@@ -36,10 +36,6 @@ class AuthController extends Controller
 
         event(new Registered($user));
 
-        if ($user instanceof MustVerifyEmail) {
-            $user->sendEmailVerificationNotification();
-        }
-
         $autoLogin = true;
         $responseData = [
             'user' => $this->transformUser($user),
