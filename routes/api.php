@@ -122,6 +122,32 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('deals/{id}', [\App\Http\Controllers\Api\DealsController::class, 'destroy'])->whereNumber('id');
     Route::post('deals/{id}/move', [\App\Http\Controllers\Api\DealsController::class, 'move'])->whereNumber('id');
 
+    // Quotes resource
+    Route::get('quotes', [\App\Http\Controllers\Api\QuoteController::class, 'index']);
+    Route::post('quotes', [\App\Http\Controllers\Api\QuoteController::class, 'store']);
+    Route::get('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'show'])->whereNumber('quote');
+    Route::put('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'update'])->whereNumber('quote');
+    Route::delete('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'destroy'])->whereNumber('quote');
+    Route::post('quotes/{quote}/send', [\App\Http\Controllers\Api\QuoteController::class, 'send'])->whereNumber('quote');
+    Route::post('quotes/{quote}/accept', [\App\Http\Controllers\Api\QuoteController::class, 'accept'])->whereNumber('quote');
+    Route::post('quotes/{quote}/reject', [\App\Http\Controllers\Api\QuoteController::class, 'reject'])->whereNumber('quote');
+    Route::get('quotes/{quote}/pdf', [\App\Http\Controllers\Api\QuoteController::class, 'pdf'])->whereNumber('quote');
+
+    // Products resource
+    Route::get('products', [\App\Http\Controllers\Api\ProductController::class, 'index']);
+    Route::post('products', [\App\Http\Controllers\Api\ProductController::class, 'store']);
+    Route::get('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'show'])->whereNumber('product');
+    Route::put('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'update'])->whereNumber('product');
+    Route::delete('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'destroy'])->whereNumber('product');
+
+    // Quote Templates resource
+    Route::get('quote-templates', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'index']);
+    Route::post('quote-templates', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'store']);
+    Route::get('quote-templates/{quoteTemplate}', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'show'])->whereNumber('quoteTemplate');
+    Route::put('quote-templates/{quoteTemplate}', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'update'])->whereNumber('quoteTemplate');
+    Route::delete('quote-templates/{quoteTemplate}', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'destroy'])->whereNumber('quoteTemplate');
+    Route::get('quote-templates/{quoteTemplate}/preview', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'preview'])->whereNumber('quoteTemplate');
+
     // Pipelines resource
     Route::get('pipelines', [PipelinesController::class, 'index']);
     Route::post('pipelines', [PipelinesController::class, 'store']);
@@ -574,5 +600,11 @@ Route::get('meetings/oauth/teams/callback', [TeamsOAuthController::class, 'callb
 Route::get('meetings/oauth/outlook', [OutlookOAuthController::class, 'redirect']);
 Route::get('meetings/oauth/outlook/callback', [OutlookOAuthController::class, 'callback']);
 
+// Public Quote Routes (No Authentication Required)
+Route::prefix('public/quotes')->group(function () {
+    Route::get('{uuid}', [\App\Http\Controllers\PublicQuoteController::class, 'show']);
+    Route::post('{uuid}/accept', [\App\Http\Controllers\PublicQuoteController::class, 'accept']);
+    Route::post('{uuid}/reject', [\App\Http\Controllers\PublicQuoteController::class, 'reject']);
+});
 
 

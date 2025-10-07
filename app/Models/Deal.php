@@ -35,8 +35,9 @@ class Deal extends Model
 
     protected $casts = [
         'value' => 'decimal:2',
-        'expected_close_date' => 'date',
-        'closed_date' => 'date',
+        'probability' => 'integer',
+        'expected_close_date' => 'datetime',
+        'closed_date' => 'datetime',
         'tags' => 'array',
     ];
 
@@ -94,19 +95,43 @@ class Deal extends Model
     }
 
     /**
-     * Get the activities for the deal.
+     * Get all activities for the deal.
      */
     public function activities(): MorphMany
     {
-        return $this->morphMany(Activity::class, 'related');
+        return $this->morphMany(Activity::class, 'subject');
     }
 
     /**
-     * Get the tasks for the deal.
+     * Get all quotes for the deal.
      */
-    public function tasks(): MorphMany
+    public function quotes(): HasMany
     {
-        return $this->morphMany(Task::class, 'related');
+        return $this->hasMany(Quote::class);
+    }
+
+    /**
+     * Get the primary accepted quote for the deal.
+     */
+    public function primaryQuote(): HasMany
+    {
+        return $this->hasMany(Quote::class)->where('is_primary', true);
+    }
+
+    /**
+     * Get all accepted quotes for the deal.
+     */
+    public function acceptedQuotes(): HasMany
+    {
+        return $this->hasMany(Quote::class)->where('status', 'accepted');
+    }
+
+    /**
+     * Get all follow-up quotes for the deal.
+     */
+    public function followUpQuotes(): HasMany
+    {
+        return $this->hasMany(Quote::class)->where('is_primary', false);
     }
 
     /**
@@ -118,11 +143,11 @@ class Deal extends Model
     }
 
     /**
-     * Scope a query to filter by owner.
+     * Scope a query to filter by status.
      */
-    public function scopeByOwner($query, $ownerId)
+    public function scopeByStatus($query, $status)
     {
-        return $query->where('owner_id', $ownerId);
+        return $query->where('status', $status);
     }
 
     /**
@@ -142,11 +167,27 @@ class Deal extends Model
     }
 
     /**
-     * Scope a query to filter by status.
+     * Scope a query to filter by owner.
      */
-    public function scopeByStatus($query, $status)
+    public function scopeByOwner($query, $ownerId)
     {
-        return $query->where('status', $status);
+        return $query->where('owner_id', $ownerId);
+    }
+
+    /**
+     * Scope a query to filter by contact.
+     */
+    public function scopeByContact($query, $contactId)
+    {
+        return $query->where('contact_id', $contactId);
+    }
+
+    /**
+     * Scope a query to filter by company.
+     */
+    public function scopeByCompany($query, $companyId)
+    {
+        return $query->where('company_id', $companyId);
     }
 
     /**
@@ -155,5 +196,77 @@ class Deal extends Model
     public function scopeByDateRange($query, $from, $to)
     {
         return $query->whereBetween('created_at', [$from, $to]);
+    }
+
+    /**
+     * Check if the deal has any accepted quotes.
+     */
+    public function hasAcceptedQuotes(): bool
+    {
+        return $this->acceptedQuotes()->exists();
+    }
+
+    /**
+     * Get the primary accepted quote for this deal.
+     */
+    public function getPrimaryAcceptedQuote(): ?Quote
+    {
+        return $this->primaryQuote()->where('status', 'accepted')->first();
+    }
+
+    /**
+     * Get the total revenue from all accepted quotes.
+     */
+    public function getTotalAcceptedRevenue(): float
+    {
+        return $this->acceptedQuotes()->sum('total');
+    }
+
+    /**
+     * Get the count of accepted quotes.
+     */
+    public function getAcceptedQuotesCount(): int
+    {
+        return $this->acceptedQuotes()->count();
+    }
+
+    /**
+     * Get the count of follow-up quotes.
+     */
+    public function getFollowUpQuotesCount(): int
+    {
+        return $this->followUpQuotes()->count();
+    }
+
+    /**
+     * Check if this deal has a primary accepted quote.
+     */
+    public function hasPrimaryAcceptedQuote(): bool
+    {
+        return $this->getPrimaryAcceptedQuote() !== null;
+    }
+
+    /**
+     * Get all quote types for this deal.
+     */
+    public function getQuoteTypes(): array
+    {
+        return $this->quotes()
+            ->select('quote_type')
+            ->distinct()
+            ->pluck('quote_type')
+            ->toArray();
+    }
+
+    /**
+     * Get revenue breakdown by quote type.
+     */
+    public function getRevenueByQuoteType(): array
+    {
+        return $this->acceptedQuotes()
+            ->selectRaw('quote_type, SUM(total) as total_revenue')
+            ->groupBy('quote_type')
+            ->pluck('total_revenue', 'quote_type')
+            ->toArray();
     }
 }
