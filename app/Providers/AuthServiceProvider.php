@@ -13,6 +13,7 @@ use App\Models\Campaign;
 use App\Models\Form;
 use App\Models\ContactList;
 use App\Models\Event;
+use App\Models\SequenceEnrollment;
 use App\Models\User;
 use App\Policies\ContactPolicy;
 use App\Policies\CompanyPolicy;
@@ -25,6 +26,7 @@ use App\Policies\CampaignPolicy;
 use App\Policies\FormPolicy;
 use App\Policies\ContactListPolicy;
 use App\Policies\EventPolicy;
+use App\Policies\SequenceEnrollmentPolicy;
 use App\Policies\UserPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Auth\Notifications\ResetPassword;
@@ -43,6 +45,7 @@ class AuthServiceProvider extends ServiceProvider
         Form::class => FormPolicy::class,
         ContactList::class => ContactListPolicy::class,
         Event::class => EventPolicy::class,
+        SequenceEnrollment::class => SequenceEnrollmentPolicy::class,
         User::class => UserPolicy::class,
     ];
 

@@ -554,6 +554,31 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Audit logs
     Route::get('audit-logs', [\App\Http\Controllers\Api\AuditLogController::class, 'index']);
+
+    // Sequences (Automated Outreach)
+    Route::prefix('sequences')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\SequencesController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\SequencesController::class, 'store']);
+        Route::get('{sequence}', [\App\Http\Controllers\Api\SequencesController::class, 'show'])->whereNumber('sequence');
+        Route::put('{sequence}', [\App\Http\Controllers\Api\SequencesController::class, 'update'])->whereNumber('sequence');
+        Route::delete('{sequence}', [\App\Http\Controllers\Api\SequencesController::class, 'destroy'])->whereNumber('sequence');
+        Route::post('{sequence}/steps', [\App\Http\Controllers\Api\SequenceStepsController::class, 'store'])->whereNumber('sequence');
+        Route::put('steps/{step}', [\App\Http\Controllers\Api\SequenceStepsController::class, 'update'])->whereNumber('step');
+        Route::delete('steps/{step}', [\App\Http\Controllers\Api\SequenceStepsController::class, 'destroy'])->whereNumber('step');
+        Route::post('{sequence}/enroll', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'enroll'])->whereNumber('sequence');
+        Route::post('enrollments/{enrollment}/pause', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'pause'])->whereNumber('enrollment');
+        Route::post('enrollments/{enrollment}/resume', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'resume'])->whereNumber('enrollment');
+        Route::post('enrollments/{enrollment}/cancel', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'cancel'])->whereNumber('enrollment');
+        Route::get('{sequence}/logs', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'logs'])->whereNumber('sequence');
+        Route::get('enrollments/{enrollment}/logs', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'enrollmentLogs'])->whereNumber('enrollment');
+    });
+
+    // Template Preview & Editing (NEW - Real-time template system)
+    Route::prefix('templates')->group(function () {
+        Route::post('preview', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'preview']);
+        Route::put('update-content', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'updateContent']);
+        Route::post('create-custom', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'createCustom']);
+    });
 });
 
 // Public routes (no auth required)
@@ -577,6 +602,29 @@ Route::prefix('public')->group(function () {
     // Campaign unsubscribe
     Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
 });
+
+// Public routes (no auth required)
+Route::prefix('public')->group(function () {
+    Route::get('forms/{id}', [PublicFormController::class, 'show'])->whereNumber('id');
+    Route::post('forms/{id}/submit', [PublicFormController::class, 'submit'])->whereNumber('id');
+    
+    // Public event registration
+    Route::get('events/{id}', [\App\Http\Controllers\Api\PublicEventController::class, 'show'])->whereNumber('id');
+    Route::post('events/{id}/register', [\App\Http\Controllers\Api\PublicEventController::class, 'register'])->whereNumber('id');
+    Route::get('events/{id}/rsvp', [\App\Http\Controllers\Api\PublicEventController::class, 'rsvp'])->whereNumber('id');
+    // Campaign tracking
+    Route::get('campaigns/track/open', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'open'])->name('campaigns.track.open');
+    Route::get('campaigns/track/click', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'click'])->name('campaigns.track.click');
+    Route::get('campaigns/track/bounce', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'bounce'])->name('campaigns.track.bounce');
+    
+    // Campaign reporting endpoints
+    Route::get('campaigns/{campaign}/opens', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getOpensByCampaign'])->name('campaigns.opens')->where('campaign', '[0-9]+');
+    Route::get('campaigns/{campaign}/clicks', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getClicksByCampaign'])->name('campaigns.clicks')->where('campaign', '[0-9]+');
+    Route::get('campaigns/{campaign}/bounces', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getBouncesByCampaign'])->name('campaigns.bounces')->where('campaign', '[0-9]+');
+    // Campaign unsubscribe
+    Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
+});
+
 
 // Facebook OAuth Callback (no auth required)
 Route::get('oauth/facebook/callback', [FacebookOAuthController::class, 'callback']);
