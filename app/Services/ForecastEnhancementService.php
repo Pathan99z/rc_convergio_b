@@ -56,13 +56,14 @@ class ForecastEnhancementService
         $exportData = [
             'forecast_summary' => $forecast,
             'deals' => $deals->map(function ($deal) {
+                $probability = $deal->probability ?? ($deal->stage->probability ?? 50);
                 return [
                     'id' => $deal->id,
                     'title' => $deal->title,
                     'value' => $deal->value,
                     'currency' => $deal->currency,
                     'status' => $deal->status,
-                    'probability' => $deal->probability,
+                    'probability' => $probability,
                     'expected_close_date' => $deal->expected_close_date,
                     'stage_name' => $deal->stage->name ?? 'Unknown',
                     'contact_name' => $deal->contact->name ?? 'Unknown',
@@ -77,7 +78,8 @@ class ForecastEnhancementService
                 'total_deals' => $deals->count(),
                 'total_value' => $deals->sum('value'),
                 'weighted_value' => $deals->sum(function ($deal) {
-                    return $deal->value * ($deal->probability / 100);
+                    $probability = $deal->probability ?? ($deal->stage->probability ?? 50);
+                    return $deal->value * ($probability / 100);
                 }),
             ]
         ];
