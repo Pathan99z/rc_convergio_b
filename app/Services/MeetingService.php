@@ -406,13 +406,44 @@ class MeetingService
         $name = $googleMeeting['attendees'][0]['name'] ?? 'Unknown Contact';
         $nameParts = explode(' ', $name, 2);
 
-        return Contact::create([
+        $contact = Contact::create([
             'first_name' => $nameParts[0] ?? 'Unknown',
             'last_name' => $nameParts[1] ?? '',
             'email' => $email,
             'tenant_id' => $tenantId,
             'owner_id' => 1, // Default owner
         ]);
+
+        // Run assignment logic (override approach - rules take priority)
+        try {
+            $originalOwnerId = $contact->owner_id;
+            $assignmentService = app(\App\Services\AssignmentService::class);
+            $assignedUserId = $assignmentService->assignOwnerForRecord($contact, 'contact', [
+                'tenant_id' => $tenantId,
+                'created_by' => 1, // Default user
+                'source' => 'google_meeting'
+            ]);
+
+            // If assignment rule found a match, apply assignment (owner_id and team_id)
+            if ($assignedUserId) {
+                $assignmentService->applyAssignmentToRecord($contact, $assignedUserId);
+                Log::info('Google meeting contact assigned via assignment rules (override)', [
+                    'contact_id' => $contact->id,
+                    'original_owner_id' => $originalOwnerId,
+                    'assigned_user_id' => $assignedUserId,
+                    'tenant_id' => $tenantId,
+                    'override_type' => $originalOwnerId ? 'manual_override' : 'auto_assignment'
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to run assignment rules for Google meeting contact', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage(),
+                'tenant_id' => $tenantId
+            ]);
+        }
+
+        return $contact;
     }
 
     /**
@@ -440,13 +471,44 @@ class MeetingService
         $name = $outlookMeeting['attendees'][0]['emailAddress']['name'] ?? 'Unknown Contact';
         $nameParts = explode(' ', $name, 2);
 
-        return Contact::create([
+        $contact = Contact::create([
             'first_name' => $nameParts[0] ?? 'Unknown',
             'last_name' => $nameParts[1] ?? '',
             'email' => $email,
             'tenant_id' => $tenantId,
             'owner_id' => 1, // Default owner
         ]);
+
+        // Run assignment logic (override approach - rules take priority)
+        try {
+            $originalOwnerId = $contact->owner_id;
+            $assignmentService = app(\App\Services\AssignmentService::class);
+            $assignedUserId = $assignmentService->assignOwnerForRecord($contact, 'contact', [
+                'tenant_id' => $tenantId,
+                'created_by' => 1, // Default user
+                'source' => 'outlook_meeting'
+            ]);
+
+            // If assignment rule found a match, override the owner_id
+            if ($assignedUserId) {
+                $contact->update(['owner_id' => $assignedUserId]);
+                Log::info('Outlook meeting contact assigned via assignment rules (override)', [
+                    'contact_id' => $contact->id,
+                    'original_owner_id' => $originalOwnerId,
+                    'assigned_user_id' => $assignedUserId,
+                    'tenant_id' => $tenantId,
+                    'override_type' => $originalOwnerId ? 'manual_override' : 'auto_assignment'
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to run assignment rules for Outlook meeting contact', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage(),
+                'tenant_id' => $tenantId
+            ]);
+        }
+
+        return $contact;
     }
 
     /**

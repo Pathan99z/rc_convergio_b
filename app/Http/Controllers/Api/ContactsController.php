@@ -8,6 +8,8 @@ use App\Http\Requests\Contacts\UpdateContactRequest;
 use App\Jobs\ImportContactsJob;
 use App\Models\Contact;
 use App\Services\CampaignAutomationService;
+use App\Services\AssignmentService;
+use App\Services\TeamAccessService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +23,9 @@ class ContactsController extends Controller
 {
     public function __construct(
         private CacheRepository $cache,
-        private CampaignAutomationService $automationService
+        private CampaignAutomationService $automationService,
+        private AssignmentService $assignmentService,
+        private TeamAccessService $teamAccessService
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -33,8 +37,9 @@ class ContactsController extends Controller
 
         $query = Contact::query();
 
-        // Filter by owner_id to ensure users only see their own contacts
-        $query->where('owner_id', $userId);
+        // Filter by tenant_id to ensure users only see contacts from their organization
+        // Note: Removed owner_id filter to allow users to see all contacts assigned by assignment rules
+        $query->where('tenant_id', $tenantId);
 
         if ($ownerId = $request->query('owner_id')) {
             $query->where('owner_id', $ownerId);
@@ -71,6 +76,9 @@ class ContactsController extends Controller
                     ->where('fs_ok.status', 'processed');
             });
         });
+
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
         $contacts = $query->paginate($perPage);
@@ -113,6 +121,39 @@ class ContactsController extends Controller
         $data['tenant_id'] = $tenantId;
 
         $contact = Contact::create($data);
+
+        // Always run assignment logic (override approach - rules take priority)
+        try {
+            $originalOwnerId = $contact->owner_id;
+            $assignedUserId = $this->assignmentService->assignOwnerForRecord($contact, 'contact', [
+                'tenant_id' => $tenantId,
+                'created_by' => $request->user()->id
+            ]);
+
+            // If assignment rule found a match, apply assignment (owner_id and team_id)
+            if ($assignedUserId) {
+                $this->assignmentService->applyAssignmentToRecord($contact, $assignedUserId);
+                Log::info('Contact assigned via assignment rules (override)', [
+                    'contact_id' => $contact->id,
+                    'original_owner_id' => $originalOwnerId,
+                    'assigned_user_id' => $assignedUserId,
+                    'tenant_id' => $tenantId,
+                    'override_type' => $originalOwnerId ? 'manual_override' : 'auto_assignment'
+                ]);
+            } else {
+                Log::info('No assignment rule matched, keeping original owner', [
+                    'contact_id' => $contact->id,
+                    'owner_id' => $originalOwnerId,
+                    'tenant_id' => $tenantId
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to run assignment rules for contact', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage(),
+                'tenant_id' => $tenantId
+            ]);
+        }
 
         // Trigger automation for contact creation
         try {

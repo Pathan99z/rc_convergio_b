@@ -7,6 +7,7 @@ use App\Models\FormSubmission;
 use App\Models\Contact;
 use App\Models\Company;
 use App\Models\User;
+use App\Services\TeamAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -17,6 +18,10 @@ use Illuminate\Support\Str;
 
 class FormService
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
+
     /**
      * Get paginated forms with filters
      */
@@ -48,6 +53,9 @@ class FormService
         $sortBy = $filters['sortBy'] ?? 'created_at';
         $sortOrder = $filters['sortOrder'] ?? 'desc';
         $query->orderBy($sortBy, $sortOrder);
+
+        // ✅ FIX: Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         return $query->paginate($perPage);
     }

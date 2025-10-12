@@ -31,6 +31,7 @@ class Deal extends Model
         'contact_id',
         'company_id',
         'tenant_id',
+        'team_id',
     ];
 
     protected $casts = [
@@ -92,6 +93,14 @@ class Deal extends Model
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(User::class, 'tenant_id');
+    }
+
+    /**
+     * Get the team that owns the deal.
+     */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /**

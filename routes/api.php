@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PublicFormController;
 use App\Http\Controllers\Api\ListsController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\UsersController;
+use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\FeatureStatusController;
 use App\Http\Controllers\Api\FacebookOAuthController;
@@ -540,10 +541,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Users resource (Admin only)
     Route::get('users/me', [UsersController::class, 'me']);
     Route::get('users', [UsersController::class, 'index']);
+    Route::get('users/for-assignment', [UsersController::class, 'forAssignment']); // ✅ NEW: Team-aware assignment endpoint
     Route::get('users/{id}', [UsersController::class, 'show'])->whereNumber('id');
     Route::post('users', [UsersController::class, 'store']);
     Route::put('users/{id}', [UsersController::class, 'update'])->whereNumber('id');
     Route::delete('users/{id}', [UsersController::class, 'destroy'])->whereNumber('id');
+
+    // Teams resource (Admin only)
+    Route::get('teams', [TeamController::class, 'index']);
+    Route::post('teams', [TeamController::class, 'store']);
+    Route::get('teams/{id}', [TeamController::class, 'show'])->whereNumber('id');
+    Route::put('teams/{id}', [TeamController::class, 'update'])->whereNumber('id');
+    Route::delete('teams/{id}', [TeamController::class, 'destroy'])->whereNumber('id');
+    Route::get('teams/{id}/members', [TeamController::class, 'members'])->whereNumber('id');
+    Route::post('teams/{id}/members', [TeamController::class, 'addMember'])->whereNumber('id');
+    Route::delete('teams/{id}/members/{userId}', [TeamController::class, 'removeMember'])->whereNumber(['id', 'userId']);
+    Route::put('teams/{id}/members/{userId}/role', [TeamController::class, 'updateMemberRole'])->whereNumber(['id', 'userId']);
 
     // Roles resource (for role dropdowns)
     Route::get('roles', [RoleController::class, 'index']);
@@ -653,6 +666,42 @@ Route::prefix('public/quotes')->group(function () {
     Route::get('{uuid}', [\App\Http\Controllers\PublicQuoteController::class, 'show']);
     Route::post('{uuid}/accept', [\App\Http\Controllers\PublicQuoteController::class, 'accept']);
     Route::post('{uuid}/reject', [\App\Http\Controllers\PublicQuoteController::class, 'reject']);
+});
+
+// Assignment Rules Management (Admin only)
+Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+    Route::prefix('assignment-rules')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'store']);
+        Route::get('/operators', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'operators']);
+        Route::get('/fields', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'fields']);
+        Route::get('/stats', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'stats']);
+        Route::get('/{id}', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'show'])->whereNumber('id');
+        Route::put('/{id}', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'update'])->whereNumber('id');
+        Route::delete('/{id}', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'destroy'])->whereNumber('id');
+        Route::patch('/{id}/toggle', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'toggle'])->whereNumber('id');
+    });
+
+    Route::prefix('assignment-defaults')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'show']);
+        Route::put('/', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'update']);
+        Route::get('/users', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'users']);
+        Route::get('/stats', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'stats']);
+        Route::post('/reset-counters', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'resetCounters']);
+        Route::patch('/toggle-automatic', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'toggleAutomaticAssignment']);
+    });
+
+    // Assignment Audits (Admin only)
+    Route::prefix('assignment-audits')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\AssignmentAuditsController::class, 'index']);
+        Route::get('/export', [\App\Http\Controllers\Api\AssignmentAuditsController::class, 'export']);
+    });
+
+    // Assignment Logs (Admin only)
+    Route::prefix('logs')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\AssignmentLogsController::class, 'index']);
+        Route::get('/export', [\App\Http\Controllers\Api\AssignmentLogsController::class, 'export']);
+    });
 });
 
 

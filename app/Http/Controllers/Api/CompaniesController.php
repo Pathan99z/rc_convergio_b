@@ -9,6 +9,7 @@ use App\Http\Resources\CompanyResource;
 use App\Jobs\ImportCompaniesJob;
 use App\Models\Company;
 use App\Services\CompanyService;
+use App\Services\TeamAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
@@ -19,7 +20,8 @@ use Illuminate\Support\Facades\Log;
 class CompaniesController extends Controller
 {
     public function __construct(
-        private CompanyService $companyService
+        private CompanyService $companyService,
+        private TeamAccessService $teamAccessService
     ) {}
 
     /**

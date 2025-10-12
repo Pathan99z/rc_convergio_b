@@ -9,6 +9,7 @@ use App\Http\Resources\FormResource;
 use App\Http\Resources\FormSubmissionResource;
 use App\Models\Form;
 use App\Services\FormService;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -18,7 +19,8 @@ use Illuminate\Support\Facades\Log;
 class FormsController extends Controller
 {
     public function __construct(
-        private FormService $formService
+        private FormService $formService,
+        private TeamAccessService $teamAccessService
     ) {}
 
     /**
@@ -26,8 +28,11 @@ class FormsController extends Controller
      */
     public function index(Request $request): AnonymousResourceCollection
     {
+        // ✅ FIX: Use proper tenant_id instead of user_id
+        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
+        
         $filters = [
-            'tenant_id' => $request->user()->id, // Use authenticated user as tenant
+            'tenant_id' => $tenantId,
             'q' => $request->get('q'),
             'name' => $request->get('name'),
             'created_by' => $request->get('created_by'),
@@ -45,9 +50,12 @@ class FormsController extends Controller
      */
     public function store(StoreFormRequest $request): JsonResource
     {
+        // ✅ FIX: Use proper tenant_id instead of user_id
+        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
+        
         $data = $request->validated();
         $data['created_by'] = $request->user()->id;
-        $data['tenant_id'] = $request->user()->id; // Use authenticated user as tenant
+        $data['tenant_id'] = $tenantId;
 
         $form = $this->formService->createForm($data);
 

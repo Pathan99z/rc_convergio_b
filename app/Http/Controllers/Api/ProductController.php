@@ -7,12 +7,17 @@ use App\Http\Requests\Products\StoreProductRequest;
 use App\Http\Requests\Products\UpdateProductRequest;
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ProductController extends Controller
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
+
     /**
      * Display a listing of the resource.
      */
@@ -37,6 +42,9 @@ class ProductController extends Controller
         $sortBy = $request->query('sortBy', 'created_at');
         $sortOrder = $request->query('sortOrder', 'desc');
         $query->orderBy($sortBy, $sortOrder);
+
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         $perPage = $request->query('per_page', 15);
         $products = $query->paginate($perPage);

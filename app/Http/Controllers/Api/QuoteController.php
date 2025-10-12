@@ -10,6 +10,7 @@ use App\Models\Quote;
 use App\Models\Contact;
 use App\Services\QuoteService;
 use App\Services\QuoteMailer;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -19,7 +20,8 @@ class QuoteController extends Controller
 {
     public function __construct(
         private QuoteService $quoteService,
-        private QuoteMailer $quoteMailer
+        private QuoteMailer $quoteMailer,
+        private TeamAccessService $teamAccessService
     ) {}
 
     /**
@@ -44,8 +46,11 @@ class QuoteController extends Controller
 
         $query = Quote::query()->where('tenant_id', $tenantId);
 
-        // Filter by created_by to ensure users only see their own quotes
+        // Apply creator-based filtering (quotes are creator-specific)
         $query->where('created_by', $userId);
+        
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         // Apply filters
         if ($status = $request->query('status')) {

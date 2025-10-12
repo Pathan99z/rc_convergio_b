@@ -29,6 +29,7 @@ class Task extends Model
         'owner_id',
         'assigned_to',
         'tenant_id',
+        'team_id',
         'related_type',
         'related_id',
     ];
@@ -61,6 +62,14 @@ class Task extends Model
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(User::class, 'tenant_id');
+    }
+
+    /**
+     * Get the team that owns the task.
+     */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /**

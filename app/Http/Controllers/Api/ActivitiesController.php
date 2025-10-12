@@ -7,6 +7,7 @@ use App\Http\Requests\Activities\StoreActivityRequest;
 use App\Http\Requests\Activities\UpdateActivityRequest;
 use App\Http\Resources\ActivityResource;
 use App\Models\Activity;
+use App\Services\TeamAccessService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +17,9 @@ use Symfony\Component\HttpFoundation\Response;
 
 class ActivitiesController extends Controller
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Activity::class);
@@ -33,13 +37,15 @@ class ActivitiesController extends Controller
 
         $query = Activity::query()->where('tenant_id', $tenantId);
 
-        // Filter by owner_id to ensure users only see their own activities
-        // Only override if explicitly requested (for admin functionality)
+        // Apply owner-based filtering (activities are owner-specific)
         if ($ownerId = $request->query('owner_id')) {
             $query->where('owner_id', $ownerId);
         } else {
             $query->where('owner_id', $userId);
         }
+        
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
         if ($type = $request->query('type')) {
             $query->where('type', $type);
         }

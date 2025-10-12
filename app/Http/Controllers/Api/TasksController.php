@@ -7,6 +7,7 @@ use App\Http\Requests\Tasks\StoreTaskRequest;
 use App\Http\Requests\Tasks\UpdateTaskRequest;
 use App\Http\Resources\TaskResource;
 use App\Models\Task;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -14,6 +15,9 @@ use Illuminate\Support\Facades\DB;
 
 class TasksController extends Controller
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Task::class);
@@ -33,10 +37,13 @@ class TasksController extends Controller
 
         $query = Task::query()->where('tenant_id', $tenantId);
 
-        // Filter by owner_id or assigned_to to ensure users see relevant tasks
+        // Apply owner/assignee-based filtering (tasks are owner/assignee-specific)
         $query->where(function ($q) use ($userId) {
             $q->where('owner_id', $userId)->orWhere('assigned_to', $userId);
         });
+        
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         // Search filter
         if ($search = $request->query('search')) {

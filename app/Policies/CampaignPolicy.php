@@ -4,9 +4,12 @@ namespace App\Policies;
 
 use App\Models\Campaign;
 use App\Models\User;
+use App\Policies\Concerns\ChecksTenantAndTeam;
+use Illuminate\Auth\Access\HandlesAuthorization;
 
 class CampaignPolicy
 {
+    use HandlesAuthorization, ChecksTenantAndTeam;
     public function viewAny(User $user): bool
     {
         return true;
@@ -14,7 +17,7 @@ class CampaignPolicy
 
     public function view(User $user, Campaign $campaign): bool
     {
-        return true; // Allow all authenticated users to view campaigns
+        return $this->tenantAndTeamCheck($user, $campaign);
     }
 
     public function create(User $user): bool
@@ -29,12 +32,12 @@ class CampaignPolicy
             return false;
         }
         
-        return true; // Allow all authenticated users to update campaigns
+        return $this->tenantAndTeamCheck($user, $campaign);
     }
 
     public function delete(User $user, Campaign $campaign): bool
     {
-        return true; // Allow all authenticated users to delete campaigns
+        return $this->tenantAndTeamCheck($user, $campaign);
     }
 
     public function send(User $user, Campaign $campaign): bool

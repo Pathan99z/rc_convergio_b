@@ -12,7 +12,6 @@ class FeatureRestrictionService
      * Restricted email domains (free/preview users)
      */
     private const RESTRICTED_DOMAINS = [
-        'gmail.com',
         'yahoo.com',
         'hotmail.com',
         'outlook.com',

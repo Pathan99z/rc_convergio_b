@@ -4,9 +4,12 @@ namespace App\Policies;
 
 use App\Models\Pipeline;
 use App\Models\User;
+use App\Policies\Concerns\ChecksTenantAndTeam;
+use Illuminate\Auth\Access\HandlesAuthorization;
 
 class PipelinePolicy
 {
+    use HandlesAuthorization, ChecksTenantAndTeam;
     public function viewAny(User $user): bool
     {
         return true;
@@ -14,7 +17,7 @@ class PipelinePolicy
 
     public function view(User $user, Pipeline $pipeline): bool
     {
-        return true;
+        return $this->tenantAndTeamCheck($user, $pipeline);
     }
 
     public function create(User $user): bool
@@ -24,11 +27,11 @@ class PipelinePolicy
 
     public function update(User $user, Pipeline $pipeline): bool
     {
-        return true; // Allow all authenticated users to update pipelines
+        return $this->tenantAndTeamCheck($user, $pipeline);
     }
 
     public function delete(User $user, Pipeline $pipeline): bool
     {
-        return true; // Allow all authenticated users to delete pipelines
+        return $this->tenantAndTeamCheck($user, $pipeline);
     }
 }

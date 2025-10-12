@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Dashboard;
 
 use App\Http\Controllers\Controller;
+use App\Services\TeamAccessService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Database\DatabaseManager as DB;
 use Illuminate\Http\JsonResponse;
@@ -11,7 +12,11 @@ use Illuminate\Support\Carbon;
 
 class CampaignsController extends Controller
 {
-    public function __construct(private CacheRepository $cache, private DB $db) {}
+    public function __construct(
+        private CacheRepository $cache, 
+        private DB $db,
+        private TeamAccessService $teamAccessService
+    ) {}
 
     public function metrics(Request $request): JsonResponse
     {
@@ -31,7 +36,7 @@ class CampaignsController extends Controller
         
         $cacheKey = "campaigns:metrics:user:{$userId}:tenant:{$tenantId}:range:{$range}";
 
-        $data = $this->cache->remember($cacheKey, 60, function () use ($range, $tenantId) {
+        $data = $this->cache->remember($cacheKey, 60, function () use ($range, $tenantId, $request) {
             if (! $this->db->connection()->getSchemaBuilder()->hasTable('campaigns')) {
                 return [
                     'total_campaigns' => 0,
@@ -56,10 +61,28 @@ class CampaignsController extends Controller
                 ->where('tenant_id', $tenantId)
                 ->where('created_at', '>=', $since);
             
+            // ✅ FIX: Apply team filtering to campaign metrics
+            $user = $request->user();
+            if ($this->teamAccessService->enabled() && $user->team_id) {
+                $q->where(function($query) use ($user) {
+                    $query->where('team_id', $user->team_id)
+                          ->orWhereNull('team_id'); // Admin-created campaigns
+                });
+            }
+            
             // Get total campaigns count for the tenant (all time, not just within range)
-            $totalCampaigns = $this->db->table('campaigns')
-                ->where('tenant_id', $tenantId)
-                ->count();
+            $totalCampaignsQuery = $this->db->table('campaigns')
+                ->where('tenant_id', $tenantId);
+            
+            // ✅ FIX: Apply team filtering to total campaigns count
+            if ($this->teamAccessService->enabled() && $user->team_id) {
+                $totalCampaignsQuery->where(function($query) use ($user) {
+                    $query->where('team_id', $user->team_id)
+                          ->orWhereNull('team_id'); // Admin-created campaigns
+                });
+            }
+            
+            $totalCampaigns = $totalCampaignsQuery->count();
             
             $delivered = (clone $q)->sum('delivered_count');
             $opens = (clone $q)->sum('opened_count');
@@ -98,7 +121,7 @@ class CampaignsController extends Controller
         
         $cacheKey = "campaigns:trends:user:{$userId}:tenant:{$tenantId}:range:{$range}:interval:{$interval}";
 
-        $data = $this->cache->remember($cacheKey, 60, function () use ($range, $interval, $tenantId) {
+        $data = $this->cache->remember($cacheKey, 60, function () use ($range, $interval, $tenantId, $request) {
             if (! $this->db->connection()->getSchemaBuilder()->hasTable('campaign_recipients')) {
                 return [];
             }
@@ -115,19 +138,31 @@ class CampaignsController extends Controller
             $dateGroupBy = $interval === 'weekly' ? 'YEARWEEK(sent_at)' : 'DATE(sent_at)';
 
             // Query campaign_recipients for time-series data
-            $trends = $this->db->table('campaign_recipients')
+            $trendsQuery = $this->db->table('campaign_recipients')
+                ->join('campaigns', 'campaign_recipients.campaign_id', '=', 'campaigns.id')
                 ->select([
-                    $this->db->raw("DATE_FORMAT(sent_at, '{$dateFormat}') as date"),
-                    $this->db->raw('COUNT(CASE WHEN sent_at IS NOT NULL THEN 1 END) as sent'),
-                    $this->db->raw('COUNT(CASE WHEN delivered_at IS NOT NULL THEN 1 END) as delivered'),
-                    $this->db->raw('COUNT(CASE WHEN opened_at IS NOT NULL THEN 1 END) as opens'),
-                    $this->db->raw('COUNT(CASE WHEN clicked_at IS NOT NULL THEN 1 END) as clicks'),
-                    $this->db->raw('COUNT(CASE WHEN bounced_at IS NOT NULL THEN 1 END) as bounces'),
+                    $this->db->raw("DATE_FORMAT(campaign_recipients.sent_at, '{$dateFormat}') as date"),
+                    $this->db->raw('COUNT(CASE WHEN campaign_recipients.sent_at IS NOT NULL THEN 1 END) as sent'),
+                    $this->db->raw('COUNT(CASE WHEN campaign_recipients.delivered_at IS NOT NULL THEN 1 END) as delivered'),
+                    $this->db->raw('COUNT(CASE WHEN campaign_recipients.opened_at IS NOT NULL THEN 1 END) as opens'),
+                    $this->db->raw('COUNT(CASE WHEN campaign_recipients.clicked_at IS NOT NULL THEN 1 END) as clicks'),
+                    $this->db->raw('COUNT(CASE WHEN campaign_recipients.bounced_at IS NOT NULL THEN 1 END) as bounces'),
                 ])
-                ->where('tenant_id', $tenantId)
-                ->where('sent_at', '>=', $since)
-                ->whereNotNull('sent_at')
-                ->groupBy($this->db->raw("DATE_FORMAT(sent_at, '{$dateFormat}')"))
+                ->where('campaigns.tenant_id', $tenantId)
+                ->where('campaign_recipients.sent_at', '>=', $since)
+                ->whereNotNull('campaign_recipients.sent_at');
+            
+            // ✅ FIX: Apply team filtering to trends
+            $user = $request->user();
+            if ($this->teamAccessService->enabled() && $user->team_id) {
+                $trendsQuery->where(function($query) use ($user) {
+                    $query->where('campaigns.team_id', $user->team_id)
+                          ->orWhereNull('campaigns.team_id'); // Admin-created campaigns
+                });
+            }
+            
+            $trends = $trendsQuery
+                ->groupBy($this->db->raw("DATE_FORMAT(campaign_recipients.sent_at, '{$dateFormat}')"))
                 ->orderBy('date')
                 ->get();
 

@@ -4,11 +4,12 @@ namespace App\Policies;
 
 use App\Models\Event;
 use App\Models\User;
+use App\Policies\Concerns\ChecksTenantAndTeam;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
 class EventPolicy
 {
-    use HandlesAuthorization;
+    use HandlesAuthorization, ChecksTenantAndTeam;
 
     /**
      * Determine whether the user can view any models.
@@ -23,7 +24,7 @@ class EventPolicy
      */
     public function view(User $user, Event $event): bool
     {
-        return $user->tenant_id === $event->tenant_id;
+        return $this->tenantAndTeamCheck($user, $event);
     }
 
     /**
@@ -39,7 +40,7 @@ class EventPolicy
      */
     public function update(User $user, Event $event): bool
     {
-        return $user->tenant_id === $event->tenant_id;
+        return $this->tenantAndTeamCheck($user, $event);
     }
 
     /**
@@ -47,7 +48,7 @@ class EventPolicy
      */
     public function delete(User $user, Event $event): bool
     {
-        return $user->tenant_id === $event->tenant_id;
+        return $this->tenantAndTeamCheck($user, $event);
     }
 
     /**
@@ -90,6 +91,10 @@ class EventPolicy
         return $user->tenant_id === $event->tenant_id;
     }
 }
+
+
+
+
 
 
 

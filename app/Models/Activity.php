@@ -28,6 +28,7 @@ class Activity extends Model
         'status',
         'owner_id',
         'tenant_id',
+        'team_id',
         'related_type',
         'related_id',
     ];
@@ -53,6 +54,14 @@ class Activity extends Model
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(User::class, 'tenant_id');
+    }
+
+    /**
+     * Get the team that owns the activity.
+     */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /**

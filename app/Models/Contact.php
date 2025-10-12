@@ -25,6 +25,7 @@ class Contact extends Model
         'lead_score',
         'lead_score_updated_at',
         'tenant_id',
+        'team_id',
     ];
 
     protected $casts = [
@@ -76,6 +77,14 @@ class Contact extends Model
     public function isUnsubscribed(): bool
     {
         return \App\Models\ContactSubscription::isUnsubscribed($this->id);
+    }
+
+    /**
+     * Get the team that owns the contact.
+     */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /**

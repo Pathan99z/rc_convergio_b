@@ -15,6 +15,10 @@ use App\Models\ContactList;
 use App\Models\Event;
 use App\Models\SequenceEnrollment;
 use App\Models\User;
+use App\Models\AssignmentRule;
+use App\Models\AssignmentDefault;
+use App\Models\AssignmentAudit;
+use App\Models\Team;
 use App\Policies\ContactPolicy;
 use App\Policies\CompanyPolicy;
 use App\Policies\DealPolicy;
@@ -28,6 +32,10 @@ use App\Policies\ContactListPolicy;
 use App\Policies\EventPolicy;
 use App\Policies\SequenceEnrollmentPolicy;
 use App\Policies\UserPolicy;
+use App\Policies\AssignmentRulePolicy;
+use App\Policies\AssignmentDefaultPolicy;
+use App\Policies\AssignmentAuditPolicy;
+use App\Policies\TeamPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Auth\Notifications\ResetPassword;
 
@@ -47,6 +55,10 @@ class AuthServiceProvider extends ServiceProvider
         Event::class => EventPolicy::class,
         SequenceEnrollment::class => SequenceEnrollmentPolicy::class,
         User::class => UserPolicy::class,
+        AssignmentRule::class => AssignmentRulePolicy::class,
+        AssignmentDefault::class => AssignmentDefaultPolicy::class,
+        AssignmentAudit::class => AssignmentAuditPolicy::class,
+        Team::class => TeamPolicy::class,
     ];
 
     public function boot(): void

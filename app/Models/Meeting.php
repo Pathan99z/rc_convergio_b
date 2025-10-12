@@ -6,10 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Traits\HasTenantScope;
 
 class Meeting extends Model
 {
-    use HasFactory;
+    use HasFactory, HasTenantScope;
 
     /**
      * The attributes that are mass assignable.
@@ -33,6 +34,7 @@ class Meeting extends Model
         'completed_at',
         'cancelled_at',
         'tenant_id',
+        'team_id',
     ];
 
     /**

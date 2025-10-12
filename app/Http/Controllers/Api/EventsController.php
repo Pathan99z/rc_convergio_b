@@ -13,6 +13,7 @@ use App\Models\EventAttendee;
 use App\Models\Contact;
 use App\Services\EventService;
 use App\Services\ZoomIntegrationService;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -24,7 +25,8 @@ class EventsController extends Controller
 {
     public function __construct(
         private EventService $eventService,
-        private ZoomIntegrationService $zoomService
+        private ZoomIntegrationService $zoomService,
+        private TeamAccessService $teamAccessService
     ) {}
     /**
      * Get all events for the authenticated user's tenant.
@@ -47,6 +49,9 @@ class EventsController extends Controller
             ->with(['attendees' => function ($query) {
                 $query->with('contact:id,first_name,last_name,email');
             }]);
+
+        // ✅ FIX: Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         // Filter by type if provided
         if ($request->has('type')) {

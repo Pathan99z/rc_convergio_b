@@ -18,7 +18,10 @@ class UserService
      */
     public function getUsers(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
+        $currentUser = Auth::user();
+        
         $query = User::query()
+            ->where('tenant_id', $currentUser->tenant_id) // ✅ CRITICAL: Filter by tenant_id
             ->with(['roles:id,name']);
 
         // Apply filters
@@ -59,12 +62,15 @@ class UserService
      */
     public function createUser(array $data): User
     {
+        $currentAdmin = Auth::user();
+        
         $userData = [
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
-            'organization_name' => Auth::user()->organization_name, // Auto-assign from current admin
+            'organization_name' => $currentAdmin->organization_name, // Auto-assign from current admin
             'status' => $data['status'] ?? 'active', // Default to active
+            'tenant_id' => $currentAdmin->tenant_id, // Assign admin's tenant_id for team access
         ];
 
         $user = User::create($userData);

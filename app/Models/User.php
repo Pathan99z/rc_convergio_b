@@ -25,6 +25,8 @@ class User extends Authenticatable implements MustVerifyEmail
         'password',
         'organization_name',
         'status',
+        'tenant_id',
+        'team_id',
     ];
 
     /**
@@ -61,10 +63,41 @@ class User extends Authenticatable implements MustVerifyEmail
 
     /**
      * Get the tenant ID for this user.
-     * In this system, each user is their own tenant.
+     * For admin-created users, use the assigned tenant_id.
+     * For public registrations, fall back to user ID for backward compatibility.
      */
     public function getTenantIdAttribute(): int
     {
-        return $this->id;
+        // If tenant_id is explicitly set in database and not 0, use it (for admin-created users)
+        if (isset($this->attributes['tenant_id']) && $this->attributes['tenant_id'] > 0) {
+            return (int) $this->attributes['tenant_id'];
+        }
+        
+        // Fall back to user ID for backward compatibility (public registrations and default value 0)
+        return $this->id ?? 0;
+    }
+
+    /**
+     * Get the team that the user belongs to.
+     */
+    public function team(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Team::class);
+    }
+
+    /**
+     * Get the team memberships for this user.
+     */
+    public function teamMemberships(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(TeamMember::class);
+    }
+
+    /**
+     * Get the teams that this user belongs to.
+     */
+    public function teams(): \Illuminate\Database\Eloquent\Relations\HasManyThrough
+    {
+        return $this->hasManyThrough(Team::class, TeamMember::class, 'user_id', 'id', 'id', 'team_id');
     }
 }

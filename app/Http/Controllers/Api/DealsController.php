@@ -8,6 +8,8 @@ use App\Http\Requests\Deals\UpdateDealRequest;
 use App\Http\Requests\Deals\MoveDealRequest;
 use App\Http\Resources\DealResource;
 use App\Models\Deal;
+use App\Services\AssignmentService;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +19,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 class DealsController extends Controller
 {
+    public function __construct(
+        private AssignmentService $assignmentService,
+        private TeamAccessService $teamAccessService
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Deal::class);
@@ -36,8 +43,11 @@ class DealsController extends Controller
 
         $query = Deal::query()->where('tenant_id', $tenantId);
 
-        // Filter by owner_id to ensure users only see their own deals
+        // Apply owner-based filtering (deals are owner-specific)
         $query->where('owner_id', $userId);
+        
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         if ($ownerId = $request->query('owner_id')) {
             $query->where('owner_id', $ownerId);
@@ -139,9 +149,37 @@ class DealsController extends Controller
 
         $data = $request->validated();
         $data['tenant_id'] = $tenantId;
-        $data['owner_id'] = $request->user()->id; // Set owner to current user
+        
+        // Only set owner_id if not already provided in the request
+        if (empty($data['owner_id'])) {
+            $data['owner_id'] = $request->user()->id; // Set owner to current user
+        }
 
         $deal = Deal::create($data);
+
+        // Run assignment logic if no owner is set or if we want to override
+        if (empty($deal->owner_id) || $request->boolean('run_assignment', false)) {
+            try {
+                $assignedUserId = $this->assignmentService->assignOwnerForRecord($deal, 'deal', [
+                    'tenant_id' => $tenantId,
+                    'created_by' => $request->user()->id
+                ]);
+
+                if ($assignedUserId && $assignedUserId !== $deal->owner_id) {
+                    $this->assignmentService->applyAssignmentToRecord($deal, $assignedUserId);
+                    Log::info('Deal assigned via assignment rules', [
+                        'deal_id' => $deal->id,
+                        'assigned_user_id' => $assignedUserId,
+                        'tenant_id' => $tenantId
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error('Failed to assign deal via assignment rules', [
+                    'deal_id' => $deal->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
 
         $response = [
             'data' => new DealResource($deal->load(['pipeline', 'stage', 'owner', 'contact', 'company'])),

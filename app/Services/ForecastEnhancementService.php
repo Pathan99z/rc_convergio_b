@@ -296,5 +296,30 @@ class ForecastEnhancementService
             ]
         ];
     }
+
+    /**
+     * Get forecast data for export.
+     */
+    public function getForecastData(int $tenantId, array $filters = []): array
+    {
+        $timeframe = $filters['timeframe'] ?? 'monthly';
+        $includeTrends = $filters['include_trends'] ?? false;
+        $includePipelineBreakdown = $filters['include_pipeline_breakdown'] ?? false;
+
+        // Generate forecast data
+        $forecast = $this->forecastService->generateForecast($tenantId, $timeframe);
+
+        // Add trends if requested
+        if ($includeTrends) {
+            $forecast['trends'] = $this->forecastService->getForecastTrends($tenantId, 6);
+        }
+
+        // Add pipeline breakdown if requested
+        if ($includePipelineBreakdown) {
+            $forecast['pipeline_breakdown'] = $this->forecastService->getForecastByPipeline($tenantId, $timeframe);
+        }
+
+        return $forecast;
+    }
 }
 

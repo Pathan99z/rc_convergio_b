@@ -4,9 +4,13 @@ namespace App\Policies;
 
 use App\Models\Form;
 use App\Models\User;
+use App\Policies\Concerns\ChecksTenantAndTeam;
+use Illuminate\Auth\Access\HandlesAuthorization;
 
 class FormPolicy
 {
+    use HandlesAuthorization, ChecksTenantAndTeam;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -20,8 +24,7 @@ class FormPolicy
      */
     public function view(User $user, Form $form): bool
     {
-        // Allow if user is the creator or tenant owner
-        return $user->id === $form->created_by || $user->id === $form->tenant_id;
+        return $this->tenantAndTeamCheck($user, $form);
     }
 
     /**
@@ -37,8 +40,7 @@ class FormPolicy
      */
     public function update(User $user, Form $form): bool
     {
-        // Allow if user is the creator or tenant owner
-        return $user->id === $form->created_by || $user->id === $form->tenant_id;
+        return $this->tenantAndTeamCheck($user, $form);
     }
 
     /**
@@ -46,7 +48,6 @@ class FormPolicy
      */
     public function delete(User $user, Form $form): bool
     {
-        // Allow if user is the creator or tenant owner
-        return $user->id === $form->created_by || $user->id === $form->tenant_id;
+        return $this->tenantAndTeamCheck($user, $form);
     }
 }

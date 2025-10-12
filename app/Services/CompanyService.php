@@ -4,12 +4,18 @@ namespace App\Services;
 
 use App\Models\Company;
 use App\Models\Contact;
+use App\Services\TeamAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 class CompanyService
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
+
     /**
      * Get paginated companies with filters
      */
@@ -27,7 +33,7 @@ class CompanyService
         // Handle search query
         if (!empty($filters['q'])) {
             $searchTerm = $filters['q'];
-            \Log::info('Searching for companies with term: ' . $searchTerm);
+            Log::info('Searching for companies with term: ' . $searchTerm);
             
             $query->where(function($q) use ($searchTerm) {
                 // Primary search on company name (exact match first, then partial)
@@ -37,7 +43,7 @@ class CompanyService
                   ->orWhere('website', 'like', '%' . $searchTerm . '%'); // Website contains
             });
             
-            \Log::info('Search query built, will execute with filters: ' . json_encode($filters));
+            Log::info('Search query built, will execute with filters: ' . json_encode($filters));
         }
 
         if (!empty($filters['industry'])) {
@@ -56,6 +62,9 @@ class CompanyService
         $sortBy = $filters['sortBy'] ?? 'created_at';
         $sortOrder = $filters['sortOrder'] ?? 'desc';
         $query->orderBy($sortBy, $sortOrder);
+
+        // Apply team filtering if enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         return $query->paginate($perPage);
     }

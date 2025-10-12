@@ -11,6 +11,7 @@ use App\Http\Resources\MeetingCollection;
 use App\Models\Meeting;
 use App\Models\Contact;
 use App\Services\MeetingService;
+use App\Services\TeamAccessService;
 use App\Jobs\SendMeetingNotificationJob;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,7 @@ class MeetingsController extends Controller
 {
     protected MeetingService $meetingService;
 
-    public function __construct(MeetingService $meetingService)
+    public function __construct(MeetingService $meetingService, private TeamAccessService $teamAccessService)
     {
         $this->meetingService = $meetingService;
     }
@@ -36,6 +37,9 @@ class MeetingsController extends Controller
 
         $query = Meeting::forTenant($tenantId)
             ->with(['contact:id,first_name,last_name,email', 'user:id,name']);
+
+        // ✅ FIX: Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         // Filter by user if provided
         if ($request->has('user_id')) {
