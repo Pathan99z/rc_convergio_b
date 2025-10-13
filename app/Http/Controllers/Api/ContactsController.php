@@ -195,10 +195,28 @@ class ContactsController extends Controller
 
         $this->authorize('view', $contact);
 
+        // Get linked documents for this contact using the new relationship approach
+        $user = $request->user();
+        $tenantId = $user->tenant_id ?? $user->id;
+        
+        $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
+            ->where(function($query) {
+                $query->where('related_type', 'App\\Models\\Contact')
+                      ->orWhere('related_type', 'contact');
+            })
+            ->where('related_id', $id)
+            ->pluck('document_id');
+            
+        $documents = \App\Models\Document::where('tenant_id', $tenantId)
+            ->whereIn('id', $documentIds)
+            ->whereNull('deleted_at')
+            ->get();
+
         return response()->json([
             'success' => true,
             'data' => [
                 'contact' => $contact,
+                'documents' => $documents,
                 'timeline_summary' => [],
             ],
             'meta' => [ 'page' => 1, 'total' => 1 ],

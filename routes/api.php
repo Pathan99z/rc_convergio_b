@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\FacebookOAuthController;
 use App\Http\Controllers\Api\GoogleOAuthController;
 use App\Http\Controllers\Api\TeamsOAuthController;
 use App\Http\Controllers\Api\OutlookOAuthController;
+use App\Http\Controllers\Api\DocumentsController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -701,6 +702,19 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::prefix('logs')->group(function () {
         Route::get('/', [\App\Http\Controllers\Api\AssignmentLogsController::class, 'index']);
         Route::get('/export', [\App\Http\Controllers\Api\AssignmentLogsController::class, 'export']);
+    });
+
+    // Documents Management
+    Route::prefix('documents')->group(function () {
+        Route::get('/', [DocumentsController::class, 'index']);
+        Route::post('/', [DocumentsController::class, 'store']);
+        Route::get('/analytics', [DocumentsController::class, 'analytics']);
+        Route::get('/{id}/download', [DocumentsController::class, 'download'])->name('documents.download');
+        Route::get('/{id}/preview', [DocumentsController::class, 'preview']);
+        Route::post('/{id}/link', [DocumentsController::class, 'link']);
+        Route::get('/{id}', [DocumentsController::class, 'show']);
+        Route::put('/{id}', [DocumentsController::class, 'update']);
+        Route::delete('/{id}', [DocumentsController::class, 'destroy']);
     });
 });
 

@@ -122,7 +122,26 @@ class QuoteController extends Controller
     {
         $this->authorize('view', $quote);
         $quote->load(['deal.company', 'deal.contact', 'deal.stage', 'deal.pipeline', 'items', 'creator']);
-        return new QuoteResource($quote);
+        
+        // Get linked documents for this quote
+        $user = auth()->user();
+        $tenantId = $user ? ($user->tenant_id ?? $user->id) : 1;
+        
+        // Get linked documents for this quote using the new relationship approach
+        $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
+            ->where('related_type', 'App\\Models\\Quote')
+            ->where('related_id', $quote->id)
+            ->pluck('document_id');
+            
+        $documents = \App\Models\Document::where('tenant_id', $tenantId)
+            ->whereIn('id', $documentIds)
+            ->whereNull('deleted_at')
+            ->get();
+
+        $resource = new QuoteResource($quote);
+        $resource->additional(['documents' => $documents]);
+        
+        return $resource;
     }
 
     /**

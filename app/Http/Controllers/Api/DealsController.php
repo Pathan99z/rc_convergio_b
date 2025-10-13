@@ -218,8 +218,20 @@ class DealsController extends Controller
 
         $this->authorize('view', $deal);
 
+        // Get linked documents for this deal using the new relationship approach
+        $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
+            ->where('related_type', 'App\\Models\\Deal')
+            ->where('related_id', $id)
+            ->pluck('document_id');
+            
+        $documents = \App\Models\Document::where('tenant_id', $tenantId)
+            ->whereIn('id', $documentIds)
+            ->whereNull('deleted_at')
+            ->get();
+
         return response()->json([
             'data' => new DealResource($deal->load(['pipeline', 'stage', 'owner', 'contact', 'company'])),
+            'documents' => $documents,
         ]);
     }
 
