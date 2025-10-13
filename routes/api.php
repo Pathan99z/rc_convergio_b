@@ -1,5 +1,12 @@
 <?php
 
+use Illuminate\Support\Facades\Route;
+
+// --- health check ---
+Route::get('/health', function () {
+    return response()->json(['ok' => true]);
+});
+
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\Dashboard\DashboardController;
 use App\Http\Controllers\Api\Dashboard\DealsController;
@@ -25,7 +32,7 @@ use App\Http\Controllers\Api\FacebookOAuthController;
 use App\Http\Controllers\Api\GoogleOAuthController;
 use App\Http\Controllers\Api\TeamsOAuthController;
 use App\Http\Controllers\Api\OutlookOAuthController;
-use Illuminate\Support\Facades\Route;
+// use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
