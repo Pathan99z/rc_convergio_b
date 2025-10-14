@@ -54,3 +54,5 @@ trait ChecksTenantAndTeam
         return $model->team_id === $user->team_id;
     }
 }
+
+

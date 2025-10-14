@@ -118,13 +118,13 @@ class QuoteController extends Controller
     /**
      * Display the specified quote.
      */
-    public function show(Quote $quote): QuoteResource
+    public function show(Request $request, Quote $quote): QuoteResource
     {
         $this->authorize('view', $quote);
         $quote->load(['deal.company', 'deal.contact', 'deal.stage', 'deal.pipeline', 'items', 'creator']);
         
         // Get linked documents for this quote
-        $user = auth()->user();
+        $user = $request->user();
         $tenantId = $user ? ($user->tenant_id ?? $user->id) : 1;
         
         // Get linked documents for this quote using the new relationship approach

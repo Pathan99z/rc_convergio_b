@@ -155,10 +155,12 @@ class DocumentsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'title' => 'nullable|string|max:255',
+            'description' => 'nullable|string|max:1000',
             'visibility' => 'nullable|in:private,team,tenant',
             'related_type' => 'nullable|string',
             'related_id' => 'nullable|integer',
             'metadata' => 'nullable|array',
+            'owner_id' => 'nullable|integer|exists:users,id',
         ]);
 
         if ($validator->fails()) {
@@ -168,7 +170,7 @@ class DocumentsController extends Controller
             ], 422);
         }
 
-        $data = $request->only(['title', 'visibility', 'related_type', 'related_id', 'metadata']);
+        $data = $request->only(['title', 'description', 'visibility', 'related_type', 'related_id', 'metadata', 'owner_id']);
         $document = $this->documentService->updateDocument($document, $data);
 
         return response()->json([

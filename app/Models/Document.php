@@ -22,6 +22,7 @@ class Document extends Model
         'related_type',
         'related_id',
         'title',
+        'description',
         'file_path',
         'file_type',
         'file_size',

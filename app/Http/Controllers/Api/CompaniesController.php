@@ -127,7 +127,7 @@ class CompaniesController extends Controller
     /**
      * Display the specified company.
      */
-    public function show($id): JsonResponse
+    public function show(Request $request, $id): JsonResponse
     {
         // Validate that ID is a valid integer
         if (!is_numeric($id) || $id <= 0) {
@@ -141,7 +141,7 @@ class CompaniesController extends Controller
         $company->load(['owner:id,name,email', 'contacts']);
 
         // Get linked documents for this company
-        $user = auth()->user();
+        $user = $request->user();
         $tenantId = $user ? ($user->tenant_id ?? $user->id) : 1;
         
         // Get linked documents for this company using the new relationship approach
