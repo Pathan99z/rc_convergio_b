@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\PublicFormController;
 use App\Http\Controllers\Api\ListsController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\UsersController;
+use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\FeatureStatusController;
 use App\Http\Controllers\Api\FacebookOAuthController;
@@ -29,6 +30,7 @@ use App\Http\Controllers\Api\SeoController;
 use App\Http\Controllers\Api\SocialMediaController;
 use App\Http\Controllers\Api\SocialMediaOAuthController;
 use App\Http\Controllers\Api\SocialListeningController;
+use App\Http\Controllers\Api\DocumentsController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -131,6 +133,32 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('deals/{id}', [\App\Http\Controllers\Api\DealsController::class, 'update'])->whereNumber('id');
     Route::delete('deals/{id}', [\App\Http\Controllers\Api\DealsController::class, 'destroy'])->whereNumber('id');
     Route::post('deals/{id}/move', [\App\Http\Controllers\Api\DealsController::class, 'move'])->whereNumber('id');
+
+    // Quotes resource
+    Route::get('quotes', [\App\Http\Controllers\Api\QuoteController::class, 'index']);
+    Route::post('quotes', [\App\Http\Controllers\Api\QuoteController::class, 'store']);
+    Route::get('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'show'])->whereNumber('quote');
+    Route::put('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'update'])->whereNumber('quote');
+    Route::delete('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'destroy'])->whereNumber('quote');
+    Route::post('quotes/{quote}/send', [\App\Http\Controllers\Api\QuoteController::class, 'send'])->whereNumber('quote');
+    Route::post('quotes/{quote}/accept', [\App\Http\Controllers\Api\QuoteController::class, 'accept'])->whereNumber('quote');
+    Route::post('quotes/{quote}/reject', [\App\Http\Controllers\Api\QuoteController::class, 'reject'])->whereNumber('quote');
+    Route::get('quotes/{quote}/pdf', [\App\Http\Controllers\Api\QuoteController::class, 'pdf'])->whereNumber('quote');
+
+    // Products resource
+    Route::get('products', [\App\Http\Controllers\Api\ProductController::class, 'index']);
+    Route::post('products', [\App\Http\Controllers\Api\ProductController::class, 'store']);
+    Route::get('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'show'])->whereNumber('product');
+    Route::put('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'update'])->whereNumber('product');
+    Route::delete('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'destroy'])->whereNumber('product');
+
+    // Quote Templates resource
+    Route::get('quote-templates', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'index']);
+    Route::post('quote-templates', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'store']);
+    Route::get('quote-templates/{quoteTemplate}', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'show'])->whereNumber('quoteTemplate');
+    Route::put('quote-templates/{quoteTemplate}', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'update'])->whereNumber('quoteTemplate');
+    Route::delete('quote-templates/{quoteTemplate}', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'destroy'])->whereNumber('quoteTemplate');
+    Route::get('quote-templates/{quoteTemplate}/preview', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'preview'])->whereNumber('quoteTemplate');
 
     // Pipelines resource
     Route::get('pipelines', [PipelinesController::class, 'index']);
@@ -533,10 +561,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('user/profile', [UsersController::class, 'me']); // Alias for user profile
     Route::put('user/profile', [UsersController::class, 'updateProfile']); // Update user profile
     Route::get('users', [UsersController::class, 'index']);
+    Route::get('users/for-assignment', [UsersController::class, 'forAssignment']); // ✅ NEW: Team-aware assignment endpoint
     Route::get('users/{id}', [UsersController::class, 'show'])->whereNumber('id');
     Route::post('users', [UsersController::class, 'store']);
     Route::put('users/{id}', [UsersController::class, 'update'])->whereNumber('id');
     Route::delete('users/{id}', [UsersController::class, 'destroy'])->whereNumber('id');
+
+    // Teams resource (Admin only)
+    Route::get('teams', [TeamController::class, 'index']);
+    Route::post('teams', [TeamController::class, 'store']);
+    Route::get('teams/{id}', [TeamController::class, 'show'])->whereNumber('id');
+    Route::put('teams/{id}', [TeamController::class, 'update'])->whereNumber('id');
+    Route::delete('teams/{id}', [TeamController::class, 'destroy'])->whereNumber('id');
+    Route::get('teams/{id}/members', [TeamController::class, 'members'])->whereNumber('id');
+    Route::post('teams/{id}/members', [TeamController::class, 'addMember'])->whereNumber('id');
+    Route::delete('teams/{id}/members/{userId}', [TeamController::class, 'removeMember'])->whereNumber(['id', 'userId']);
+    Route::put('teams/{id}/members/{userId}/role', [TeamController::class, 'updateMemberRole'])->whereNumber(['id', 'userId']);
 
     // Roles resource (for role dropdowns)
     Route::get('roles', [RoleController::class, 'index']);
@@ -548,6 +588,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Audit logs
     Route::get('audit-logs', [\App\Http\Controllers\Api\AuditLogController::class, 'index']);
 
+<<<<<<< HEAD
     // SEO - Enhanced Analytics & Google Search Console Integration
     Route::prefix('seo')->group(function () {
         // OAuth endpoints (primary + aliases)
@@ -644,6 +685,32 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Missing API endpoints that frontend expects
     Route::get('me', [UsersController::class, 'me']);
     Route::get('status', [DashboardController::class, 'status']);
+=======
+    // Sequences (Automated Outreach)
+    Route::prefix('sequences')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\SequencesController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\SequencesController::class, 'store']);
+        Route::get('{sequence}', [\App\Http\Controllers\Api\SequencesController::class, 'show'])->whereNumber('sequence');
+        Route::put('{sequence}', [\App\Http\Controllers\Api\SequencesController::class, 'update'])->whereNumber('sequence');
+        Route::delete('{sequence}', [\App\Http\Controllers\Api\SequencesController::class, 'destroy'])->whereNumber('sequence');
+        Route::post('{sequence}/steps', [\App\Http\Controllers\Api\SequenceStepsController::class, 'store'])->whereNumber('sequence');
+        Route::put('steps/{step}', [\App\Http\Controllers\Api\SequenceStepsController::class, 'update'])->whereNumber('step');
+        Route::delete('steps/{step}', [\App\Http\Controllers\Api\SequenceStepsController::class, 'destroy'])->whereNumber('step');
+        Route::post('{sequence}/enroll', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'enroll'])->whereNumber('sequence');
+        Route::post('enrollments/{enrollment}/pause', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'pause'])->whereNumber('enrollment');
+        Route::post('enrollments/{enrollment}/resume', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'resume'])->whereNumber('enrollment');
+        Route::post('enrollments/{enrollment}/cancel', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'cancel'])->whereNumber('enrollment');
+        Route::get('{sequence}/logs', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'logs'])->whereNumber('sequence');
+        Route::get('enrollments/{enrollment}/logs', [\App\Http\Controllers\Api\SequenceEnrollmentsController::class, 'enrollmentLogs'])->whereNumber('enrollment');
+    });
+
+    // Template Preview & Editing (NEW - Real-time template system)
+    Route::prefix('templates')->group(function () {
+        Route::post('preview', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'preview']);
+        Route::put('update-content', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'updateContent']);
+        Route::post('create-custom', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'createCustom']);
+    });
+>>>>>>> c3072e009c8efc7b371a922f6ce35717ea28818e
 });
 
 // Public routes (no auth required)
@@ -668,6 +735,29 @@ Route::prefix('public')->group(function () {
     Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
 });
 
+// Public routes (no auth required)
+Route::prefix('public')->group(function () {
+    Route::get('forms/{id}', [PublicFormController::class, 'show'])->whereNumber('id');
+    Route::post('forms/{id}/submit', [PublicFormController::class, 'submit'])->whereNumber('id');
+    
+    // Public event registration
+    Route::get('events/{id}', [\App\Http\Controllers\Api\PublicEventController::class, 'show'])->whereNumber('id');
+    Route::post('events/{id}/register', [\App\Http\Controllers\Api\PublicEventController::class, 'register'])->whereNumber('id');
+    Route::get('events/{id}/rsvp', [\App\Http\Controllers\Api\PublicEventController::class, 'rsvp'])->whereNumber('id');
+    // Campaign tracking
+    Route::get('campaigns/track/open', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'open'])->name('campaigns.track.open');
+    Route::get('campaigns/track/click', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'click'])->name('campaigns.track.click');
+    Route::get('campaigns/track/bounce', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'bounce'])->name('campaigns.track.bounce');
+    
+    // Campaign reporting endpoints
+    Route::get('campaigns/{campaign}/opens', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getOpensByCampaign'])->name('campaigns.opens')->where('campaign', '[0-9]+');
+    Route::get('campaigns/{campaign}/clicks', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getClicksByCampaign'])->name('campaigns.clicks')->where('campaign', '[0-9]+');
+    Route::get('campaigns/{campaign}/bounces', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'getBouncesByCampaign'])->name('campaigns.bounces')->where('campaign', '[0-9]+');
+    // Campaign unsubscribe
+    Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
+});
+
+
 // Facebook OAuth Callback (no auth required)
 Route::get('oauth/facebook/callback', [FacebookOAuthController::class, 'callback']);
 
@@ -690,5 +780,60 @@ Route::get('meetings/oauth/teams/callback', [TeamsOAuthController::class, 'callb
 Route::get('meetings/oauth/outlook', [OutlookOAuthController::class, 'redirect']);
 Route::get('meetings/oauth/outlook/callback', [OutlookOAuthController::class, 'callback']);
 
+// Public Quote Routes (No Authentication Required)
+Route::prefix('public/quotes')->group(function () {
+    Route::get('{uuid}', [\App\Http\Controllers\PublicQuoteController::class, 'show']);
+    Route::post('{uuid}/accept', [\App\Http\Controllers\PublicQuoteController::class, 'accept']);
+    Route::post('{uuid}/reject', [\App\Http\Controllers\PublicQuoteController::class, 'reject']);
+});
+
+// Assignment Rules Management (Admin only)
+Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+    Route::prefix('assignment-rules')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'store']);
+        Route::get('/operators', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'operators']);
+        Route::get('/fields', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'fields']);
+        Route::get('/stats', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'stats']);
+        Route::get('/{id}', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'show'])->whereNumber('id');
+        Route::put('/{id}', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'update'])->whereNumber('id');
+        Route::delete('/{id}', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'destroy'])->whereNumber('id');
+        Route::patch('/{id}/toggle', [\App\Http\Controllers\Api\AssignmentRulesController::class, 'toggle'])->whereNumber('id');
+    });
+
+    Route::prefix('assignment-defaults')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'show']);
+        Route::put('/', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'update']);
+        Route::get('/users', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'users']);
+        Route::get('/stats', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'stats']);
+        Route::post('/reset-counters', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'resetCounters']);
+        Route::patch('/toggle-automatic', [\App\Http\Controllers\Api\AssignmentDefaultsController::class, 'toggleAutomaticAssignment']);
+    });
+
+    // Assignment Audits (Admin only)
+    Route::prefix('assignment-audits')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\AssignmentAuditsController::class, 'index']);
+        Route::get('/export', [\App\Http\Controllers\Api\AssignmentAuditsController::class, 'export']);
+    });
+
+    // Assignment Logs (Admin only)
+    Route::prefix('logs')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\AssignmentLogsController::class, 'index']);
+        Route::get('/export', [\App\Http\Controllers\Api\AssignmentLogsController::class, 'export']);
+    });
+
+    // Documents Management
+    Route::prefix('documents')->group(function () {
+        Route::get('/', [DocumentsController::class, 'index']);
+        Route::post('/', [DocumentsController::class, 'store']);
+        Route::get('/analytics', [DocumentsController::class, 'analytics']);
+        Route::get('/{id}/download', [DocumentsController::class, 'download'])->name('documents.download');
+        Route::get('/{id}/preview', [DocumentsController::class, 'preview']);
+        Route::post('/{id}/link', [DocumentsController::class, 'link']);
+        Route::get('/{id}', [DocumentsController::class, 'show']);
+        Route::put('/{id}', [DocumentsController::class, 'update']);
+        Route::delete('/{id}', [DocumentsController::class, 'destroy']);
+    });
+});
 
 

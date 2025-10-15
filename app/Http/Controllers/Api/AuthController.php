@@ -34,6 +34,9 @@ class AuthController extends Controller
             'status' => 'active', // Automatically set status to active for public registrations
         ]);
 
+        // Set tenant_id to user's own ID for public registrations
+        $user->update(['tenant_id' => $user->id]);
+
         event(new Registered($user));
 
         $autoLogin = true;
