@@ -2,10 +2,19 @@
 
 use Illuminate\Support\Facades\Route;
 
+use Illuminate\Support\Facades\Http;
+// use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\N8nController;
+
+
+Route::post('/trigger-n8n', [N8nController::class, 'trigger']);
+
+
 // --- health check ---
-Route::get('/health', function () {
-    return response()->json(['ok' => true]);
-});
+Route::get('/health', fn() => response()->json([
+    'ok' => true,
+    'time' => now()->toIso8601String(),
+]));
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\Dashboard\DashboardController;

@@ -22,3 +22,8 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Runtime caches (do not commit)
+/bootstrap/cache/*.php
+/storage/framework/cache/**
+/storage/framework/views/**

@@ -75,5 +75,10 @@ return [
         'tenant_id' => env('OUTLOOK_TENANT_ID'),
         'redirect_uri' => env('OUTLOOK_REDIRECT_URI'),
     ],
-
+    
+    'n8n' => [
+        'webhook' => env('N8N_WEBHOOK_URL'),
+        'secret'  => env('N8N_SHARED_SECRET', null),
+    ],
 ];
+
