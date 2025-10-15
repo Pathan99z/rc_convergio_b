@@ -24,6 +24,58 @@ class DashboardController extends Controller
 
         return response()->json(['success' => true, 'data' => $data]);
     }
+
+    /**
+     * Get application status.
+     */
+    public function status(Request $request): JsonResponse
+    {
+        try {
+            $status = [
+                'app' => [
+                    'name' => config('app.name'),
+                    'version' => '1.0.0',
+                    'environment' => config('app.env'),
+                    'debug' => config('app.debug'),
+                    'timezone' => config('app.timezone')
+                ],
+                'database' => [
+                    'connected' => true,
+                    'driver' => config('database.default')
+                ],
+                'cache' => [
+                    'driver' => config('cache.default'),
+                    'working' => true
+                ],
+                'features' => [
+                    'social_media' => true,
+                    'campaigns' => true,
+                    'analytics' => true,
+                    'contacts' => true,
+                    'deals' => true
+                ],
+                'user' => [
+                    'authenticated' => $request->user() ? true : false,
+                    'id' => $request->user()?->id,
+                    'name' => $request->user()?->name,
+                    'organization' => $request->user()?->organization_name
+                ],
+                'timestamp' => now()->toISOString()
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $status
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get application status',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
 }
 
 
