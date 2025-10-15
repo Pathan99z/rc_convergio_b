@@ -588,7 +588,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Audit logs
     Route::get('audit-logs', [\App\Http\Controllers\Api\AuditLogController::class, 'index']);
 
-<<<<<<< HEAD
     // SEO - Enhanced Analytics & Google Search Console Integration
     Route::prefix('seo')->group(function () {
         // OAuth endpoints (primary + aliases)
@@ -685,7 +684,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Missing API endpoints that frontend expects
     Route::get('me', [UsersController::class, 'me']);
     Route::get('status', [DashboardController::class, 'status']);
-=======
+
     // Sequences (Automated Outreach)
     Route::prefix('sequences')->group(function () {
         Route::get('/', [\App\Http\Controllers\Api\SequencesController::class, 'index']);
@@ -710,7 +709,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('update-content', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'updateContent']);
         Route::post('create-custom', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'createCustom']);
     });
->>>>>>> c3072e009c8efc7b371a922f6ce35717ea28818e
 });
 
 // Public routes (no auth required)
