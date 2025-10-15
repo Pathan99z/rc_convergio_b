@@ -178,6 +178,39 @@ class AuthController extends Controller
         return $this->success(['message' => 'Verification link sent!']);
     }
 
+    /**
+     * Logout user and invalidate token
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        try {
+            // Revoke the token that was used to authenticate the current request
+            $request->user()->currentAccessToken()->delete();
+
+            return $this->success([
+                'message' => 'Successfully logged out'
+            ]);
+        } catch (\Exception $e) {
+            return $this->error('Failed to logout', 500);
+        }
+    }
+
+    /**
+     * Get authenticated user details
+     */
+    public function me(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            
+            return $this->success([
+                'user' => $this->transformUser($user)
+            ]);
+        } catch (\Exception $e) {
+            return $this->error('Failed to fetch user details', 500);
+        }
+    }
+
     private function transformUser(User $user): array
     {
         // Avoid relation load errors if Spatie tables are not present yet

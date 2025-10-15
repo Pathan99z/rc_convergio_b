@@ -79,6 +79,86 @@ class Contact extends Model
     }
 
     /**
+     * Get the contact's interactions.
+     */
+    public function interactions()
+    {
+        return $this->hasMany(ContactInteraction::class);
+    }
+
+    /**
+     * Get the contact's deals.
+     */
+    public function deals()
+    {
+        return $this->hasMany(Deal::class);
+    }
+
+    /**
+     * Get the contact's meetings.
+     */
+    public function meetings()
+    {
+        return $this->hasMany(Meeting::class);
+    }
+
+    /**
+     * Get the contact's tasks.
+     */
+    public function tasks()
+    {
+        return $this->morphMany(Task::class, 'related');
+    }
+
+    /**
+     * Get the contact's activities.
+     */
+    public function activities()
+    {
+        return $this->morphMany(Activity::class, 'related');
+    }
+
+    /**
+     * Get the contact's form submissions.
+     */
+    public function formSubmissions()
+    {
+        return $this->hasMany(FormSubmission::class);
+    }
+
+    /**
+     * Get the contact's campaign recipients.
+     */
+    public function campaignRecipients()
+    {
+        return $this->hasMany(CampaignRecipient::class);
+    }
+
+    /**
+     * Get the contact's event attendees.
+     */
+    public function eventAttendees()
+    {
+        return $this->hasMany(EventAttendee::class);
+    }
+
+    /**
+     * Get the contact's journey executions.
+     */
+    public function journeyExecutions()
+    {
+        return $this->hasMany(JourneyExecution::class);
+    }
+
+    /**
+     * Get the contact's latest interaction.
+     */
+    public function latestInteraction()
+    {
+        return $this->hasOne(ContactInteraction::class)->latest();
+    }
+
+    /**
      * Scope a query to only include contacts for a specific tenant.
      */
     public function scopeForTenant($query, $tenantId)

@@ -25,6 +25,10 @@ use App\Http\Controllers\Api\FacebookOAuthController;
 use App\Http\Controllers\Api\GoogleOAuthController;
 use App\Http\Controllers\Api\TeamsOAuthController;
 use App\Http\Controllers\Api\OutlookOAuthController;
+use App\Http\Controllers\Api\SeoController;
+use App\Http\Controllers\Api\SocialMediaController;
+use App\Http\Controllers\Api\SocialMediaOAuthController;
+use App\Http\Controllers\Api\SocialListeningController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -34,6 +38,12 @@ Route::prefix('auth')->group(function () {
     Route::post('forgot', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
     Route::post('reset', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
     Route::post('resend-verification', [AuthController::class, 'resendVerificationEmail'])->middleware('throttle:3,1');
+    
+    // Protected auth routes
+    Route::middleware(['auth:sanctum'])->group(function () {
+        Route::post('logout', [AuthController::class, 'logout']);
+        Route::get('me', [AuthController::class, 'me']);
+    });
 });
 
 // Public tracking endpoint for external websites
@@ -427,6 +437,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('journeys/statuses', [\App\Http\Controllers\Api\JourneysController::class, 'getStatuses']);
     Route::get('journeys/step-types', [\App\Http\Controllers\Api\JourneysController::class, 'getStepTypes']);
     Route::get('journeys/step-schema', [\App\Http\Controllers\Api\JourneysController::class, 'getStepTypeSchema']);
+    Route::get('journeys/customer', [\App\Http\Controllers\Api\JourneysController::class, 'customer']);
 
     // Sales Forecast
     Route::get('forecast', [\App\Http\Controllers\Api\ForecastController::class, 'index']);
@@ -472,6 +483,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('analytics/journeys', [\App\Http\Controllers\Api\AnalyticsController::class, 'journeys']);
     Route::get('analytics/visitor-intent', [\App\Http\Controllers\Api\AnalyticsController::class, 'visitorIntent']);
 
+    // Contact Journey Flow endpoints
+    Route::get('contact-journey-flow', [\App\Http\Controllers\Api\ContactJourneyFlowController::class, 'getContactJourneyFlow']);
+    Route::get('contact-journey-flow/summary', [\App\Http\Controllers\Api\ContactJourneyFlowController::class, 'getJourneyFlowSummary']);
+    Route::get('contact-journey-flow/{contactId}', [\App\Http\Controllers\Api\ContactJourneyFlowController::class, 'getContactJourneyFlowById'])->whereNumber('contactId');
+    Route::get('contact-journey-flow/email/{email}', [\App\Http\Controllers\Api\ContactJourneyFlowController::class, 'getContactJourneyFlowByEmail']);
+
     // Campaign webhook (no auth required)
     Route::post('campaigns/events', [CampaignWebhookController::class, 'handleEvents']);
     
@@ -513,6 +530,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Users resource (Admin only)
     Route::get('users/me', [UsersController::class, 'me']);
+    Route::get('user/profile', [UsersController::class, 'me']); // Alias for user profile
+    Route::put('user/profile', [UsersController::class, 'updateProfile']); // Update user profile
     Route::get('users', [UsersController::class, 'index']);
     Route::get('users/{id}', [UsersController::class, 'show'])->whereNumber('id');
     Route::post('users', [UsersController::class, 'store']);
@@ -528,6 +547,103 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Audit logs
     Route::get('audit-logs', [\App\Http\Controllers\Api\AuditLogController::class, 'index']);
+
+    // SEO - Enhanced Analytics & Google Search Console Integration
+    Route::prefix('seo')->group(function () {
+        // OAuth endpoints (primary + aliases)
+        Route::post('connect', [SeoController::class, 'initiateConnection']); // Frontend connect button
+        Route::get('connect', [SeoController::class, 'checkConnection']); // Check connection status
+        Route::get('connection-status', [SeoController::class, 'checkConnection']); // Alias for connection status
+        Route::post('disconnect', [SeoController::class, 'disconnectGoogleSearchConsole']); // Frontend disconnect button
+        Route::post('scan', [SeoController::class, 'startSiteScan']); // Frontend site scan button
+        Route::get('sync-status', [SeoController::class, 'getSyncStatus']); // Check sync status
+        Route::get('auth/google', [SeoController::class, 'redirectToGoogle']);
+        Route::get('google/callback', [SeoController::class, 'handleGoogleCallback']);
+        Route::get('oauth/redirect', [SeoController::class, 'oauthRedirect']); // alias
+        Route::get('oauth/callback', [SeoController::class, 'oauthCallback']); // alias
+        
+        // Primary Dashboard & Analytics endpoints (for frontend)
+        Route::get('metrics', [SeoController::class, 'getDashboardData']); // Primary: returns dashboard data
+        Route::get('pages', [SeoController::class, 'getPages']); // Primary: returns array of pages
+        Route::get('page/{id}', [SeoController::class, 'getPageDetail'])->whereNumber('id');
+        Route::get('recommendations', [SeoController::class, 'getRecommendations']); // Primary: returns array
+        Route::post('recommendations/{id}/resolve', [SeoController::class, 'resolveRecommendation'])->whereNumber('id'); // Resolve recommendation
+        Route::post('settings', [SeoController::class, 'updateSettings']);
+        Route::post('sync', [SeoController::class, 'syncNow']);
+        
+        // Alternative endpoints with status wrappers (backward compatible)
+        Route::get('dashboard', [SeoController::class, 'getDashboardData']); // alias
+        Route::get('all-pages', [SeoController::class, 'getAllPages']); // paginated version
+        Route::get('all-recommendations', [SeoController::class, 'getAllRecommendations']); // wrapped version
+        Route::get('settings', [SeoController::class, 'getSettings']); // GET version
+        
+        // Legacy site management endpoints
+        Route::post('site', [SeoController::class, 'saveSite']);
+        Route::get('sites', [SeoController::class, 'getSites']);
+        Route::post('connect-gsc', [SeoController::class, 'connectGoogleSearchConsole']);
+        Route::post('disconnect-gsc', [SeoController::class, 'disconnectGoogleSearchConsole']);
+        Route::post('crawl', [SeoController::class, 'crawlWebsite']);
+        Route::get('crawl-data', [SeoController::class, 'getCrawlData']);
+        Route::get('analysis', [SeoController::class, 'getSeoAnalysis']);
+        Route::get('keyword-frequency', [SeoController::class, 'getKeywordFrequency']);
+        Route::post('mark-resolved', [SeoController::class, 'markRecommendationResolved']);
+    });
+
+    // Social Media Management - Posts
+    Route::prefix('social')->group(function () {
+        // Post Management (Schedule and Publish)
+        Route::post('schedule-post', [SocialMediaController::class, 'store']); // Schedule a post
+        Route::post('publish-post', [SocialMediaController::class, 'store']); // Publish immediately (with publish_now flag)
+        Route::get('posts', [SocialMediaController::class, 'index']); // List all posts
+        Route::get('posts/{id}', [SocialMediaController::class, 'show'])->whereNumber('id'); // Get single post
+        Route::put('posts/{id}', [SocialMediaController::class, 'update'])->whereNumber('id'); // Update post
+        Route::delete('posts/{id}', [SocialMediaController::class, 'destroy'])->whereNumber('id'); // Delete post
+        Route::post('posts/{id}/publish', [SocialMediaController::class, 'publish'])->whereNumber('id'); // Publish a scheduled post
+        Route::get('posts/{id}/metrics', [SocialMediaController::class, 'metrics'])->whereNumber('id'); // Get post metrics
+        
+        // OAuth & Account Management
+        Route::post('connect/{platform}', [SocialMediaOAuthController::class, 'connect'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin']); // Initiate OAuth
+        Route::post('callback/{platform}', [SocialMediaOAuthController::class, 'callback'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin']); // OAuth callback
+        Route::delete('disconnect/{platform}', [SocialMediaOAuthController::class, 'disconnect'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin']); // Disconnect account
+        Route::get('accounts', [SocialMediaOAuthController::class, 'getConnectedAccounts']); // Get all connected accounts
+        Route::post('refresh-token/{platform}', [SocialMediaOAuthController::class, 'refreshToken'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin']); // Refresh token
+        
+        // Analytics & Metrics
+        Route::get('analytics/{platform}', [SocialMediaController::class, 'analytics'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin', 'all']); // Get platform analytics
+        Route::get('dashboard', [SocialMediaController::class, 'dashboard']); // Social media dashboard
+        Route::get('platforms', [SocialMediaController::class, 'platforms']); // Get available platforms
+        
+        // Social Listening
+        Route::get('listen', [SocialListeningController::class, 'index']); // Get all listening keywords
+        Route::post('listen', [SocialListeningController::class, 'store']); // Create listening keyword
+        Route::put('listen/{id}', [SocialListeningController::class, 'update'])->whereNumber('id'); // Update keyword
+        Route::delete('listen/{id}', [SocialListeningController::class, 'destroy'])->whereNumber('id'); // Delete keyword
+        Route::post('listen/{id}/search', [SocialListeningController::class, 'searchMentions'])->whereNumber('id'); // Search for mentions
+        Route::get('listen/{id}/mentions', [SocialListeningController::class, 'getMentions'])->whereNumber('id'); // Get mentions
+        Route::post('mentions/{id}/read', [SocialListeningController::class, 'markAsRead'])->whereNumber('id'); // Mark mention as read
+        Route::get('listen/sentiment', [SocialListeningController::class, 'sentimentSummary']); // Sentiment summary
+        Route::get('listen/{id}/sentiment', [SocialListeningController::class, 'sentimentSummary'])->whereNumber('id'); // Keyword sentiment
+        
+        // Debug endpoint
+        Route::any('debug', [SocialMediaController::class, 'debug']); // Debug what frontend sends
+    });
+    
+    // Legacy routes (backward compatible)
+    Route::get('social-media/posts', [SocialMediaController::class, 'index']);
+    Route::post('social-media/posts', [SocialMediaController::class, 'store']);
+    Route::get('social-media/posts/{id}', [SocialMediaController::class, 'show'])->whereNumber('id');
+    Route::put('social-media/posts/{id}', [SocialMediaController::class, 'update'])->whereNumber('id');
+    Route::delete('social-media/posts/{id}', [SocialMediaController::class, 'destroy'])->whereNumber('id');
+    Route::post('social-media/posts/{id}/publish', [SocialMediaController::class, 'publish'])->whereNumber('id');
+    Route::get('social-media/posts/{id}/metrics', [SocialMediaController::class, 'metrics'])->whereNumber('id');
+    Route::get('social-media/platforms', [SocialMediaController::class, 'platforms']);
+    Route::get('social-media/analytics', [SocialMediaController::class, 'analytics']);
+    Route::get('social-media/dashboard', [SocialMediaController::class, 'dashboard']);
+    Route::get('social-media/listening', [SocialMediaController::class, 'listening']);
+    
+    // Missing API endpoints that frontend expects
+    Route::get('me', [UsersController::class, 'me']);
+    Route::get('status', [DashboardController::class, 'status']);
 });
 
 // Public routes (no auth required)

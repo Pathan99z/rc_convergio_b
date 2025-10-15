@@ -32,6 +32,30 @@ class UsersController extends Controller
     }
 
     /**
+     * Update current user profile.
+     */
+    public function updateProfile(Request $request): JsonResource
+    {
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|email|unique:users,email,' . $request->user()->id,
+            'organization_name' => 'sometimes|nullable|string|max:255',
+            'password' => 'sometimes|string|min:8|confirmed',
+        ]);
+
+        $user = $request->user();
+        $data = $request->only(['name', 'email', 'organization_name']);
+
+        if ($request->filled('password')) {
+            $data['password'] = bcrypt($request->password);
+        }
+
+        $user->update($data);
+
+        return new UserResource($user->fresh());
+    }
+
+    /**
      * Display a listing of users (Admin only).
      */
     public function index(Request $request): AnonymousResourceCollection

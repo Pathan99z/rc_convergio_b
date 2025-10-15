@@ -67,4 +67,28 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->id;
     }
+
+    /**
+     * Get the social media accounts for this user.
+     */
+    public function socialAccounts()
+    {
+        return $this->hasMany(\App\Models\SocialAccount::class);
+    }
+
+    /**
+     * Get the social media posts for this user.
+     */
+    public function socialMediaPosts()
+    {
+        return $this->hasMany(\App\Models\SocialMediaPost::class);
+    }
+
+    /**
+     * Get the listening keywords for this user.
+     */
+    public function listeningKeywords()
+    {
+        return $this->hasMany(\App\Models\ListeningKeyword::class);
+    }
 }
