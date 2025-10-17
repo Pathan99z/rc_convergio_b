@@ -31,6 +31,10 @@ use App\Http\Controllers\Api\SocialMediaController;
 use App\Http\Controllers\Api\SocialMediaOAuthController;
 use App\Http\Controllers\Api\SocialListeningController;
 use App\Http\Controllers\Api\DocumentsController;
+use App\Http\Controllers\Api\Cms\PageController;
+use App\Http\Controllers\Api\Cms\TemplateController;
+use App\Http\Controllers\Api\Cms\PersonalizationController;
+use App\Http\Controllers\Api\Cms\ABTestController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -708,6 +712,72 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('preview', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'preview']);
         Route::put('update-content', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'updateContent']);
         Route::post('create-custom', [\App\Http\Controllers\Api\TemplatePreviewController::class, 'createCustom']);
+    });
+
+    // CMS / Content Platform Module
+    Route::prefix('cms')->group(function () {
+        // Pages Management
+        Route::get('pages', [PageController::class, 'index']);
+        Route::post('pages', [PageController::class, 'store']);
+        Route::get('pages/{id}', [PageController::class, 'show'])->whereNumber('id');
+        Route::put('pages/{id}', [PageController::class, 'update'])->whereNumber('id');
+        Route::delete('pages/{id}', [PageController::class, 'destroy'])->whereNumber('id');
+        Route::post('pages/{id}/publish', [PageController::class, 'publish'])->whereNumber('id');
+        Route::post('pages/{id}/unpublish', [PageController::class, 'unpublish'])->whereNumber('id');
+        Route::get('pages/{id}/preview', [PageController::class, 'preview'])->whereNumber('id');
+        Route::post('pages/{id}/duplicate', [PageController::class, 'duplicate'])->whereNumber('id');
+
+        // Templates Management
+        Route::get('templates', [TemplateController::class, 'index']);
+        Route::post('templates', [TemplateController::class, 'store']);
+        Route::get('templates/{id}', [TemplateController::class, 'show'])->whereNumber('id');
+        Route::put('templates/{id}', [TemplateController::class, 'update'])->whereNumber('id');
+        Route::delete('templates/{id}', [TemplateController::class, 'destroy'])->whereNumber('id');
+        Route::get('templates/types', [TemplateController::class, 'types']);
+
+        // Personalization
+        Route::get('personalization', [PersonalizationController::class, 'index']);
+        Route::post('personalization', [PersonalizationController::class, 'store']);
+        Route::put('personalization/{id}', [PersonalizationController::class, 'update'])->whereNumber('id');
+        Route::delete('personalization/{id}', [PersonalizationController::class, 'destroy'])->whereNumber('id');
+        Route::post('personalization/evaluate', [PersonalizationController::class, 'evaluate']);
+        Route::get('personalization/operators', [PersonalizationController::class, 'operators']);
+        Route::get('personalization/fields', [PersonalizationController::class, 'fields']);
+
+        // A/B Testing
+        Route::get('abtesting', [ABTestController::class, 'index']);
+        Route::post('abtesting', [ABTestController::class, 'store']);
+        Route::get('abtesting/{id}', [ABTestController::class, 'show'])->whereNumber('id');
+        Route::put('abtesting/{id}', [ABTestController::class, 'update'])->whereNumber('id');
+        Route::post('abtesting/{id}/start', [ABTestController::class, 'start'])->whereNumber('id');
+        Route::post('abtesting/{id}/stop', [ABTestController::class, 'stop'])->whereNumber('id');
+        Route::get('abtesting/{id}/results', [ABTestController::class, 'results'])->whereNumber('id');
+        Route::post('abtesting/visitor', [ABTestController::class, 'recordVisitor']);
+        Route::post('abtesting/conversion', [ABTestController::class, 'recordConversion']);
+
+        // SEO Analysis
+        Route::post('seo/analyze', [SeoController::class, 'analyzePage']); // Reuse existing SEO controller
+        Route::get('seo/logs/{page_id}', [SeoController::class, 'getSeoLogs'])->whereNumber('page_id');
+
+        // Domains Management
+        Route::get('domains', [\App\Http\Controllers\Api\Cms\DomainController::class, 'index']);
+        Route::post('domains', [\App\Http\Controllers\Api\Cms\DomainController::class, 'store']);
+        Route::get('domains/{id}', [\App\Http\Controllers\Api\Cms\DomainController::class, 'show'])->whereNumber('id');
+        Route::put('domains/{id}', [\App\Http\Controllers\Api\Cms\DomainController::class, 'update'])->whereNumber('id');
+        Route::delete('domains/{id}', [\App\Http\Controllers\Api\Cms\DomainController::class, 'destroy'])->whereNumber('id');
+
+        // Languages Management
+        Route::get('languages', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'index']);
+        Route::post('languages', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'store']);
+        Route::get('languages/{id}', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'show'])->whereNumber('id');
+        Route::put('languages/{id}', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'update'])->whereNumber('id');
+        Route::delete('languages/{id}', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'destroy'])->whereNumber('id');
+
+        // Memberships / Access Control
+        Route::get('memberships', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'index']);
+        Route::get('memberships/{user_id}', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'show'])->whereNumber('user_id');
+        Route::post('pages/{id}/access', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'setPageAccess'])->whereNumber('id');
+        Route::get('pages/{id}/access', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'getPageAccess'])->whereNumber('id');
     });
 });
 
