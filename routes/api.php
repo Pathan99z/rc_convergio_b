@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\GoogleOAuthController;
 use App\Http\Controllers\Api\TeamsOAuthController;
 use App\Http\Controllers\Api\OutlookOAuthController;
 use App\Http\Controllers\Api\DocumentsController;
+use App\Http\Controllers\Api\IntegrationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
@@ -44,6 +45,20 @@ Route::post('tracking/events', [\App\Http\Controllers\Api\TrackingController::cl
 // Public download endpoints for exports and reports (no auth required for temporary download URLs)
 Route::get('tracking/export/{jobId}/download', [\App\Http\Controllers\Api\AsyncExportController::class, 'downloadExport']);
 Route::get('tracking/reports/{jobId}/download', [\App\Http\Controllers\Api\AsyncReportController::class, 'downloadReport']);
+
+// Public AI Support Agent endpoints (no auth required - uses tenant_id for isolation)
+Route::post('ai/support-agent/message', [\App\Http\Controllers\Api\AI\SupportAgentController::class, 'message']);
+Route::post('ai/support-agent/article', [\App\Http\Controllers\Api\AI\SupportAgentController::class, 'processArticleRequest']);
+
+// Public Survey endpoints (no auth required - uses tenant_id for isolation)
+Route::get('service/surveys/public', [\App\Http\Controllers\Api\Service\SurveyController::class, 'publicSurveys']);
+Route::post('service/surveys/{id}/submit', [\App\Http\Controllers\Api\Service\SurveyController::class, 'submitResponse']);
+
+// Public Email Webhook endpoints (no auth required - uses email address for tenant identification)
+Route::post('service/email/webhook', [\App\Http\Controllers\Api\Service\EmailWebhookController::class, 'handleIncomingEmail'])->name('api.service.email.webhook');
+Route::post('service/email/webhook/gmail', [\App\Http\Controllers\Api\Service\EmailWebhookController::class, 'handleGmailPush']);
+Route::get('service/email/webhook/test', [\App\Http\Controllers\Api\Service\EmailWebhookController::class, 'test']);
+Route::get('service/email/webhook/verify', [\App\Http\Controllers\Api\Service\EmailWebhookController::class, 'verify']);
 
 Route::middleware(['auth:sanctum'])->group(function () {
     // Aggregated dashboard
@@ -604,6 +619,13 @@ Route::prefix('public')->group(function () {
     Route::get('events/{id}', [\App\Http\Controllers\Api\PublicEventController::class, 'show'])->whereNumber('id');
     Route::post('events/{id}/register', [\App\Http\Controllers\Api\PublicEventController::class, 'register'])->whereNumber('id');
     Route::get('events/{id}/rsvp', [\App\Http\Controllers\Api\PublicEventController::class, 'rsvp'])->whereNumber('id');
+    
+    // Public ticket creation (for customers without authentication)
+    Route::post('tickets', [\App\Http\Controllers\Api\Service\TicketController::class, 'publicStore']);
+    
+    // Generate tenant-specific public form URL
+    Route::get('tickets/form-url/{tenantId}', [\App\Http\Controllers\Api\Service\TicketController::class, 'generateFormUrl'])->whereNumber('tenantId');
+    
     // Campaign tracking
     Route::get('campaigns/track/open', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'open'])->name('campaigns.track.open');
     Route::get('campaigns/track/click', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'click'])->name('campaigns.track.click');
@@ -626,6 +648,13 @@ Route::prefix('public')->group(function () {
     Route::get('events/{id}', [\App\Http\Controllers\Api\PublicEventController::class, 'show'])->whereNumber('id');
     Route::post('events/{id}/register', [\App\Http\Controllers\Api\PublicEventController::class, 'register'])->whereNumber('id');
     Route::get('events/{id}/rsvp', [\App\Http\Controllers\Api\PublicEventController::class, 'rsvp'])->whereNumber('id');
+    
+    // Public ticket creation (for customers without authentication)
+    Route::post('tickets', [\App\Http\Controllers\Api\Service\TicketController::class, 'publicStore']);
+    
+    // Generate tenant-specific public form URL
+    Route::get('tickets/form-url/{tenantId}', [\App\Http\Controllers\Api\Service\TicketController::class, 'generateFormUrl'])->whereNumber('tenantId');
+    
     // Campaign tracking
     Route::get('campaigns/track/open', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'open'])->name('campaigns.track.open');
     Route::get('campaigns/track/click', [\App\Http\Controllers\Api\CampaignTrackingController::class, 'click'])->name('campaigns.track.click');
@@ -794,6 +823,157 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
 
         Route::post('/webhooks/stripe', [\App\Http\Controllers\Api\Commerce\CommerceWebhookController::class, 'stripe']);
     });
+
+    // Service Platform - Ticketing Module
+    Route::prefix('service')->group(function () {
+        Route::apiResource('tickets', \App\Http\Controllers\Api\Service\TicketController::class);
+        Route::post('tickets/{ticket}/messages', [\App\Http\Controllers\Api\Service\TicketMessageController::class, 'store']);
+        Route::get('tickets/{ticket}/messages', [\App\Http\Controllers\Api\Service\TicketMessageController::class, 'index']);
+        Route::get('tickets/{ticket}/messages/{message}', [\App\Http\Controllers\Api\Service\TicketMessageController::class, 'show']);
+        Route::put('tickets/{ticket}/messages/{message}', [\App\Http\Controllers\Api\Service\TicketMessageController::class, 'update']);
+        Route::delete('tickets/{ticket}/messages/{message}', [\App\Http\Controllers\Api\Service\TicketMessageController::class, 'destroy']);
+        Route::post('tickets/{ticket}/messages/{message}/mark-read', [\App\Http\Controllers\Api\Service\TicketMessageController::class, 'markAsRead']);
+        Route::get('tickets/{ticket}/messages/stats', [\App\Http\Controllers\Api\Service\TicketMessageController::class, 'stats']);
+        
+        // Additional ticket operations
+        Route::post('tickets/{ticket}/assign', [\App\Http\Controllers\Api\Service\TicketController::class, 'assign']);
+        Route::post('tickets/{ticket}/close', [\App\Http\Controllers\Api\Service\TicketController::class, 'close']);
+        Route::patch('tickets/{ticket}/status', [\App\Http\Controllers\Api\Service\TicketController::class, 'updateStatus']);
+        Route::get('tickets/stats/overview', [\App\Http\Controllers\Api\Service\TicketController::class, 'stats']);
+        Route::post('tickets/bulk', [\App\Http\Controllers\Api\Service\TicketController::class, 'bulk']);
+        
+        // Knowledge Base integration
+        Route::get('tickets/{ticket}/article-suggestions', [\App\Http\Controllers\Api\Service\TicketController::class, 'getArticleSuggestionsForTicket']);
+        
+        // NEW: Ticket-Survey Integration Endpoints
+        Route::get('tickets/{ticket}/survey', [\App\Http\Controllers\Api\Service\TicketController::class, 'getTicketSurvey']);
+        Route::get('tickets/{ticket}/survey-responses', [\App\Http\Controllers\Api\Service\TicketController::class, 'getTicketSurveyResponses']);
+        Route::get('tickets/{ticket}/survey-status', [\App\Http\Controllers\Api\Service\TicketController::class, 'getTicketSurveyStatus']);
+        
+        // Get current user's tenant ID for form URL generation
+        Route::get('tickets/my-tenant-id', [\App\Http\Controllers\Api\Service\TicketController::class, 'getCurrentUserTenantId']);
+    });
+
+    // Service Platform - Surveys
+    Route::prefix('service')->group(function () {
+        Route::get('surveys', [\App\Http\Controllers\Api\Service\SurveyController::class, 'index']);
+        Route::post('surveys', [\App\Http\Controllers\Api\Service\SurveyController::class, 'store']);
+        
+        // NEW: Survey Management Endpoints (must be before {survey} routes to avoid conflicts)
+        Route::get('surveys/active', [\App\Http\Controllers\Api\Service\SurveyController::class, 'activeSurveys']);
+        Route::get('surveys/post-ticket', [\App\Http\Controllers\Api\Service\SurveyController::class, 'postTicketSurveys']);
+        
+        Route::get('surveys/{survey}', [\App\Http\Controllers\Api\Service\SurveyController::class, 'show']);
+        Route::put('surveys/{survey}', [\App\Http\Controllers\Api\Service\SurveyController::class, 'update']);
+        Route::delete('surveys/{survey}', [\App\Http\Controllers\Api\Service\SurveyController::class, 'destroy']);
+        Route::get('surveys/{survey}/analytics', [\App\Http\Controllers\Api\Service\SurveyController::class, 'analytics']);
+        Route::get('surveys/{survey}/responses', [\App\Http\Controllers\Api\Service\SurveyController::class, 'responses']);
+        Route::post('surveys/{survey}/send-reminder', [\App\Http\Controllers\Api\Service\SurveyController::class, 'sendReminder']);
+    });
+
+    // NEW: Enhanced Analytics Endpoints
+    Route::prefix('service/analytics')->group(function () {
+        Route::get('tickets-with-csat', [\App\Http\Controllers\Api\Service\AnalyticsController::class, 'ticketsWithCsat']);
+        Route::get('csat-trends', [\App\Http\Controllers\Api\Service\AnalyticsController::class, 'csatTrends']);
+        Route::get('agent-performance', [\App\Http\Controllers\Api\Service\AnalyticsController::class, 'agentPerformance']);
+        Route::get('survey-summary', [\App\Http\Controllers\Api\Service\AnalyticsController::class, 'surveySummary']);
+    });
+
+    // Integration endpoints
+    Route::prefix('integration')->group(function () {
+        Route::get('snippet', [IntegrationController::class, 'getWidgetSnippet']);
+        Route::get('livechat-snippet', [IntegrationController::class, 'getLiveChatSnippet']);
+    });
+
+    // Email Integration endpoints
+    Route::prefix('service/email')->group(function () {
+        Route::get('integrations', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'index']);
+        Route::post('integrations', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'store']);
+        Route::get('integrations/{emailIntegration}', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'show']);
+        Route::put('integrations/{emailIntegration}', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'update']);
+        Route::delete('integrations/{emailIntegration}', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'destroy']);
+        Route::post('integrations/{emailIntegration}/test', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'test']);
+        Route::post('integrations/{emailIntegration}/connect', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'connect']);
+        Route::get('integrations/{emailIntegration}/callback', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'callback'])->name('api.service.email.integrations.callback');
+        Route::get('integrations/{emailIntegration}/webhook-url', [\App\Http\Controllers\Api\Service\EmailIntegrationController::class, 'webhookUrl']);
+    });
+
+    // Live Chat endpoints (authenticated)
+    Route::prefix('service/livechat')->group(function () {
+        Route::get('conversations', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'getActiveConversations']);
+        Route::get('conversations/{conversationId}', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'getConversation']);
+        Route::post('conversations/{conversationId}/messages', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'sendMessage']);
+        Route::post('conversations/{conversationId}/assign', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'assignConversation']);
+        Route::post('conversations/{conversationId}/close', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'closeConversation']);
+        Route::post('conversations/{conversationId}/mark-read', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'markAsRead']);
+        Route::get('stats', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'getStats']);
+        Route::get('agents', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'getAvailableAgents']);
+    });
+
+    // Help Center Admin endpoints
+    Route::prefix('admin/help')->middleware(['auth:sanctum'])->group(function () {
+        // Categories with manual ID handling to avoid route model binding issues with tenant scoping
+        Route::get('categories', [\App\Http\Controllers\Api\Help\CategoryController::class, 'index']);
+        Route::post('categories', [\App\Http\Controllers\Api\Help\CategoryController::class, 'store']);
+        Route::get('categories/{id}', [\App\Http\Controllers\Api\Help\CategoryController::class, 'show']);
+        Route::put('categories/{id}', [\App\Http\Controllers\Api\Help\CategoryController::class, 'update']);
+        Route::delete('categories/{id}', [\App\Http\Controllers\Api\Help\CategoryController::class, 'destroy']);
+        
+        // Articles with manual ID handling to avoid route model binding issues with tenant scoping
+        Route::get('articles', [\App\Http\Controllers\Api\Help\ArticleController::class, 'index']);
+        Route::post('articles', [\App\Http\Controllers\Api\Help\ArticleController::class, 'store']);
+        Route::get('articles/{id}', [\App\Http\Controllers\Api\Help\ArticleController::class, 'show']);
+        Route::put('articles/{id}', [\App\Http\Controllers\Api\Help\ArticleController::class, 'update']);
+        Route::delete('articles/{id}', [\App\Http\Controllers\Api\Help\ArticleController::class, 'destroy']);
+        
+        // Article attachments
+        Route::post('articles/{id}/attachments', [\App\Http\Controllers\Api\Help\ArticleController::class, 'uploadAttachment']);
+        Route::get('articles/{id}/attachments', [\App\Http\Controllers\Api\Help\ArticleController::class, 'getAttachments']);
+        Route::delete('articles/{id}/attachments/{attachmentId}', [\App\Http\Controllers\Api\Help\ArticleController::class, 'deleteAttachment']);
+        
+        // Article notifications
+        Route::post('articles/{id}/notify', [\App\Http\Controllers\Api\Help\ArticleController::class, 'sendNotification']);
+        
+        // Article versioning
+        Route::get('articles/{id}/versions', [\App\Http\Controllers\Api\Help\ArticleController::class, 'getVersionHistory']);
+        Route::post('articles/{id}/restore-version', [\App\Http\Controllers\Api\Help\ArticleController::class, 'restoreToVersion']);
+        Route::get('articles/{id}/compare-versions', [\App\Http\Controllers\Api\Help\ArticleController::class, 'compareVersions']);
+        
+        // Advanced search endpoint (for authenticated users)
+        Route::get('search/advanced', [\App\Http\Controllers\Api\Help\ArticleController::class, 'advancedSearch']);
+        
+        Route::get('stats/overview', [\App\Http\Controllers\Api\Help\StatsController::class, 'overview']);
+    });
+});
+
+// Public Help Center endpoints (no auth required)
+Route::prefix('help')->group(function () {
+    // Public article and category endpoints
+    Route::get('categories', [\App\Http\Controllers\Api\Help\CategoryController::class, 'publicIndex']);
+    Route::get('articles', [\App\Http\Controllers\Api\Help\ArticleController::class, 'publicIndex']);
+    Route::get('articles/{slug}', [\App\Http\Controllers\Api\Help\ArticleController::class, 'publicShow']);
+    
+    // Public feedback endpoint
+    Route::post('articles/{id}/feedback', [\App\Http\Controllers\Api\Help\FeedbackController::class, 'store']);
+    
+    // Embed endpoints
+    Route::get('embed/script', [\App\Http\Controllers\Api\Help\EmbedController::class, 'widgetScript']);
+    Route::get('embed/help', [\App\Http\Controllers\Api\Help\EmbedController::class, 'publicHelpIndex']);
+    
+        // Utility endpoint for ticket integration
+        Route::post('suggest', [\App\Http\Controllers\Api\Help\ArticleController::class, 'suggestForTicket']);
+        
+        // Advanced search endpoint (for frontend compatibility)
+        Route::get('search/advanced', [\App\Http\Controllers\Api\Help\ArticleController::class, 'advancedSearch'])
+            ->middleware('auth:sanctum');
+});
+
+// Public Live Chat endpoints (no auth required - uses tenant_id for isolation)
+Route::prefix('livechat')->group(function () {
+    Route::post('conversations', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'startConversation']);
+    Route::post('conversations/{conversationId}/messages', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'sendMessage']);
+    Route::get('conversations/{conversationId}', [\App\Http\Controllers\Api\Service\LiveChatController::class, 'getConversation']);
+
 });
 
 // Public Commerce Routes (No Auth Required)

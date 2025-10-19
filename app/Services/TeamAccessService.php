@@ -64,15 +64,18 @@ class TeamAccessService
             return $query;
         }
 
-        $teamId = $this->currentTeamId();
-        if (!$teamId) {
-            return $query;
-        }
-
         // Check if the column exists in the table
         $table = $query->getModel()->getTable();
         if (!Schema::hasColumn($table, $column)) {
             return $query;
+        }
+
+        $teamId = $this->currentTeamId();
+        
+        // If user has no team assigned, they can only see items with team_id = null
+        // This ensures users without teams can see public/global items
+        if (!$teamId) {
+            return $query->whereNull($column);
         }
 
         // ✅ FIX: Show same team contacts + admin-created contacts (team_id = null)

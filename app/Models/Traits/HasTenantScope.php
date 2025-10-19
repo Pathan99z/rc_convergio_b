@@ -43,6 +43,14 @@ trait HasTenantScope
             }
         });
     }
+
+    /**
+     * Scope a query to only include records for a specific tenant.
+     */
+    public function scopeForTenant(Builder $query, int $tenantId): Builder
+    {
+        return $query->where('tenant_id', $tenantId);
+    }
 }
 
 

@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TrackingController;
 use App\Http\Controllers\UnsubscribeController;
+use App\Http\Controllers\PublicSurveyController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -21,7 +22,6 @@ Route::get('/track/click/{recipientId}', [TrackingController::class, 'click'])
 Route::get('/rsvp/{eventId}', [\App\Http\Controllers\Api\PublicEventController::class, 'showRsvpPage'])
     ->name('rsvp.page')
     ->where('eventId', '[0-9]+');
-
 // Public Commerce Routes (No Auth Required)
 Route::prefix('commerce')->group(function () {
     // Public checkout page for payment links
@@ -62,4 +62,14 @@ Route::prefix('commerce')->group(function () {
         ->name('commerce.invoices.download')
         ->where('invoiceId', '[0-9]+');
 });
+
+// Public Survey Routes (No Auth Required)
+Route::get('/survey/{id}', [PublicSurveyController::class, 'show'])
+    ->name('public.survey')
+    ->where('id', '[0-9]+');
+
+Route::post('/survey/{id}/submit', [PublicSurveyController::class, 'submit'])
+    ->name('public.survey.submit')
+    ->where('id', '[0-9]+');
+
 
