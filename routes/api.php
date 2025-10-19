@@ -716,6 +716,104 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::put('/{id}', [DocumentsController::class, 'update']);
         Route::delete('/{id}', [DocumentsController::class, 'destroy']);
     });
+
+    // Commerce Platform
+    Route::prefix('commerce')->group(function () {
+        // Orders
+        Route::get('/orders', [\App\Http\Controllers\Api\Commerce\CommerceOrderController::class, 'index']);
+        Route::post('/orders', [\App\Http\Controllers\Api\Commerce\CommerceOrderController::class, 'store']);
+        Route::get('/orders/stats', [\App\Http\Controllers\Api\Commerce\CommerceOrderController::class, 'stats']);
+        Route::get('/orders/{id}', [\App\Http\Controllers\Api\Commerce\CommerceOrderController::class, 'show'])->whereNumber('id');
+        Route::put('/orders/{id}', [\App\Http\Controllers\Api\Commerce\CommerceOrderController::class, 'update'])->whereNumber('id');
+        Route::delete('/orders/{id}', [\App\Http\Controllers\Api\Commerce\CommerceOrderController::class, 'destroy'])->whereNumber('id');
+
+        // Payment Links
+        Route::get('/payment-links', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'index']);
+        Route::post('/payment-links', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'store']);
+        Route::get('/payment-links/stats', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'stats']);
+        Route::get('/payment-links/{id}', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'show'])->whereNumber('id');
+        Route::put('/payment-links/{id}', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'update'])->whereNumber('id');
+        Route::delete('/payment-links/{id}', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'destroy'])->whereNumber('id');
+          Route::post('/payment-links/{id}/activate', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'activate'])->whereNumber('id');
+          Route::post('/payment-links/{id}/deactivate', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'deactivate'])->whereNumber('id');
+          Route::post('/payment-links/{id}/complete', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'complete'])->whereNumber('id');
+          Route::post('/payment-links/{id}/send-email', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'sendEmail'])->whereNumber('id');
+          Route::post('/payment-links/{id}/send-bulk-emails', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'sendBulkEmails'])->whereNumber('id');
+          Route::post('/payment-links/create-and-send', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'createAndSend']);
+
+        // Settings
+        Route::get('/settings', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'show']);
+        Route::post('/settings', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'update']);
+        Route::post('/settings/test-connection', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'testConnection']);
+        Route::post('/settings/send-test-email', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'sendTestEmail']);
+
+        // Analytics
+        Route::get('/analytics', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'index']);
+        Route::get('/analytics/overview', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'overview']);
+        Route::get('/analytics/revenue', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'revenue']);
+        Route::get('/analytics/payment-links', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'paymentLinks']);
+        Route::get('/analytics/orders', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'orders']);
+        Route::get('/analytics/transactions', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'transactions']);
+        Route::get('/analytics/trends', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'trends']);
+        Route::get('/analytics/export', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'export']);
+        Route::post('/settings/reset', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'reset']);
+        Route::get('/settings/stripe-config', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'getStripeConfig']);
+
+        // Webhooks (public, no auth required but signature verification)
+        // Subscription Plans
+        Route::get('/subscription-plans', [\App\Http\Controllers\Api\Commerce\SubscriptionPlanController::class, 'index']);
+        Route::post('/subscription-plans', [\App\Http\Controllers\Api\Commerce\SubscriptionPlanController::class, 'store']);
+        Route::get('/subscription-plans/{id}', [\App\Http\Controllers\Api\Commerce\SubscriptionPlanController::class, 'show'])->whereNumber('id');
+        Route::put('/subscription-plans/{id}', [\App\Http\Controllers\Api\Commerce\SubscriptionPlanController::class, 'update'])->whereNumber('id');
+        Route::delete('/subscription-plans/{id}', [\App\Http\Controllers\Api\Commerce\SubscriptionPlanController::class, 'destroy'])->whereNumber('id');
+
+        // Subscriptions
+        Route::get('/subscriptions', [\App\Http\Controllers\Api\Commerce\SubscriptionController::class, 'index']);
+        Route::get('/subscriptions/{id}', [\App\Http\Controllers\Api\Commerce\SubscriptionController::class, 'show'])->whereNumber('id');
+        Route::get('/subscriptions/{id}/activity', [\App\Http\Controllers\Api\Commerce\SubscriptionController::class, 'activity'])->whereNumber('id');
+        Route::post('/subscriptions/{id}/cancel', [\App\Http\Controllers\Api\Commerce\SubscriptionController::class, 'cancel'])->whereNumber('id');
+        Route::post('/subscriptions/{id}/change-plan', [\App\Http\Controllers\Api\Commerce\SubscriptionController::class, 'changePlan'])->whereNumber('id');
+        Route::post('/subscriptions/{id}/portal', [\App\Http\Controllers\Api\Commerce\SubscriptionController::class, 'portal'])->whereNumber('id');
+
+        // Demo Analytics (for demonstration purposes)
+        Route::get('/analytics/subscriptions', [\App\Http\Controllers\Api\Commerce\DemoAnalyticsController::class, 'subscriptionAnalytics']);
+        Route::get('/analytics/revenue', [\App\Http\Controllers\Api\Commerce\DemoAnalyticsController::class, 'revenueAnalytics']);
+
+        // Tenant Branding Management
+        Route::get('/branding', [\App\Http\Controllers\Api\Commerce\TenantBrandingController::class, 'show']);
+        Route::put('/branding', [\App\Http\Controllers\Api\Commerce\TenantBrandingController::class, 'update']);
+        Route::post('/branding', [\App\Http\Controllers\Api\Commerce\TenantBrandingController::class, 'update']); // For multipart form data
+        Route::post('/branding/reset', [\App\Http\Controllers\Api\Commerce\TenantBrandingController::class, 'reset']);
+
+        // Invoice PDF Generation
+        Route::get('/invoices/{id}', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'show'])->whereNumber('id');
+        Route::get('/invoices/{id}/pdf', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'generatePdf'])->whereNumber('id')->name('api.commerce.invoices.pdf');
+        Route::get('/invoices/{id}/preview', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'preview'])->whereNumber('id')->name('api.commerce.invoices.preview');
+        Route::get('/invoices/{id}/download', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'downloadPdf'])->whereNumber('id')->name('api.commerce.invoices.download');
+        Route::post('/invoices/{id}/send-email', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'sendEmail'])->whereNumber('id')->name('api.commerce.invoices.email');
+
+        Route::post('/webhooks/stripe', [\App\Http\Controllers\Api\Commerce\CommerceWebhookController::class, 'stripe']);
+    });
 });
+
+// Public Commerce Routes (No Auth Required)
+Route::prefix('public/commerce')->group(function () {
+    // Public payment link details for checkout (no auth required)
+    Route::get('/payment-links/{id}', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'publicShow'])
+        ->whereNumber('id');
+    
+    // Public subscription endpoints
+    Route::get('/subscription-plans', [\App\Http\Controllers\Api\Commerce\PublicSubscriptionController::class, 'listPlans']);
+    Route::get('/subscription-plans/{id}', [\App\Http\Controllers\Api\Commerce\PublicSubscriptionController::class, 'getPlanDetails'])->whereNumber('id');
+    Route::post('/checkout/create-subscription-session', [\App\Http\Controllers\Api\Commerce\PublicSubscriptionController::class, 'createSubscriptionSession']);
+});
+
+// Allow public access to specific payment link endpoints for checkout
+Route::get('/commerce/payment-links/{id}/checkout', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'publicShow'])
+    ->whereNumber('id');
+
+// Public payment completion endpoint (no auth required for checkout)
+Route::post('/commerce/payment-links/{id}/complete', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'publicComplete'])
+    ->whereNumber('id');
 
 

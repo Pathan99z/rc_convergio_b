@@ -19,6 +19,9 @@ use App\Models\AssignmentRule;
 use App\Models\AssignmentDefault;
 use App\Models\AssignmentAudit;
 use App\Models\Team;
+use App\Models\Commerce\CommerceOrder;
+use App\Models\Commerce\CommercePaymentLink;
+use App\Models\Commerce\CommerceSetting;
 use App\Policies\ContactPolicy;
 use App\Policies\CompanyPolicy;
 use App\Policies\DealPolicy;
@@ -36,6 +39,9 @@ use App\Policies\AssignmentRulePolicy;
 use App\Policies\AssignmentDefaultPolicy;
 use App\Policies\AssignmentAuditPolicy;
 use App\Policies\TeamPolicy;
+use App\Policies\Commerce\CommerceOrderPolicy;
+use App\Policies\Commerce\CommercePaymentLinkPolicy;
+use App\Policies\Commerce\CommerceSettingPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Auth\Notifications\ResetPassword;
 
@@ -59,6 +65,9 @@ class AuthServiceProvider extends ServiceProvider
         AssignmentDefault::class => AssignmentDefaultPolicy::class,
         AssignmentAudit::class => AssignmentAuditPolicy::class,
         Team::class => TeamPolicy::class,
+        CommerceOrder::class => CommerceOrderPolicy::class,
+        CommercePaymentLink::class => CommercePaymentLinkPolicy::class,
+        CommerceSetting::class => CommerceSettingPolicy::class,
     ];
 
     public function boot(): void
