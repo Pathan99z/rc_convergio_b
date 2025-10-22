@@ -70,3 +70,6 @@ class Domain extends Model
         return "{$protocol}://{$this->name}";
     }
 }
+
+
+

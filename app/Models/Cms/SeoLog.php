@@ -76,3 +76,6 @@ class SeoLog extends Model
         return collect($this->issues_found)->where('severity', 'critical')->count();
     }
 }
+
+
+

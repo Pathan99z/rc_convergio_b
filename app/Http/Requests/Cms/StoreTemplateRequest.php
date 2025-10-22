@@ -23,7 +23,7 @@ class StoreTemplateRequest extends FormRequest
         return [
             'name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255|unique:cms_templates,slug',
-            'type' => 'required|in:page,landing,blog,email,popup',
+            'type' => 'nullable|in:page,landing,blog,email,popup', // Made nullable, will default to 'page'
             'description' => 'nullable|string|max:1000',
             'json_structure' => 'required|array',
             'thumbnail' => 'nullable|string|max:500',
@@ -53,6 +53,27 @@ class StoreTemplateRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        // Accept 'structure' or 'content' as an alias for 'json_structure' (frontend compatibility)
+        if ($this->has('structure') && !$this->has('json_structure')) {
+            $this->merge(['json_structure' => $this->input('structure')]);
+        }
+        if ($this->has('content') && !$this->has('json_structure') && !$this->has('structure')) {
+            $this->merge(['json_structure' => $this->input('content')]);
+        }
+
+        // Accept 'template_type' or 'category' as alias for 'type'
+        if ($this->has('template_type') && !$this->has('type')) {
+            $this->merge(['type' => $this->input('template_type')]);
+        }
+        if ($this->has('category') && !$this->has('type') && !$this->has('template_type')) {
+            $this->merge(['type' => $this->input('category')]);
+        }
+
+        // Set default type if not provided
+        if (!$this->has('type') || empty($this->type)) {
+            $this->merge(['type' => 'page']); // Default to 'page' type
+        }
+
         // Auto-generate slug if not provided
         if (!$this->has('slug') || empty($this->slug)) {
             $this->merge([
@@ -70,3 +91,5 @@ class StoreTemplateRequest extends FormRequest
         }
     }
 }
+
+

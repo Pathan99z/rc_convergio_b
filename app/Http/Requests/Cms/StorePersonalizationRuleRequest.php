@@ -21,14 +21,16 @@ class StorePersonalizationRuleRequest extends FormRequest
     {
         return [
             'page_id' => 'required|integer|exists:cms_pages,id',
-            'section_id' => 'required|string|max:255',
+            'section_id' => 'nullable|string|max:255', // Made optional
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'conditions' => 'required|array|min:1',
-            'conditions.*.field' => 'required|string',
+            'conditions.*.field' => 'nullable|string', // Accept both 'field' and 'attribute'
+            'conditions.*.attribute' => 'nullable|string', // Accept both 'field' and 'attribute'
             'conditions.*.operator' => 'required|string|in:equals,not_equals,contains,not_contains,starts_with,ends_with,in,not_in,greater_than,less_than,between',
             'conditions.*.value' => 'required',
-            'variant_data' => 'required|array',
+            'variant_data' => 'nullable|array', // Made optional for frontend compatibility
+            'variant_content' => 'nullable', // Accept variant_content as alias
             'priority' => 'nullable|integer|min:0|max:100',
             'is_active' => 'nullable|boolean',
         ];
@@ -42,16 +44,12 @@ class StorePersonalizationRuleRequest extends FormRequest
         return [
             'page_id.required' => 'Page is required.',
             'page_id.exists' => 'Selected page does not exist.',
-            'section_id.required' => 'Section ID is required.',
             'name.required' => 'Rule name is required.',
             'conditions.required' => 'At least one condition is required.',
             'conditions.min' => 'At least one condition is required.',
-            'conditions.*.field.required' => 'Condition field is required.',
             'conditions.*.operator.required' => 'Condition operator is required.',
             'conditions.*.operator.in' => 'Invalid condition operator.',
             'conditions.*.value.required' => 'Condition value is required.',
-            'variant_data.required' => 'Variant data is required.',
-            'variant_data.array' => 'Variant data must be in valid JSON format.',
         ];
     }
 
@@ -60,14 +58,52 @@ class StorePersonalizationRuleRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        // Map frontend field names to backend names
+        $data = [];
+
+        // Map 'attribute' to 'field' in conditions (frontend uses 'attribute', backend uses 'field')
+        if ($this->has('conditions') && is_array($this->conditions)) {
+            $conditions = [];
+            foreach ($this->conditions as $condition) {
+                if (isset($condition['attribute']) && !isset($condition['field'])) {
+                    $condition['field'] = $condition['attribute'];
+                }
+                $conditions[] = $condition;
+            }
+            $data['conditions'] = $conditions;
+        }
+
+        // Map 'variant_content' to 'variant_data' (frontend compatibility)
+        if ($this->has('variant_content') && !$this->has('variant_data')) {
+            $variantContent = $this->input('variant_content');
+            // If it's a string, wrap it in an array
+            if (is_string($variantContent)) {
+                $data['variant_data'] = ['content' => $variantContent];
+            } else {
+                $data['variant_data'] = $variantContent;
+            }
+        }
+
+        // Set default section_id if not provided
+        if (!$this->has('section_id') || empty($this->section_id)) {
+            $data['section_id'] = 'main'; // Default section
+        }
+
         // Set default priority if not provided
         if (!$this->has('priority')) {
-            $this->merge(['priority' => 0]);
+            $data['priority'] = 0;
         }
 
         // Set default is_active if not provided
         if (!$this->has('is_active')) {
-            $this->merge(['is_active' => true]);
+            $data['is_active'] = true;
+        }
+
+        // Merge the prepared data
+        if (!empty($data)) {
+            $this->merge($data);
         }
     }
 }
+
+

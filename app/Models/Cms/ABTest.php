@@ -77,7 +77,7 @@ class ABTest extends Model
      */
     public function visitors(): HasMany
     {
-        return $this->hasMany(ABTestVisitor::class);
+        return $this->hasMany(ABTestVisitor::class, 'ab_test_id');
     }
 
     /**
@@ -154,3 +154,6 @@ class ABTest extends Model
         ];
     }
 }
+
+
+

@@ -282,3 +282,6 @@ class SeoAnalyzer
                !str_starts_with($href, 'tel:');
     }
 }
+
+
+

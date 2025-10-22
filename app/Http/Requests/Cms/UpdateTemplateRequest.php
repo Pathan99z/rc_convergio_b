@@ -52,6 +52,22 @@ class UpdateTemplateRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        // Accept 'structure' or 'content' as an alias for 'json_structure' (frontend compatibility)
+        if ($this->has('structure') && !$this->has('json_structure')) {
+            $this->merge(['json_structure' => $this->input('structure')]);
+        }
+        if ($this->has('content') && !$this->has('json_structure') && !$this->has('structure')) {
+            $this->merge(['json_structure' => $this->input('content')]);
+        }
+
+        // Accept 'template_type' or 'category' as alias for 'type'
+        if ($this->has('template_type') && !$this->has('type')) {
+            $this->merge(['type' => $this->input('template_type')]);
+        }
+        if ($this->has('category') && !$this->has('type') && !$this->has('template_type')) {
+            $this->merge(['type' => $this->input('category')]);
+        }
+
         // Auto-generate slug if name is being updated but slug is not provided
         if ($this->has('name') && (!$this->has('slug') || empty($this->slug))) {
             $this->merge([
@@ -60,3 +76,5 @@ class UpdateTemplateRequest extends FormRequest
         }
     }
 }
+
+

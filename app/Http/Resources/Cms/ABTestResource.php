@@ -35,18 +35,18 @@ class ABTestResource extends JsonResource
                 ];
             }),
             'variant_a' => $this->whenLoaded('variantA', function () {
-                return [
+                return $this->variantA ? [
                     'id' => $this->variantA->id,
                     'title' => $this->variantA->title,
                     'slug' => $this->variantA->slug,
-                ];
+                ] : null;
             }),
             'variant_b' => $this->whenLoaded('variantB', function () {
-                return [
+                return $this->variantB ? [
                     'id' => $this->variantB->id,
                     'title' => $this->variantB->title,
                     'slug' => $this->variantB->slug,
-                ];
+                ] : null;
             }),
             'creator' => $this->whenLoaded('creator', function () {
                 return [
@@ -66,3 +66,6 @@ class ABTestResource extends JsonResource
         ];
     }
 }
+
+
+

@@ -101,3 +101,6 @@ class DetectDomainAndLanguage
         return array_unique($languages);
     }
 }
+
+
+

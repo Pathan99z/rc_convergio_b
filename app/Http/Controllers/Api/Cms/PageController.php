@@ -55,13 +55,14 @@ class PageController extends Controller
             $pages = $query->paginate($perPage);
 
             return response()->json([
-                'success' => true,
                 'data' => PageResource::collection($pages->items()),
                 'meta' => [
                     'current_page' => $pages->currentPage(),
                     'last_page' => $pages->lastPage(),
                     'per_page' => $pages->perPage(),
                     'total' => $pages->total(),
+                    'from' => $pages->firstItem(),
+                    'to' => $pages->lastItem(),
                 ]
             ]);
 
@@ -72,7 +73,6 @@ class PageController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to fetch pages',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -98,7 +98,6 @@ class PageController extends Controller
             }
 
             return response()->json([
-                'success' => true,
                 'message' => 'Page created successfully',
                 'data' => new PageResource($page->load(['template', 'domain', 'language', 'creator']))
             ], 201);
@@ -111,7 +110,6 @@ class PageController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to create page',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -128,13 +126,11 @@ class PageController extends Controller
                         ->findOrFail($id);
 
             return response()->json([
-                'success' => true,
                 'data' => new PageResource($page)
             ]);
 
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
                 'message' => 'Page not found',
                 'error' => config('app.debug') ? $e->getMessage() : 'Page not found'
             ], 404);
@@ -164,7 +160,6 @@ class PageController extends Controller
             }
 
             return response()->json([
-                'success' => true,
                 'message' => 'Page updated successfully',
                 'data' => new PageResource($page->fresh(['template', 'domain', 'language', 'creator']))
             ]);
@@ -177,7 +172,6 @@ class PageController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to update page',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -199,7 +193,6 @@ class PageController extends Controller
             $page->delete();
 
             return response()->json([
-                'success' => true,
                 'message' => 'Page deleted successfully'
             ]);
 
@@ -211,7 +204,6 @@ class PageController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to delete page',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -236,7 +228,6 @@ class PageController extends Controller
             event(new PagePublished($page));
 
             return response()->json([
-                'success' => true,
                 'message' => 'Page published successfully',
                 'data' => new PageResource($page->fresh(['template', 'domain', 'language']))
             ]);
@@ -249,7 +240,6 @@ class PageController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to publish page',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -272,7 +262,6 @@ class PageController extends Controller
             event(new PageUnpublished($page));
 
             return response()->json([
-                'success' => true,
                 'message' => 'Page unpublished successfully',
                 'data' => new PageResource($page->fresh(['template', 'domain', 'language']))
             ]);
@@ -285,7 +274,6 @@ class PageController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to unpublish page',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -305,7 +293,6 @@ class PageController extends Controller
             $page->incrementViewCount();
 
             return response()->json([
-                'success' => true,
                 'data' => [
                     'page' => new PageResource($page),
                     'preview_url' => $page->url,
@@ -315,7 +302,6 @@ class PageController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
                 'message' => 'Page not found',
                 'error' => config('app.debug') ? $e->getMessage() : 'Page not found'
             ], 404);
@@ -342,7 +328,6 @@ class PageController extends Controller
             $newPage->save();
 
             return response()->json([
-                'success' => true,
                 'message' => 'Page duplicated successfully',
                 'data' => new PageResource($newPage->load(['template', 'domain', 'language']))
             ], 201);
@@ -355,7 +340,6 @@ class PageController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to duplicate page',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -407,3 +391,5 @@ class PageController extends Controller
         return 'desktop';
     }
 }
+
+

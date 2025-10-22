@@ -44,3 +44,6 @@ class PersonalizationRuleResource extends JsonResource
         ];
     }
 }
+
+
+

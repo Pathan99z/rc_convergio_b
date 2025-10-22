@@ -46,7 +46,6 @@ class TemplateController extends Controller
             $templates = $query->paginate($perPage);
 
             return response()->json([
-                'success' => true,
                 'data' => TemplateResource::collection($templates->items()),
                 'meta' => [
                     'current_page' => $templates->currentPage(),
@@ -63,7 +62,6 @@ class TemplateController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to fetch templates',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -83,7 +81,6 @@ class TemplateController extends Controller
             $template = Template::create($validatedData);
 
             return response()->json([
-                'success' => true,
                 'message' => 'Template created successfully',
                 'data' => new TemplateResource($template->load(['creator']))
             ], 201);
@@ -96,7 +93,6 @@ class TemplateController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to create template',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -112,13 +108,11 @@ class TemplateController extends Controller
             $template = Template::with(['creator', 'pages'])->findOrFail($id);
 
             return response()->json([
-                'success' => true,
                 'data' => new TemplateResource($template)
             ]);
 
         } catch (\Exception $e) {
             return response()->json([
-                'success' => false,
                 'message' => 'Template not found',
                 'error' => config('app.debug') ? $e->getMessage() : 'Template not found'
             ], 404);
@@ -136,7 +130,6 @@ class TemplateController extends Controller
             // Check if user can edit this template
             if ($template->is_system && !Auth::user()->hasRole('admin')) {
                 return response()->json([
-                    'success' => false,
                     'message' => 'Cannot edit system templates'
                 ], 403);
             }
@@ -147,7 +140,6 @@ class TemplateController extends Controller
             $template->update($validatedData);
 
             return response()->json([
-                'success' => true,
                 'message' => 'Template updated successfully',
                 'data' => new TemplateResource($template->fresh(['creator']))
             ]);
@@ -160,7 +152,6 @@ class TemplateController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to update template',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -195,7 +186,6 @@ class TemplateController extends Controller
             $template->delete();
 
             return response()->json([
-                'success' => true,
                 'message' => 'Template deleted successfully'
             ]);
 
@@ -207,7 +197,6 @@ class TemplateController extends Controller
             ]);
 
             return response()->json([
-                'success' => false,
                 'message' => 'Failed to delete template',
                 'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
@@ -220,7 +209,6 @@ class TemplateController extends Controller
     public function types(): JsonResponse
     {
         return response()->json([
-            'success' => true,
             'data' => [
                 ['value' => 'page', 'label' => 'Standard Page'],
                 ['value' => 'landing', 'label' => 'Landing Page'],
@@ -231,3 +219,6 @@ class TemplateController extends Controller
         ]);
     }
 }
+
+
+

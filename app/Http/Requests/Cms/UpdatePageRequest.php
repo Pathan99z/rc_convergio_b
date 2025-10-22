@@ -60,6 +60,11 @@ class UpdatePageRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        // Accept 'content' as an alias for 'json_content' (frontend compatibility)
+        if ($this->has('content') && !$this->has('json_content')) {
+            $this->merge(['json_content' => $this->input('content')]);
+        }
+
         // Auto-generate slug if title is being updated but slug is not provided
         if ($this->has('title') && (!$this->has('slug') || empty($this->slug))) {
             $this->merge([
@@ -73,9 +78,22 @@ class UpdatePageRequest extends FormRequest
             $this->merge(['meta_keywords' => array_values($keywords)]);
         }
 
+        // Map frontend field names to backend field names
+        if ($this->has('seo_title') && !$this->has('meta_title')) {
+            $this->merge(['meta_title' => $this->input('seo_title')]);
+        }
+        if ($this->has('seo_description') && !$this->has('meta_description')) {
+            $this->merge(['meta_description' => $this->input('seo_description')]);
+        }
+        if ($this->has('seo_keywords') && !$this->has('meta_keywords')) {
+            $this->merge(['meta_keywords' => $this->input('seo_keywords')]);
+        }
+
         // Set published_at if status is being changed to published
         if ($this->status === 'published' && !$this->has('published_at')) {
             $this->merge(['published_at' => now()]);
         }
     }
 }
+
+

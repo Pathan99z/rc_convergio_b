@@ -36,3 +36,6 @@ class SeoLogResource extends JsonResource
         ];
     }
 }
+
+
+

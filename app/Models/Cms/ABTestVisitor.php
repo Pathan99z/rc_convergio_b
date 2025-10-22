@@ -37,7 +37,7 @@ class ABTestVisitor extends Model
      */
     public function abTest(): BelongsTo
     {
-        return $this->belongsTo(ABTest::class);
+        return $this->belongsTo(ABTest::class, 'ab_test_id');
     }
 
     /**
@@ -68,3 +68,6 @@ class ABTestVisitor extends Model
         ]);
     }
 }
+
+
+
