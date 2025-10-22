@@ -43,3 +43,6 @@ class SequenceResource extends JsonResource
         ];
     }
 }
+
+
+
