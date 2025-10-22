@@ -42,6 +42,11 @@ class DocumentService
             'created_by' => $user->id,
         ]);
 
+        // Create relationship if related_type and related_id are provided
+        if (!empty($metadata['related_type']) && !empty($metadata['related_id'])) {
+            $this->linkToRecord($document, $metadata['related_type'], $metadata['related_id']);
+        }
+
         // Log the upload activity
         $this->logActivity($document, 'document_uploaded', 'Document uploaded', [
             'file_name' => $file->getClientOriginalName(),

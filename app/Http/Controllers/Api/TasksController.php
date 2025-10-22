@@ -164,6 +164,14 @@ class TasksController extends Controller
             $data['assigned_to'] = $data['assignee_id'];
             unset($data['assignee_id']);
         }
+        
+        // Ensure related_type and related_id are set to null if not provided
+        if (!isset($data['related_type'])) {
+            $data['related_type'] = null;
+        }
+        if (!isset($data['related_id'])) {
+            $data['related_id'] = null;
+        }
 
         $task = Task::create($data);
 
@@ -222,6 +230,14 @@ class TasksController extends Controller
         if (isset($data['assignee_id'])) {
             $data['assigned_to'] = $data['assignee_id'];
             unset($data['assignee_id']);
+        }
+        
+        // Ensure related_type and related_id are set to null if not provided
+        if (!isset($data['related_type'])) {
+            $data['related_type'] = null;
+        }
+        if (!isset($data['related_id'])) {
+            $data['related_id'] = null;
         }
 
         $task->update($data);

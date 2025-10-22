@@ -16,6 +16,13 @@ class Activity extends Model
     protected static function booted(): void
     {
         static::bootHasTenantScope();
+        
+        // Ensure related_type values are properly formatted
+        static::saving(function ($activity) {
+            if ($activity->related_type) {
+                $activity->related_type = static::normalizeRelatedType($activity->related_type);
+            }
+        });
     }
 
     protected $fillable = [
@@ -110,5 +117,21 @@ class Activity extends Model
     public function scopeByRelated($query, $type, $id)
     {
         return $query->where('related_type', $type)->where('related_id', $id);
+    }
+    
+    /**
+     * Normalize related_type values to proper class names.
+     */
+    public static function normalizeRelatedType($type)
+    {
+        $mappings = [
+            'document' => 'App\\Models\\Document',
+            'deal' => 'App\\Models\\Deal',
+            'contact' => 'App\\Models\\Contact',
+            'company' => 'App\\Models\\Company',
+            'quote' => 'App\\Models\\Quote',
+        ];
+        
+        return $mappings[$type] ?? $type;
     }
 }
