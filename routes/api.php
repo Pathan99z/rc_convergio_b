@@ -29,6 +29,22 @@ use App\Http\Controllers\Api\OutlookOAuthController;
 use App\Http\Controllers\Api\DocumentsController;
 use App\Http\Controllers\Api\IntegrationController;
 use Illuminate\Support\Facades\Route;
+// use App\Http\Controllers\Api\SocialMediaController;
+// use App\Http\Controllers\Api\SocialMediaOAuthController;
+
+// CMS Controllers (EXISTING)
+use App\Http\Controllers\Api\Cms\PageController;
+use App\Http\Controllers\Api\Cms\TemplateController;
+use App\Http\Controllers\Api\Cms\PersonalizationController;
+use App\Http\Controllers\Api\Cms\ABTestController;
+use App\Http\Controllers\Api\Cms\DomainController;
+use App\Http\Controllers\Api\Cms\LanguageController;
+use App\Http\Controllers\Api\Cms\MembershipController;
+
+// Missing Controllers (NEED TO CREATE)
+use App\Http\Controllers\Api\Cms\SeoController;
+use App\Http\Controllers\Api\SocialMediaController;
+use App\Http\Controllers\Api\SocialMediaOAuthController;
 
 Route::prefix('auth')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
@@ -667,8 +683,105 @@ Route::prefix('public')->group(function () {
     // Campaign unsubscribe
     Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
 });
+// CMS Management Routes
+Route::prefix('cms')->middleware(['throttle:60,1'])->group(function () {
+    // Pages Management
+    Route::get('pages', [PageController::class, 'index']);
+    Route::post('pages', [PageController::class, 'store']);
+    Route::get('pages/{id}', [PageController::class, 'show'])->whereNumber('id');
+    Route::put('pages/{id}', [PageController::class, 'update'])->whereNumber('id');
+    Route::delete('pages/{id}', [PageController::class, 'destroy'])->whereNumber('id');
+    Route::post('pages/{id}/publish', [PageController::class, 'publish'])->whereNumber('id');
+    Route::post('pages/{id}/unpublish', [PageController::class, 'unpublish'])->whereNumber('id');
+    Route::get('pages/{id}/preview', [PageController::class, 'preview'])->whereNumber('id');
+    Route::post('pages/{id}/duplicate', [PageController::class, 'duplicate'])->whereNumber('id');
 
+    // Templates Management
+    Route::get('templates', [TemplateController::class, 'index']);
+    Route::post('templates', [TemplateController::class, 'store']);
+    Route::get('templates/{id}', [TemplateController::class, 'show'])->whereNumber('id');
+    Route::put('templates/{id}', [TemplateController::class, 'update'])->whereNumber('id');
+    Route::delete('templates/{id}', [TemplateController::class, 'destroy'])->whereNumber('id');
+    Route::get('templates/types', [TemplateController::class, 'types']);
 
+    // Personalization
+    Route::get('personalization', [PersonalizationController::class, 'index']);
+    Route::post('personalization', [PersonalizationController::class, 'store']);
+    Route::get('personalization/{id}', [PersonalizationController::class, 'show'])->whereNumber('id');
+    Route::put('personalization/{id}', [PersonalizationController::class, 'update'])->whereNumber('id');
+    Route::delete('personalization/{id}', [PersonalizationController::class, 'destroy'])->whereNumber('id');
+    Route::post('personalization/{id}/toggle', [PersonalizationController::class, 'toggle'])->whereNumber('id');
+    Route::post('personalization/{id}/test', [PersonalizationController::class, 'test'])->whereNumber('id');
+    Route::get('personalization/{id}/analytics', [PersonalizationController::class, 'analytics'])->whereNumber('id');
+    Route::post('personalization/evaluate', [PersonalizationController::class, 'evaluate']);
+    Route::get('personalization/analytics', [PersonalizationController::class, 'globalAnalytics']);
+    Route::post('personalization/bulk-toggle', [PersonalizationController::class, 'bulkToggle']);
+    Route::post('personalization/track-impression', [PersonalizationController::class, 'trackImpression']);
+    Route::post('personalization/track-conversion', [PersonalizationController::class, 'trackConversion']);
+    Route::get('personalization/operators', [PersonalizationController::class, 'operators']);
+    Route::get('personalization/fields', [PersonalizationController::class, 'fields']);
+
+    // A/B Testing
+    Route::get('abtesting', [ABTestController::class, 'index']);
+    Route::post('abtesting', [ABTestController::class, 'store']);
+    Route::get('abtesting/{id}', [ABTestController::class, 'show'])->whereNumber('id');
+    Route::put('abtesting/{id}', [ABTestController::class, 'update'])->whereNumber('id');
+    Route::post('abtesting/{id}/start', [ABTestController::class, 'start'])->whereNumber('id');
+    Route::post('abtesting/{id}/stop', [ABTestController::class, 'stop'])->whereNumber('id');
+    Route::get('abtesting/{id}/results', [ABTestController::class, 'results'])->whereNumber('id');
+    Route::post('abtesting/visitor', [ABTestController::class, 'recordVisitor']);
+    Route::post('abtesting/conversion', [ABTestController::class, 'recordConversion']);
+    Route::get('abtesting/analytics', [ABTestController::class, 'analytics']);
+    Route::get('abtesting/metrics', [ABTestController::class, 'metrics']);
+    Route::get('abtesting/active', [ABTestController::class, 'getActiveForPage']);
+
+    // // SEO Analysis
+    // Route::post('seo/analyze', [SeoController::class, 'analyzePage']);
+    // Route::get('seo/logs', [SeoController::class, 'getSeoLogs']);
+    // Route::get('seo/logs/{page_id}', [SeoController::class, 'getSeoLogsByPage'])->whereNumber('page_id');
+
+    // Domains Management
+    Route::get('domains', [\App\Http\Controllers\Api\Cms\DomainController::class, 'index']);
+    Route::post('domains', [\App\Http\Controllers\Api\Cms\DomainController::class, 'store']);
+    Route::get('domains/{id}', [\App\Http\Controllers\Api\Cms\DomainController::class, 'show'])->whereNumber('id');
+    Route::put('domains/{id}', [\App\Http\Controllers\Api\Cms\DomainController::class, 'update'])->whereNumber('id');
+    Route::delete('domains/{id}', [\App\Http\Controllers\Api\Cms\DomainController::class, 'destroy'])->whereNumber('id');
+
+    // Languages Management
+    Route::get('languages', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'index']);
+    Route::post('languages', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'store']);
+    Route::get('languages/{id}', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'show'])->whereNumber('id');
+    Route::put('languages/{id}', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'update'])->whereNumber('id');
+    Route::delete('languages/{id}', [\App\Http\Controllers\Api\Cms\LanguageController::class, 'destroy'])->whereNumber('id');
+
+    // Memberships / Access Control
+    Route::get('memberships', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'index']);
+    Route::get('memberships/{user_id}', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'show'])->whereNumber('user_id');
+    Route::post('pages/{id}/access', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'setPageAccess'])->whereNumber('id');
+    Route::get('pages/{id}/access', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'getPageAccess'])->whereNumber('id');
+    Route::delete('pages/{page_id}/access/{access_id}', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'removePageAccess'])
+        ->whereNumber(['page_id', 'access_id']);
+});
+
+// Social Media Management - Posts
+// Route::prefix('social')->group(function () {
+//     // Post Management (Schedule and Publish)
+//     Route::post('schedule-post', [SocialMediaController::class, 'store']); // Schedule a post
+//     Route::post('publish-post', [SocialMediaController::class, 'store']); // Publish immediately (with publish_now flag)
+//     Route::get('posts', [SocialMediaController::class, 'index']); // List all posts
+//     Route::get('posts/{id}', [SocialMediaController::class, 'show'])->whereNumber('id'); // Get single post
+//     Route::put('posts/{id}', [SocialMediaController::class, 'update'])->whereNumber('id'); // Update post
+//     Route::delete('posts/{id}', [SocialMediaController::class, 'destroy'])->whereNumber('id'); // Delete post
+//     Route::post('posts/{id}/publish', [SocialMediaController::class, 'publish'])->whereNumber('id'); // Publish a scheduled post
+//     Route::get('posts/{id}/metrics', [SocialMediaController::class, 'metrics'])->whereNumber('id'); // Get post metrics
+   
+//     // OAuth & Account Management
+//     Route::post('connect/{platform}', [SocialMediaOAuthController::class, 'connect'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin']); // Initiate OAuth
+//     Route::post('callback/{platform}', [SocialMediaOAuthController::class, 'callback'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin']); // OAuth callback
+//     Route::delete('disconnect/{platform}', [SocialMediaOAuthController::class, 'disconnect'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin']); // Disconnect account
+//     Route::get('accounts', [SocialMediaOAuthController::class, 'getConnectedAccounts']); // Get all connected accounts
+//     Route::post('refresh-token/{platform}', [SocialMediaOAuthController::class, 'refreshToken'])->whereIn('platform', ['facebook', 'instagram', 'twitter', 'linkedin']); // Refresh token
+// });
 // Facebook OAuth Callback (no auth required)
 Route::get('oauth/facebook/callback', [FacebookOAuthController::class, 'callback']);
 
