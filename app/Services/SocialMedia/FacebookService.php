@@ -187,13 +187,3 @@ class FacebookService extends BaseSocialMediaService
         return 'simulated_fb_media_id_' . uniqid();
     }
 }
-
-
-
-<<<<<<< HEAD
-
-
-
-
-=======
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)

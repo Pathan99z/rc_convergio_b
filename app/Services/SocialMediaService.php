@@ -2,16 +2,11 @@
 
 namespace App\Services;
 
-<<<<<<< HEAD
-use App\Services\SocialMedia\FacebookService;
-use App\Services\SocialMedia\TwitterService;
-=======
 use App\Models\SocialMediaPost;
 use App\Services\SocialMedia\FacebookService;
 use App\Services\SocialMedia\TwitterService;
 use App\Services\SocialMedia\InstagramService;
 use App\Services\SocialMedia\LinkedInService;
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)
 use App\Services\SocialMedia\YouTubeService;
 use App\Services\SocialMedia\TikTokService;
 use App\Services\SocialMedia\PinterestService;
@@ -26,11 +21,8 @@ class SocialMediaService
         $this->platformServices = [
             'facebook' => new FacebookService(),
             'twitter' => new TwitterService(),
-<<<<<<< HEAD
-=======
             'instagram' => new InstagramService(),
             'linkedin' => new LinkedInService(),
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)
             'youtube' => new YouTubeService(),
             'tiktok' => new TikTokService(),
             'pinterest' => new PinterestService(),
@@ -40,20 +32,6 @@ class SocialMediaService
     /**
      * Publish a post to the specified platform
      */
-<<<<<<< HEAD
-    public function publishPost(array $post): array
-    {
-        try {
-            $platformService = $this->getPlatformService($post['platform']);
-            
-            if (!$platformService) {
-                throw new \Exception("Platform service not found for: {$post['platform']}");
-            }
-
-            // Check if user has connected their account for this platform
-            if (!$platformService->isAccountConnected($post['user_id'])) {
-                throw new \Exception("User account not connected for platform: {$post['platform']}");
-=======
     public function publishPost(SocialMediaPost $post): array
     {
         try {
@@ -66,7 +44,6 @@ class SocialMediaService
             // Check if user has connected their account for this platform
             if (!$platformService->isAccountConnected($post->user_id)) {
                 throw new \Exception("User account not connected for platform: {$post->platform}");
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)
             }
 
             // Validate content for platform-specific requirements
@@ -75,11 +52,6 @@ class SocialMediaService
             // Publish to the platform
             $result = $platformService->publishPost($post);
 
-<<<<<<< HEAD
-            Log::info("Post published successfully", [
-                'post_id' => $post['id'] ?? null,
-                'platform' => $post['platform'],
-=======
             // Update post with external ID and published status
             $post->update([
                 'status' => 'published',
@@ -91,7 +63,6 @@ class SocialMediaService
             Log::info("Post published successfully", [
                 'post_id' => $post->id,
                 'platform' => $post->platform,
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)
                 'external_id' => $result['post_id'] ?? null
             ]);
 
@@ -103,11 +74,6 @@ class SocialMediaService
             ];
 
         } catch (\Exception $e) {
-<<<<<<< HEAD
-            Log::error("Failed to publish post", [
-                'post_id' => $post['id'] ?? null,
-                'platform' => $post['platform'],
-=======
             // Update post status to failed
             $post->update([
                 'status' => 'failed',
@@ -120,7 +86,6 @@ class SocialMediaService
             Log::error("Failed to publish post", [
                 'post_id' => $post->id,
                 'platform' => $post->platform,
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)
                 'error' => $e->getMessage()
             ]);
 
@@ -135,15 +100,6 @@ class SocialMediaService
     /**
      * Schedule a post for later publishing
      */
-<<<<<<< HEAD
-    public function schedulePost(array $post): array
-    {
-        try {
-            $platformService = $this->getPlatformService($post['platform']);
-            
-            if (!$platformService) {
-                throw new \Exception("Platform service not found for: {$post['platform']}");
-=======
     public function schedulePost(SocialMediaPost $post): array
     {
         try {
@@ -151,7 +107,6 @@ class SocialMediaService
             
             if (!$platformService) {
                 throw new \Exception("Platform service not found for: {$post->platform}");
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)
             }
 
             // Check if platform supports scheduling
@@ -164,12 +119,6 @@ class SocialMediaService
             // Use platform's native scheduling
             $result = $platformService->schedulePost($post);
 
-<<<<<<< HEAD
-            return [
-                'success' => true,
-                'message' => 'Post scheduled successfully',
-                'scheduled_for' => $post['scheduled_at'] ?? now()->toISOString()
-=======
             $post->update([
                 'status' => 'scheduled',
                 'external_post_id' => $result['scheduled_id'] ?? null
@@ -179,7 +128,6 @@ class SocialMediaService
                 'success' => true,
                 'message' => 'Post scheduled successfully',
                 'scheduled_for' => $post->scheduled_at->toISOString()
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)
             ];
 
         } catch (\Exception $e) {
@@ -298,13 +246,3 @@ class SocialMediaService
         ];
     }
 }
-
-
-
-<<<<<<< HEAD
-
-
-
-
-=======
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)

@@ -28,13 +28,3 @@ class PinterestService extends BaseSocialMediaService
         return ['saves' => 0, 'clicks' => 0, 'impressions' => 0, 'updated_at' => now()->toISOString()];
     }
 }
-
-
-
-<<<<<<< HEAD
-
-
-
-
-=======
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)

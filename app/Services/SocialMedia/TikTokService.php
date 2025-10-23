@@ -28,13 +28,3 @@ class TikTokService extends BaseSocialMediaService
         return ['views' => 0, 'likes' => 0, 'comments' => 0, 'shares' => 0, 'updated_at' => now()->toISOString()];
     }
 }
-
-
-
-<<<<<<< HEAD
-
-
-
-
-=======
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)

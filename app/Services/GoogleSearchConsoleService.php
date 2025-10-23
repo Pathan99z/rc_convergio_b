@@ -307,13 +307,3 @@ class GoogleSearchConsoleService
         Cache::forget("seo_pages_{$site->id}_30");
     }
 }
-
-
-
-<<<<<<< HEAD
-
-
-
-
-=======
->>>>>>> 35e2766 (Add Journey, SEO, and Social Media modules with full API integration)
