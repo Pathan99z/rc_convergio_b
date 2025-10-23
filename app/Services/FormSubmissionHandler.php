@@ -63,6 +63,30 @@ class FormSubmissionHandler
                 $contactData
             );
 
+            // 7. Trigger lead scoring for contact creation (if new contact)
+            if ($contactResult['status'] === 'created') {
+                try {
+                    $leadScoringService = new \App\Services\LeadScoringService();
+                    $leadScoringService->processEvent([
+                        'event' => 'contact_created',
+                        'contact_id' => $contactResult['contact']->id,
+                        'tenant_id' => $contactResult['contact']->tenant_id,
+                        'created_at' => now()->toISOString()
+                    ], $contactResult['contact']->tenant_id);
+                    
+                    Log::info('Lead scoring triggered for form contact creation', [
+                        'contact_id' => $contactResult['contact']->id,
+                        'email' => $contactResult['contact']->email,
+                        'tenant_id' => $contactResult['contact']->tenant_id
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to trigger lead scoring for form contact creation', [
+                        'contact_id' => $contactResult['contact']->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
             // Ensure we link the existing submission (if passed) to company/contact
             if ($submission && $companyResult['company'] && empty($submission->company_id)) {
                 $submission->update(['company_id' => $companyResult['company']->id]);

@@ -170,6 +170,28 @@ class ContactsController extends Controller
             ]);
         }
 
+        // Trigger lead scoring for contact creation
+        try {
+            $leadScoringService = new \App\Services\LeadScoringService();
+            $leadScoringService->processEvent([
+                'event' => 'contact_created',
+                'contact_id' => $contact->id,
+                'tenant_id' => $contact->tenant_id,
+                'created_at' => now()->toISOString()
+            ], $contact->tenant_id);
+            
+            Log::info('Lead scoring triggered for contact creation', [
+                'contact_id' => $contact->id,
+                'email' => $contact->email,
+                'tenant_id' => $contact->tenant_id
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to trigger lead scoring for contact creation', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+
         $response = [
             'data' => $contact,
             'meta' => [ 'page' => 1, 'total' => 1 ],

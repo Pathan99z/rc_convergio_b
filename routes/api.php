@@ -31,6 +31,9 @@ use App\Http\Controllers\Api\IntegrationController;
 use Illuminate\Support\Facades\Route;
 // use App\Http\Controllers\Api\SocialMediaController;
 // use App\Http\Controllers\Api\SocialMediaOAuthController;
+use App\Http\Controllers\Api\ContactJourneyFlowController;
+use App\Http\Controllers\Api\SocialListeningController;
+
 
 // CMS Controllers (EXISTING)
 use App\Http\Controllers\Api\Cms\PageController;
@@ -338,6 +341,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('lead-scoring/import', [\App\Http\Controllers\Api\LeadScoringEnhancementController::class, 'import']);
     Route::get('lead-scoring/contacts/export', [\App\Http\Controllers\Api\LeadScoringEnhancementController::class, 'exportContacts']);
 
+    // Lead Scoring Templates (Industry-Standard)
+    Route::get('lead-scoring/templates', [\App\Http\Controllers\Api\LeadScoringTemplateController::class, 'getTemplates']);
+    Route::get('lead-scoring/templates/{templateKey}', [\App\Http\Controllers\Api\LeadScoringTemplateController::class, 'getTemplate']);
+    Route::post('lead-scoring/templates/{templateKey}/activate', [\App\Http\Controllers\Api\LeadScoringTemplateController::class, 'activateTemplate']);
+    Route::get('lead-scoring/templates/categories', [\App\Http\Controllers\Api\LeadScoringTemplateController::class, 'getCategories']);
+    Route::get('lead-scoring/suggestions', [\App\Http\Controllers\Api\LeadScoringTemplateController::class, 'getSuggestions']);
+    Route::post('lead-scoring/suggestions/create', [\App\Http\Controllers\Api\LeadScoringTemplateController::class, 'createFromSuggestions']);
+
+    // Lead Scoring Auto-Detection
+    Route::post('lead-scoring/auto-detect/email', [\App\Http\Controllers\Api\LeadScoringAutoDetectionController::class, 'detectEmailEvent']);
+    Route::post('lead-scoring/auto-detect/website', [\App\Http\Controllers\Api\LeadScoringAutoDetectionController::class, 'detectWebsiteEvent']);
+    Route::post('lead-scoring/auto-detect/form', [\App\Http\Controllers\Api\LeadScoringAutoDetectionController::class, 'detectFormEvent']);
+    Route::post('lead-scoring/auto-detect/deal', [\App\Http\Controllers\Api\LeadScoringAutoDetectionController::class, 'detectDealEvent']);
+    Route::post('lead-scoring/auto-detect/meeting', [\App\Http\Controllers\Api\LeadScoringAutoDetectionController::class, 'detectMeetingEvent']);
+    Route::get('lead-scoring/auto-detect/suggestions', [\App\Http\Controllers\Api\LeadScoringAutoDetectionController::class, 'getAutoSuggestions']);
+    Route::post('lead-scoring/auto-detect/test', [\App\Http\Controllers\Api\LeadScoringAutoDetectionController::class, 'testDetection']);
+
     // Journeys Enhancements
     Route::post('journeys/bulk-delete', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'bulkDelete']);
     Route::post('journeys/bulk-activate', [\App\Http\Controllers\Api\JourneysEnhancementController::class, 'bulkActivate']);
@@ -486,7 +506,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('journeys/statuses', [\App\Http\Controllers\Api\JourneysController::class, 'getStatuses']);
     Route::get('journeys/step-types', [\App\Http\Controllers\Api\JourneysController::class, 'getStepTypes']);
     Route::get('journeys/step-schema', [\App\Http\Controllers\Api\JourneysController::class, 'getStepTypeSchema']);
-
+    Route::get('journeys/customer', [\App\Http\Controllers\Api\JourneysController::class, 'customer']);
     // Sales Forecast
     Route::get('forecast', [\App\Http\Controllers\Api\ForecastController::class, 'index']);
     Route::get('forecast/multi-timeframe', [\App\Http\Controllers\Api\ForecastController::class, 'multiTimeframe']);
@@ -762,6 +782,26 @@ Route::prefix('cms')->middleware(['throttle:60,1'])->group(function () {
     Route::delete('pages/{page_id}/access/{access_id}', [\App\Http\Controllers\Api\Cms\MembershipController::class, 'removePageAccess'])
         ->whereNumber(['page_id', 'access_id']);
 });
+
+// Contact Journey Flow endpoints
+Route::get('contact-journey-flow', [ContactJourneyFlowController::class, 'getContactJourneyFlow']);
+Route::get('contact-journey-flow/summary', [ContactJourneyFlowController::class, 'getJourneyFlowSummary']);
+Route::get('contact-journey-flow/{contactId}', [ContactJourneyFlowController::class, 'getContactJourneyFlowById'])->whereNumber('contactId');
+Route::get('contact-journey-flow/email/{email}', [ContactJourneyFlowController::class, 'getContactJourneyFlowByEmail']);
+
+// SEO - Enhanced Analytics & Google Search Console Integration
+Route::prefix('seo')->group(function () {
+    // ... (all your SEO routes)
+});
+
+// Social Media Management - Posts
+Route::prefix('social')->group(function () {
+    // ... (all your social media routes)
+});
+
+// Missing API endpoints
+Route::get('me', [UsersController::class, 'me']);
+Route::get('status', [DashboardController::class, 'status']);
 
 // Social Media Management - Posts
 // Route::prefix('social')->group(function () {

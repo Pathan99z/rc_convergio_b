@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Traits\HasTenantScope;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Contact extends Model
 {
@@ -85,6 +87,78 @@ class Contact extends Model
     public function team(): BelongsTo
     {
         return $this->belongsTo(Team::class);
+    }
+
+    /**
+     * Get the interactions for the contact.
+     */
+    public function interactions(): HasMany
+    {
+        return $this->hasMany(ContactInteraction::class);
+    }
+
+    /**
+     * Get the deals for the contact.
+     */
+    public function deals(): HasMany
+    {
+        return $this->hasMany(Deal::class);
+    }
+
+    /**
+     * Get the meetings for the contact.
+     */
+    public function meetings(): HasMany
+    {
+        return $this->hasMany(Meeting::class);
+    }
+
+    /**
+     * Get the tasks for the contact (polymorphic relationship).
+     */
+    public function tasks(): MorphMany
+    {
+        return $this->morphMany(Task::class, 'related');
+    }
+
+    /**
+     * Get the activities for the contact (polymorphic relationship).
+     */
+    public function activities(): MorphMany
+    {
+        return $this->morphMany(Activity::class, 'related');
+    }
+
+    /**
+     * Get the form submissions for the contact.
+     */
+    public function formSubmissions(): HasMany
+    {
+        return $this->hasMany(FormSubmission::class);
+    }
+
+    /**
+     * Get the campaign recipients for the contact.
+     */
+    public function campaignRecipients(): HasMany
+    {
+        return $this->hasMany(CampaignRecipient::class);
+    }
+
+    /**
+     * Get the event attendees for the contact.
+     */
+    public function eventAttendees(): HasMany
+    {
+        return $this->hasMany(EventAttendee::class);
+    }
+
+    /**
+     * Get the journey executions for the contact.
+     */
+    public function journeyExecutions(): HasMany
+    {
+        return $this->hasMany(JourneyExecution::class);
     }
 
     /**

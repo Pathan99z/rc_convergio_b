@@ -185,7 +185,7 @@ class LeadScoringEnhancementController extends Controller
     /**
      * Export contacts with lead scores.
      */
-    public function exportContacts(Request $request): JsonResponse
+    public function exportContacts(Request $request)
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
@@ -201,6 +201,19 @@ class LeadScoringEnhancementController extends Controller
         try {
             $result = $this->enhancementService->exportContactsWithScores($tenantId, $validated);
 
+            // If CSV format, return the file directly
+            if (($validated['format'] ?? 'csv') === 'csv') {
+                $filePath = storage_path('app/public/' . $result['file_path']);
+                
+                if (file_exists($filePath)) {
+                    return response()->download($filePath, $result['filename'], [
+                        'Content-Type' => 'text/csv',
+                        'Content-Disposition' => 'attachment; filename="' . $result['filename'] . '"'
+                    ]);
+                }
+            }
+
+            // For JSON format, return JSON response
             return response()->json([
                 'success' => true,
                 'message' => 'Contacts with lead scores exported successfully',
