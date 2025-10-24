@@ -14,13 +14,16 @@ class DashboardController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
+        $cacheKey = "dashboard_data_{$user->id}_" . md5(serialize($request->all()));
 
-        $data = [
-            'pipeline' => app(\App\Http\Controllers\Api\Dashboard\DealsController::class)->summary($request)->getData(true)['data'] ?? [],
-            'tasks' => app(\App\Http\Controllers\Api\Dashboard\TasksController::class)->today($request)->getData(true)['data'] ?? [],
-            'contacts' => app(\App\Http\Controllers\Api\Dashboard\ContactsController::class)->recent($request)->getData(true)['data'] ?? [],
-            'campaigns' => app(\App\Http\Controllers\Api\Dashboard\CampaignsController::class)->metrics($request)->getData(true)['data'] ?? [],
-        ];
+        $data = $this->cache->remember($cacheKey, 300, function () use ($request) {
+            return [
+                'pipeline' => app(\App\Http\Controllers\Api\Dashboard\DealsController::class)->summary($request)->getData(true)['data'] ?? [],
+                'tasks' => app(\App\Http\Controllers\Api\Dashboard\TasksController::class)->today($request)->getData(true)['data'] ?? [],
+                'contacts' => app(\App\Http\Controllers\Api\Dashboard\ContactsController::class)->recent($request)->getData(true)['data'] ?? [],
+                'campaigns' => app(\App\Http\Controllers\Api\Dashboard\CampaignsController::class)->metrics($request)->getData(true)['data'] ?? [],
+            ];
+        });
 
         return response()->json(['success' => true, 'data' => $data]);
     }

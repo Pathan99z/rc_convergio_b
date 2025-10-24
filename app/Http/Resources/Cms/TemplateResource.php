@@ -28,3 +28,5 @@ class TemplateResource extends JsonResource
         ];
     }
 }
+
+

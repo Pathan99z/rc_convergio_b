@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
 
@@ -84,6 +85,9 @@ class DealsController extends Controller
 
         $perPage = min((int) $request->query('per_page', 15), 100);
         
+        // Create cache key for this specific query
+        $cacheKey = "deals_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
         // Debug: Log the query and results
         Log::info('Deals API Debug', [
             'tenant_id' => $tenantId,
@@ -94,7 +98,9 @@ class DealsController extends Controller
             'total_deals_before_pagination' => $query->count(),
         ]);
         
-        $deals = $query->with(['pipeline', 'stage', 'owner', 'contact', 'company'])->paginate($perPage);
+        $deals = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['pipeline', 'stage', 'owner', 'contact', 'company'])->paginate($perPage);
+        });
         
         Log::info('Deals API Results', [
             'total_deals' => $deals->total(),

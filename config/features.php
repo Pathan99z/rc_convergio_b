@@ -14,3 +14,5 @@ return [
 
     'team_access_enabled' => env('TEAM_ACCESS_ENABLED', false),
 ];
+
+

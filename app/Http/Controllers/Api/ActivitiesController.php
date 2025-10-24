@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
 class ActivitiesController extends Controller
@@ -83,7 +84,13 @@ class ActivitiesController extends Controller
         $query->orderBy($mappedSort[0], $mappedSort[1]);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $activities = $query->with(['owner', 'related'])->paginate($perPage);
+        
+        // Create cache key for this specific query
+        $cacheKey = "activities_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        $activities = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['owner', 'related'])->paginate($perPage);
+        });
 
         // Log the query results for debugging
         Log::info('Activities index results:', [

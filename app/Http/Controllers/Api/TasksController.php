@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class TasksController extends Controller
 {
@@ -109,7 +110,13 @@ class TasksController extends Controller
         $query->orderBy($column, $direction);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $tasks = $query->with(['owner', 'assignee', 'related'])->paginate($perPage);
+        
+        // Create cache key for this specific query
+        $cacheKey = "tasks_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        $tasks = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['owner', 'assignee', 'related'])->paginate($perPage);
+        });
 
         // Debug logging (only in debug mode)
         if (config('app.debug')) {

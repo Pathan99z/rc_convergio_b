@@ -81,7 +81,13 @@ class ContactsController extends Controller
         $this->teamAccessService->applyTeamFilter($query);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $contacts = $query->paginate($perPage);
+        
+        // Create cache key for this specific query
+        $cacheKey = "contacts_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        $contacts = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->paginate($perPage);
+        });
 
         return response()->json([
             'data' => $contacts->items(),

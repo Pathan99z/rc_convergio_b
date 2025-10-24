@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class CompanyService
 {
@@ -66,7 +67,12 @@ class CompanyService
         // Apply team filtering if enabled
         $this->teamAccessService->applyTeamFilter($query);
 
-        return $query->paginate($perPage);
+        // Create cache key for this specific query
+        $cacheKey = "companies_list_{$filters['tenant_id']}_" . md5(serialize($filters)) . "_{$perPage}";
+        
+        return Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->paginate($perPage);
+        });
     }
 
     /**

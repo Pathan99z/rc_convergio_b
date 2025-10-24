@@ -9,6 +9,7 @@ use App\Models\Traits\HasTenantScope;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Facades\Cache;
 
 class Contact extends Model
 {
@@ -167,6 +168,30 @@ class Contact extends Model
     public function scopeForTenant($query, $tenantId)
     {
         return $query->where('tenant_id', $tenantId);
+    }
+
+    /**
+     * Get cached contact with relationships
+     */
+    public static function getCached($id)
+    {
+        return Cache::remember("contact_{$id}", 3600, function() use ($id) {
+            return static::with(['company', 'owner', 'tags'])->find($id);
+        });
+    }
+
+    /**
+     * Get cached contacts for tenant
+     */
+    public static function getCachedForTenant($tenantId, $limit = 50)
+    {
+        return Cache::remember("contacts_tenant_{$tenantId}_{$limit}", 1800, function() use ($tenantId, $limit) {
+            return static::where('tenant_id', $tenantId)
+                ->with(['company', 'owner'])
+                ->orderBy('created_at', 'desc')
+                ->limit($limit)
+                ->get();
+        });
     }
 }
 

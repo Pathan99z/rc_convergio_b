@@ -310,3 +310,5 @@ class LeadScoringAutoDetectionController extends Controller
         }
     }
 }
+
+

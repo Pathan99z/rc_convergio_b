@@ -69,6 +69,14 @@ Route::get('tracking/reports/{jobId}/download', [\App\Http\Controllers\Api\Async
 Route::post('ai/support-agent/message', [\App\Http\Controllers\Api\AI\SupportAgentController::class, 'message']);
 Route::post('ai/support-agent/article', [\App\Http\Controllers\Api\AI\SupportAgentController::class, 'processArticleRequest']);
 
+// Convergio Copilot endpoints (auth required - internal platform assistant)
+Route::middleware(['auth:sanctum'])->prefix('copilot')->group(function () {
+    Route::post('ask', [\App\Http\Controllers\Api\AI\ConvergioCopilotController::class, 'ask']);
+    Route::get('features', [\App\Http\Controllers\Api\AI\ConvergioCopilotController::class, 'features']);
+    Route::get('history', [\App\Http\Controllers\Api\AI\ConvergioCopilotController::class, 'history']);
+    Route::get('stats', [\App\Http\Controllers\Api\AI\ConvergioCopilotController::class, 'stats']);
+});
+
 // Public Survey endpoints (no auth required - uses tenant_id for isolation)
 Route::get('service/surveys/public', [\App\Http\Controllers\Api\Service\SurveyController::class, 'publicSurveys']);
 Route::post('service/surveys/{id}/submit', [\App\Http\Controllers\Api\Service\SurveyController::class, 'submitResponse']);

@@ -9,6 +9,7 @@ use App\Models\Traits\HasTenantScope;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Facades\Cache;
 
 class Deal extends Model
 {
@@ -277,5 +278,29 @@ class Deal extends Model
             ->groupBy('quote_type')
             ->pluck('total_revenue', 'quote_type')
             ->toArray();
+    }
+
+    /**
+     * Get cached deal with relationships
+     */
+    public static function getCached($id)
+    {
+        return Cache::remember("deal_{$id}", 3600, function() use ($id) {
+            return static::with(['pipeline', 'stage', 'owner', 'contact', 'company'])->find($id);
+        });
+    }
+
+    /**
+     * Get cached deals for tenant
+     */
+    public static function getCachedForTenant($tenantId, $limit = 50)
+    {
+        return Cache::remember("deals_tenant_{$tenantId}_{$limit}", 1800, function() use ($tenantId, $limit) {
+            return static::where('tenant_id', $tenantId)
+                ->with(['pipeline', 'stage', 'owner', 'contact', 'company'])
+                ->orderBy('created_at', 'desc')
+                ->limit($limit)
+                ->get();
+        });
     }
 }

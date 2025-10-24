@@ -8,6 +8,7 @@ use Spatie\Permission\Traits\HasRoles;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Cache;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
@@ -123,5 +124,29 @@ class User extends Authenticatable implements MustVerifyEmail
     public function listeningKeywords()
     {
         return $this->hasMany(\App\Models\ListeningKeyword::class);
+    }
+
+    /**
+     * Get cached user with roles and permissions
+     */
+    public static function getCached($id)
+    {
+        return Cache::remember("user_{$id}", 3600, function() use ($id) {
+            return static::with(['roles.permissions', 'team'])->find($id);
+        });
+    }
+
+    /**
+     * Get cached users for tenant
+     */
+    public static function getCachedForTenant($tenantId, $limit = 100)
+    {
+        return Cache::remember("users_tenant_{$tenantId}_{$limit}", 1800, function() use ($tenantId, $limit) {
+            return static::where('tenant_id', $tenantId)
+                ->with(['roles', 'team'])
+                ->orderBy('created_at', 'desc')
+                ->limit($limit)
+                ->get();
+        });
     }
 }

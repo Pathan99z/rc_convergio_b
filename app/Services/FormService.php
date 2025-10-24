@@ -89,17 +89,21 @@ class FormService
      */
     public function getFormWithSubmissions(Form $form): Form
     {
-        return $form->load([
-            'creator:id,name,email',
-            'submissions' => function ($query) {
-                $query->with([
-                        'contact:id,first_name,last_name,email',
-                        'company:id,name,domain'
-                    ])
-                      ->orderBy('created_at', 'desc')
-                      ->limit(10);
-            }
-        ])->loadCount('submissions');
+        $cacheKey = "form_with_submissions_{$form->id}";
+        
+        return Cache::remember($cacheKey, 300, function () use ($form) {
+            return $form->load([
+                'creator:id,name,email',
+                'submissions' => function ($query) {
+                    $query->with([
+                            'contact:id,first_name,last_name,email',
+                            'company:id,name,domain'
+                        ])
+                          ->orderBy('created_at', 'desc')
+                          ->limit(10);
+                }
+            ])->loadCount('submissions');
+        });
     }
 
     /**
