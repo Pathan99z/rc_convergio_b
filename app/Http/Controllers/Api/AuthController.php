@@ -8,6 +8,7 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Models\User;
+use App\Services\LicenseService;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\Verified;
@@ -22,6 +23,13 @@ use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
+    protected LicenseService $licenseService;
+
+    public function __construct(LicenseService $licenseService)
+    {
+        $this->licenseService = $licenseService;
+    }
+
     public function register(RegisterRequest $request): JsonResponse
     {
         $data = $request->validated();
@@ -91,13 +99,38 @@ class AuthController extends Controller
 
         RateLimiter::clear($key);
 
+        // Validate license if enabled
+        if ($this->licenseService->isLicenseCheckEnabled()) {
+            $licenseValidation = $this->licenseService->validateLicense($user);
+            
+            if (!$licenseValidation['valid']) {
+                return $this->error($this->getLicenseErrorMessage($licenseValidation['reason']), 403, [
+                    'license_invalid' => true,
+                    'license_reason' => $licenseValidation['reason'],
+                    'license_info' => $licenseValidation['license'] ? [
+                        'status' => $licenseValidation['license']->status,
+                        'expires_at' => $licenseValidation['license']->expires_at->toIso8601String(),
+                        'days_remaining' => $licenseValidation['license']->daysRemaining(),
+                    ] : null,
+                ]);
+            }
+        }
+
         [$plainTextToken, $expiresAt] = $this->createTokenWithExpiry($user, 'login');
 
-        return $this->success([
+        $responseData = [
             'access_token' => $plainTextToken,
             'expires_at' => $expiresAt?->toIso8601String(),
             'user' => $this->transformUser($user),
-        ]);
+        ];
+
+        // Include license information in response
+        $licenseInfo = $this->licenseService->getLicenseInfo($user);
+        if ($licenseInfo) {
+            $responseData['license'] = $licenseInfo;
+        }
+
+        return $this->success($responseData);
     }
 
     public function verifyEmail(Request $request): JsonResponse
@@ -243,6 +276,23 @@ class AuthController extends Controller
         $expiresAt = now()->addMinutes($minutes)->toImmutable();
         $token = $user->createToken($name, ['*'], $expiresAt);
         return [$token->plainTextToken, $token->accessToken->expires_at];
+    }
+
+    /**
+     * Get appropriate error message for license validation failure.
+     */
+    private function getLicenseErrorMessage(string $reason): string
+    {
+        switch ($reason) {
+            case 'No license found':
+                return 'Your account does not have a valid license. Please contact support.';
+            case 'License is inactive':
+                return 'Your license has been deactivated. Please contact support.';
+            case 'License has expired':
+                return 'Your license has expired. Please renew your subscription to continue using the service.';
+            default:
+                return 'License validation failed. Please contact support.';
+        }
     }
 
     private function success(array $data = [], int $status = 200): JsonResponse

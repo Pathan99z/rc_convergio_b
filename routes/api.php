@@ -87,7 +87,7 @@ Route::post('service/email/webhook/gmail', [\App\Http\Controllers\Api\Service\Em
 Route::get('service/email/webhook/test', [\App\Http\Controllers\Api\Service\EmailWebhookController::class, 'test']);
 Route::get('service/email/webhook/verify', [\App\Http\Controllers\Api\Service\EmailWebhookController::class, 'verify']);
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     // Aggregated dashboard
     Route::get('dashboard', [DashboardController::class, 'index']);
 

@@ -119,6 +119,30 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Get the license for this tenant.
+     */
+    public function license(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(License::class, 'tenant_id', 'id')->where('is_active', true);
+    }
+
+    /**
+     * Get the active license for this tenant (alternative method).
+     */
+    public function activeLicense(): ?License
+    {
+        return License::where('tenant_id', $this->id)->where('is_active', true)->first();
+    }
+
+    /**
+     * Get all licenses for this tenant.
+     */
+    public function licenses(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(License::class, 'tenant_id', 'id');
+    }
+
+    /**
      * Get the listening keywords for this user.
      */
     public function listeningKeywords()
