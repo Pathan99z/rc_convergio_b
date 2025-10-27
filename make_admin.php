@@ -8,8 +8,11 @@ $app->make('Illuminate\Contracts\Console\Kernel')->bootstrap();
 use Spatie\Permission\Models\Role;
 use App\Models\User;
 
-// Make user ID 1 an admin
-$user = User::find(1);
+// Get email from command line argument, or use default for this request
+$email = isset($argv[1]) ? $argv[1] : 'preranjathan2nd@gmail.com';
+
+// Find user by email
+$user = User::where('email', $email)->first();
 $role = Role::where('name', 'admin')->first();
 
 if ($user && $role) {
@@ -18,6 +21,6 @@ if ($user && $role) {
     echo "Email: {$user->email}\n";
 } else {
     echo "Error: User or admin role not found\n";
-    if (!$user) echo "User ID 1 not found\n";
+    if (!$user) echo "User with email {$email} not found\n";
     if (!$role) echo "Admin role not found\n";
 }
