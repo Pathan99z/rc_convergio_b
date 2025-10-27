@@ -78,7 +78,10 @@ class ContactsController extends Controller
         });
 
         // Apply team filtering if team access is enabled
-        $this->teamAccessService->applyTeamFilter($query);
+        // Admin users see all tenant data regardless of team settings
+        if (!$request->user()->hasRole('admin')) {
+            $this->teamAccessService->applyTeamFilter($query);
+        }
 
         $perPage = min((int) $request->query('per_page', 15), 100);
         

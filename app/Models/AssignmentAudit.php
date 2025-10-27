@@ -14,14 +14,14 @@ class AssignmentAudit extends Model
         'tenant_id',
         'record_type',
         'record_id',
-        'assigned_user_id',
+        'assigned_to',
         'rule_id',
         'assignment_type',
-        'context',
+        'details',
     ];
 
     protected $casts = [
-        'context' => 'array',
+        'details' => 'array',
     ];
 
     /**

@@ -143,13 +143,35 @@ class AssignmentRule extends Model
 
         switch ($operator) {
             case 'eq':
+                // Case-insensitive comparison for string fields to handle both 'Lead' and 'lead'
+                if (is_string($recordValue) && is_string($value)) {
+                    return strtolower($recordValue) === strtolower($value);
+                }
                 return $recordValue === $value;
             case 'ne':
+                // Case-insensitive comparison for string fields
+                if (is_string($recordValue) && is_string($value)) {
+                    return strtolower($recordValue) !== strtolower($value);
+                }
                 return $recordValue !== $value;
             case 'in':
-                return is_array($value) && in_array($recordValue, $value);
+                if (is_array($value)) {
+                    // Case-insensitive comparison for string arrays
+                    if (is_string($recordValue)) {
+                        return in_array(strtolower($recordValue), array_map('strtolower', $value));
+                    }
+                    return in_array($recordValue, $value);
+                }
+                return false;
             case 'not_in':
-                return is_array($value) && !in_array($recordValue, $value);
+                if (is_array($value)) {
+                    // Case-insensitive comparison for string arrays
+                    if (is_string($recordValue)) {
+                        return !in_array(strtolower($recordValue), array_map('strtolower', $value));
+                    }
+                    return !in_array($recordValue, $value);
+                }
+                return false;
             case 'contains':
                 return is_string($recordValue) && is_string($value) && str_contains($recordValue, $value);
             case 'exists':

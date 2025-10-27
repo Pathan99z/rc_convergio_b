@@ -45,9 +45,15 @@ class AssignmentService
         // Try to find a matching rule
         $assignedUserId = $this->evaluateRules($tenantId, $recordType, $recordData);
 
-        // If no rule matched, use default assignment
+        // Only use default assignment if there are active rules but none matched
+        // If no active rules exist at all, don't assign (keep original owner)
         if (!$assignedUserId) {
-            $assignedUserId = $this->getDefaultAssignment($tenantId, $defaults, $recordData);
+            $hasActiveRules = AssignmentRule::forTenant($tenantId)->active()->exists();
+            if ($hasActiveRules) {
+                // There are active rules but none matched, use default assignment
+                $assignedUserId = $this->getDefaultAssignment($tenantId, $defaults, $recordData);
+            }
+            // If no active rules exist, don't assign (return null)
         }
 
         // Log the assignment
@@ -206,10 +212,31 @@ class AssignmentService
         $cacheKey = "assignment_rules_{$tenantId}_{$recordType}";
         
         return Cache::remember($cacheKey, 300, function () use ($tenantId, $recordType) {
-            return AssignmentRule::forTenant($tenantId)
+            // Get all active rules for the tenant, then filter by record type in memory
+            // This is because some rules might not have record_type in their criteria
+            $allRules = AssignmentRule::forTenant($tenantId)
                 ->active()
                 ->byPriority()
                 ->get();
+            
+            // Filter rules that either:
+            // 1. Have record_type in criteria and it matches
+            // 2. Don't have record_type in criteria (legacy rules)
+            return $allRules->filter(function ($rule) use ($recordType) {
+                $criteria = $rule->criteria;
+                
+                // If rule has record_type in criteria, check if it matches
+                if (isset($criteria['all'])) {
+                    foreach ($criteria['all'] as $condition) {
+                        if (($condition['field'] ?? '') === 'record_type') {
+                            return ($condition['value'] ?? '') === $recordType;
+                        }
+                    }
+                }
+                
+                // If no record_type condition found, include the rule (legacy behavior)
+                return true;
+            });
         });
     }
 
