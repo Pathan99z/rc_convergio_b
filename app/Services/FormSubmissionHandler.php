@@ -63,6 +63,30 @@ class FormSubmissionHandler
                 $contactData
             );
 
+            // 7. Trigger lead scoring for contact creation (if new contact)
+            if ($contactResult['status'] === 'created') {
+                try {
+                    $leadScoringService = new \App\Services\LeadScoringService();
+                    $leadScoringService->processEvent([
+                        'event' => 'contact_created',
+                        'contact_id' => $contactResult['contact']->id,
+                        'tenant_id' => $contactResult['contact']->tenant_id,
+                        'created_at' => now()->toISOString()
+                    ], $contactResult['contact']->tenant_id);
+                    
+                    Log::info('Lead scoring triggered for form contact creation', [
+                        'contact_id' => $contactResult['contact']->id,
+                        'email' => $contactResult['contact']->email,
+                        'tenant_id' => $contactResult['contact']->tenant_id
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to trigger lead scoring for form contact creation', [
+                        'contact_id' => $contactResult['contact']->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
             // Ensure we link the existing submission (if passed) to company/contact
             if ($submission && $companyResult['company'] && empty($submission->company_id)) {
                 $submission->update(['company_id' => $companyResult['company']->id]);
@@ -299,6 +323,37 @@ class FormSubmissionHandler
         $contactData['tags'] = $this->getFormTags($form);
         
         $contact = Contact::create($contactData);
+        
+        // Run assignment logic (override approach - rules take priority)
+        try {
+            $originalOwnerId = $contact->owner_id;
+            $assignmentService = app(\App\Services\AssignmentService::class);
+            $assignedUserId = $assignmentService->assignOwnerForRecord($contact, 'contact', [
+                'tenant_id' => $form->tenant_id,
+                'created_by' => $form->created_by,
+                'source' => 'form_submission'
+            ]);
+
+            // If assignment rule found a match, apply assignment (owner_id and team_id)
+            if ($assignedUserId) {
+                $assignmentService->applyAssignmentToRecord($contact, $assignedUserId);
+                Log::info('Form submission contact assigned via assignment rules (override)', [
+                    'contact_id' => $contact->id,
+                    'form_id' => $form->id,
+                    'original_owner_id' => $originalOwnerId,
+                    'assigned_user_id' => $assignedUserId,
+                    'tenant_id' => $form->tenant_id,
+                    'override_type' => $originalOwnerId ? 'manual_override' : 'auto_assignment'
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to run assignment rules for form submission contact', [
+                'contact_id' => $contact->id,
+                'form_id' => $form->id,
+                'error' => $e->getMessage(),
+                'tenant_id' => $form->tenant_id
+            ]);
+        }
         
         return ['contact' => $contact, 'status' => 'created'];
     }

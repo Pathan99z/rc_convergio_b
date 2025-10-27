@@ -7,6 +7,7 @@ use App\Models\FormSubmission;
 use App\Models\Contact;
 use App\Models\Company;
 use App\Models\User;
+use App\Services\TeamAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -17,6 +18,10 @@ use Illuminate\Support\Str;
 
 class FormService
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
+
     /**
      * Get paginated forms with filters
      */
@@ -48,6 +53,9 @@ class FormService
         $sortBy = $filters['sortBy'] ?? 'created_at';
         $sortOrder = $filters['sortOrder'] ?? 'desc';
         $query->orderBy($sortBy, $sortOrder);
+
+        // ✅ FIX: Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         return $query->paginate($perPage);
     }
@@ -81,17 +89,21 @@ class FormService
      */
     public function getFormWithSubmissions(Form $form): Form
     {
-        return $form->load([
-            'creator:id,name,email',
-            'submissions' => function ($query) {
-                $query->with([
-                        'contact:id,first_name,last_name,email',
-                        'company:id,name,domain'
-                    ])
-                      ->orderBy('created_at', 'desc')
-                      ->limit(10);
-            }
-        ])->loadCount('submissions');
+        $cacheKey = "form_with_submissions_{$form->id}";
+        
+        return Cache::remember($cacheKey, 300, function () use ($form) {
+            return $form->load([
+                'creator:id,name,email',
+                'submissions' => function ($query) {
+                    $query->with([
+                            'contact:id,first_name,last_name,email',
+                            'company:id,name,domain'
+                        ])
+                          ->orderBy('created_at', 'desc')
+                          ->limit(10);
+                }
+            ])->loadCount('submissions');
+        });
     }
 
     /**

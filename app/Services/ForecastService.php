@@ -15,36 +15,37 @@ class ForecastService
     {
         $dateRange = $this->getDateRange($timeframe);
         
-        // Get deals within the timeframe
-        $deals = Deal::forTenant($tenantId)
-            ->where('status', 'open')
-            ->whereBetween('expected_close_date', [$dateRange['start'], $dateRange['end']])
-            ->whereNotNull('value')
-            ->whereNotNull('probability')
-            ->get();
+        // Get deals within the timeframe - Enhanced to handle missing data
+        $deals = $this->getForecastDeals($tenantId, $dateRange);
 
         $totalDeals = $deals->count();
         $projectedValue = $deals->sum('value');
         $probabilityWeighted = $deals->sum(function ($deal) {
-            return $deal->value * ($deal->probability / 100);
+            $probability = $deal->probability ?? $this->getDefaultProbability($deal);
+            return $deal->value * ($probability / 100);
         });
 
         // Calculate additional metrics
         $averageDealSize = $totalDeals > 0 ? $projectedValue / $totalDeals : 0;
-        $averageProbability = $totalDeals > 0 ? $deals->avg('probability') : 0;
+        $averageProbability = $totalDeals > 0 ? $deals->avg(function ($deal) {
+            return $deal->probability ?? $this->getDefaultProbability($deal);
+        }) : 0;
 
         // Group by stage for detailed breakdown
         $stageBreakdown = $deals->groupBy('stage_id')->map(function ($stageDeals) {
             $stageValue = $stageDeals->sum('value');
             $stageProbability = $stageDeals->sum(function ($deal) {
-                return $deal->value * ($deal->probability / 100);
+                $probability = $deal->probability ?? $this->getDefaultProbability($deal);
+                return $deal->value * ($probability / 100);
             });
             
             return [
                 'count' => $stageDeals->count(),
                 'total_value' => $stageValue,
                 'probability_weighted' => $stageProbability,
-                'average_probability' => $stageDeals->avg('probability'),
+                'average_probability' => $stageDeals->avg(function ($deal) {
+                    return $deal->probability ?? $this->getDefaultProbability($deal);
+                }),
             ];
         });
 
@@ -52,14 +53,17 @@ class ForecastService
         $ownerBreakdown = $deals->groupBy('owner_id')->map(function ($ownerDeals) {
             $ownerValue = $ownerDeals->sum('value');
             $ownerProbability = $ownerDeals->sum(function ($deal) {
-                return $deal->value * ($deal->probability / 100);
+                $probability = $deal->probability ?? $this->getDefaultProbability($deal);
+                return $deal->value * ($probability / 100);
             });
             
             return [
                 'count' => $ownerDeals->count(),
                 'total_value' => $ownerValue,
                 'probability_weighted' => $ownerProbability,
-                'average_probability' => $ownerDeals->avg('probability'),
+                'average_probability' => $ownerDeals->avg(function ($deal) {
+                    return $deal->probability ?? $this->getDefaultProbability($deal);
+                }),
             ];
         });
 
@@ -82,6 +86,49 @@ class ForecastService
             'owner_breakdown' => $ownerBreakdown,
             'generated_at' => now()->toISOString(),
         ];
+    }
+
+    /**
+     * Get deals for forecasting with enhanced data handling.
+     */
+    private function getForecastDeals(int $tenantId, array $dateRange)
+    {
+        // First try to get deals within the specific timeframe
+        $deals = Deal::forTenant($tenantId)
+            ->where('status', 'open')
+            ->whereNotNull('value')
+            ->get();
+
+        // Filter by expected_close_date if available
+        $timeframeDeals = $deals->filter(function ($deal) use ($dateRange) {
+            if (!$deal->expected_close_date) {
+                return true; // Include deals without close date
+            }
+            $closeDate = Carbon::parse($deal->expected_close_date);
+            return $closeDate->between($dateRange['start'], $dateRange['end']);
+        });
+
+        // If no deals in timeframe, use all deals
+        return $timeframeDeals->isNotEmpty() ? $timeframeDeals : $deals;
+    }
+
+    /**
+     * Get default probability based on deal stage or use 50% as fallback.
+     */
+    private function getDefaultProbability($deal): int
+    {
+        // If deal has probability, use it
+        if ($deal->probability) {
+            return $deal->probability;
+        }
+
+        // Try to get probability from stage
+        if ($deal->stage && $deal->stage->probability) {
+            return $deal->stage->probability;
+        }
+
+        // Default fallback
+        return 50;
     }
 
     /**
@@ -172,12 +219,8 @@ class ForecastService
             $start = $month->copy()->startOfMonth();
             $end = $month->copy()->endOfMonth();
 
-            $deals = Deal::forTenant($tenantId)
-                ->where('status', 'open')
-                ->whereBetween('expected_close_date', [$start, $end])
-                ->whereNotNull('value')
-                ->whereNotNull('probability')
-                ->get();
+            $dateRange = ['start' => $start, 'end' => $end];
+            $deals = $this->getForecastDeals($tenantId, $dateRange);
 
             $trends[] = [
                 'month' => $month->format('Y-m'),
@@ -185,7 +228,8 @@ class ForecastService
                 'total_deals' => $deals->count(),
                 'projected_value' => round($deals->sum('value'), 2),
                 'probability_weighted' => round($deals->sum(function ($deal) {
-                    return $deal->value * ($deal->probability / 100);
+                    $probability = $deal->probability ?? $this->getDefaultProbability($deal);
+                    return $deal->value * ($probability / 100);
                 }), 2),
             ];
         }
@@ -200,13 +244,23 @@ class ForecastService
     {
         $dateRange = $this->getDateRange($timeframe);
         
+        // Get deals with pipeline relationship
         $deals = Deal::forTenant($tenantId)
             ->with('pipeline')
             ->where('status', 'open')
-            ->whereBetween('expected_close_date', [$dateRange['start'], $dateRange['end']])
             ->whereNotNull('value')
-            ->whereNotNull('probability')
             ->get();
+
+        // Filter by timeframe if deals exist
+        $timeframeDeals = $deals->filter(function ($deal) use ($dateRange) {
+            if (!$deal->expected_close_date) {
+                return true; // Include deals without close date
+            }
+            $closeDate = Carbon::parse($deal->expected_close_date);
+            return $closeDate->between($dateRange['start'], $dateRange['end']);
+        });
+
+        $deals = $timeframeDeals->isNotEmpty() ? $timeframeDeals : $deals;
 
         $pipelineBreakdown = $deals->groupBy('pipeline_id')->map(function ($pipelineDeals, $pipelineId) {
             $pipeline = $pipelineDeals->first()->pipeline;
@@ -217,9 +271,12 @@ class ForecastService
                 'count' => $pipelineDeals->count(),
                 'total_value' => round($pipelineDeals->sum('value'), 2),
                 'probability_weighted' => round($pipelineDeals->sum(function ($deal) {
-                    return $deal->value * ($deal->probability / 100);
+                    $probability = $deal->probability ?? $this->getDefaultProbability($deal);
+                    return $deal->value * ($probability / 100);
                 }), 2),
-                'average_probability' => round($pipelineDeals->avg('probability'), 2),
+                'average_probability' => round($pipelineDeals->avg(function ($deal) {
+                    return $deal->probability ?? $this->getDefaultProbability($deal);
+                }), 2),
             ];
         });
 
@@ -252,7 +309,6 @@ class ForecastService
             $expectedDeals = Deal::forTenant($tenantId)
                 ->whereBetween('expected_close_date', [$start, $end])
                 ->whereNotNull('value')
-                ->whereNotNull('probability')
                 ->get();
 
             // Get deals that actually closed in this month
@@ -263,7 +319,8 @@ class ForecastService
                 ->get();
 
             $expectedValue = $expectedDeals->sum(function ($deal) {
-                return $deal->value * ($deal->probability / 100);
+                $probability = $deal->probability ?? $this->getDefaultProbability($deal);
+                return $deal->value * ($probability / 100);
             });
 
             $actualValue = $actualClosed->sum('value');

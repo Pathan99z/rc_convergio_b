@@ -8,15 +8,23 @@ use App\Http\Requests\Deals\UpdateDealRequest;
 use App\Http\Requests\Deals\MoveDealRequest;
 use App\Http\Resources\DealResource;
 use App\Models\Deal;
+use App\Services\AssignmentService;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
 
 class DealsController extends Controller
 {
+    public function __construct(
+        private AssignmentService $assignmentService,
+        private TeamAccessService $teamAccessService
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Deal::class);
@@ -36,8 +44,11 @@ class DealsController extends Controller
 
         $query = Deal::query()->where('tenant_id', $tenantId);
 
-        // Filter by owner_id to ensure users only see their own deals
+        // Apply owner-based filtering (deals are owner-specific)
         $query->where('owner_id', $userId);
+        
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         if ($ownerId = $request->query('owner_id')) {
             $query->where('owner_id', $ownerId);
@@ -74,6 +85,9 @@ class DealsController extends Controller
 
         $perPage = min((int) $request->query('per_page', 15), 100);
         
+        // Create cache key for this specific query
+        $cacheKey = "deals_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
         // Debug: Log the query and results
         Log::info('Deals API Debug', [
             'tenant_id' => $tenantId,
@@ -84,7 +98,9 @@ class DealsController extends Controller
             'total_deals_before_pagination' => $query->count(),
         ]);
         
-        $deals = $query->with(['pipeline', 'stage', 'owner', 'contact', 'company'])->paginate($perPage);
+        $deals = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['pipeline', 'stage', 'owner', 'contact', 'company'])->paginate($perPage);
+        });
         
         Log::info('Deals API Results', [
             'total_deals' => $deals->total(),
@@ -139,9 +155,37 @@ class DealsController extends Controller
 
         $data = $request->validated();
         $data['tenant_id'] = $tenantId;
-        $data['owner_id'] = $request->user()->id; // Set owner to current user
+        
+        // Only set owner_id if not already provided in the request
+        if (empty($data['owner_id'])) {
+            $data['owner_id'] = $request->user()->id; // Set owner to current user
+        }
 
         $deal = Deal::create($data);
+
+        // Run assignment logic if no owner is set or if we want to override
+        if (empty($deal->owner_id) || $request->boolean('run_assignment', false)) {
+            try {
+                $assignedUserId = $this->assignmentService->assignOwnerForRecord($deal, 'deal', [
+                    'tenant_id' => $tenantId,
+                    'created_by' => $request->user()->id
+                ]);
+
+                if ($assignedUserId && $assignedUserId !== $deal->owner_id) {
+                    $this->assignmentService->applyAssignmentToRecord($deal, $assignedUserId);
+                    Log::info('Deal assigned via assignment rules', [
+                        'deal_id' => $deal->id,
+                        'assigned_user_id' => $assignedUserId,
+                        'tenant_id' => $tenantId
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error('Failed to assign deal via assignment rules', [
+                    'deal_id' => $deal->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
 
         $response = [
             'data' => new DealResource($deal->load(['pipeline', 'stage', 'owner', 'contact', 'company'])),
@@ -180,8 +224,20 @@ class DealsController extends Controller
 
         $this->authorize('view', $deal);
 
+        // Get linked documents for this deal using the new relationship approach
+        $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
+            ->where('related_type', 'App\\Models\\Deal')
+            ->where('related_id', $id)
+            ->pluck('document_id');
+            
+        $documents = \App\Models\Document::where('tenant_id', $tenantId)
+            ->whereIn('id', $documentIds)
+            ->whereNull('deleted_at')
+            ->get();
+
         return response()->json([
             'data' => new DealResource($deal->load(['pipeline', 'stage', 'owner', 'contact', 'company'])),
+            'documents' => $documents,
         ]);
     }
 

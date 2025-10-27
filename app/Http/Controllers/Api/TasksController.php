@@ -7,13 +7,18 @@ use App\Http\Requests\Tasks\StoreTaskRequest;
 use App\Http\Requests\Tasks\UpdateTaskRequest;
 use App\Http\Resources\TaskResource;
 use App\Models\Task;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class TasksController extends Controller
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Task::class);
@@ -33,10 +38,13 @@ class TasksController extends Controller
 
         $query = Task::query()->where('tenant_id', $tenantId);
 
-        // Filter by owner_id or assigned_to to ensure users see relevant tasks
+        // Apply owner/assignee-based filtering (tasks are owner/assignee-specific)
         $query->where(function ($q) use ($userId) {
             $q->where('owner_id', $userId)->orWhere('assigned_to', $userId);
         });
+        
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
 
         // Search filter
         if ($search = $request->query('search')) {
@@ -102,7 +110,13 @@ class TasksController extends Controller
         $query->orderBy($column, $direction);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $tasks = $query->with(['owner', 'assignee', 'related'])->paginate($perPage);
+        
+        // Create cache key for this specific query
+        $cacheKey = "tasks_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        $tasks = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['owner', 'assignee', 'related'])->paginate($perPage);
+        });
 
         // Debug logging (only in debug mode)
         if (config('app.debug')) {
@@ -156,6 +170,14 @@ class TasksController extends Controller
         if (isset($data['assignee_id'])) {
             $data['assigned_to'] = $data['assignee_id'];
             unset($data['assignee_id']);
+        }
+        
+        // Ensure related_type and related_id are set to null if not provided
+        if (!isset($data['related_type'])) {
+            $data['related_type'] = null;
+        }
+        if (!isset($data['related_id'])) {
+            $data['related_id'] = null;
         }
 
         $task = Task::create($data);
@@ -215,6 +237,14 @@ class TasksController extends Controller
         if (isset($data['assignee_id'])) {
             $data['assigned_to'] = $data['assignee_id'];
             unset($data['assignee_id']);
+        }
+        
+        // Ensure related_type and related_id are set to null if not provided
+        if (!isset($data['related_type'])) {
+            $data['related_type'] = null;
+        }
+        if (!isset($data['related_id'])) {
+            $data['related_id'] = null;
         }
 
         $task->update($data);

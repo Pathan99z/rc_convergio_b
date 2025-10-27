@@ -4,9 +4,12 @@ namespace App\Policies;
 
 use App\Models\Activity;
 use App\Models\User;
+use App\Policies\Concerns\ChecksTenantAndTeam;
+use Illuminate\Auth\Access\HandlesAuthorization;
 
 class ActivityPolicy
 {
+    use HandlesAuthorization, ChecksTenantAndTeam;
     public function viewAny(User $user): bool
     {
         return true;
@@ -15,7 +18,12 @@ class ActivityPolicy
     public function view(User $user, Activity $activity): bool
     {
         // Allow users to view activities they own or if they have specific permissions
-        return $user->id === $activity->owner_id || $user->can('activities.view');
+        if ($user->id === $activity->owner_id || $user->can('activities.view')) {
+            return true;
+        }
+
+        // Additional team fallback check if team access is enabled
+        return $this->tenantAndTeamCheck($user, $activity);
     }
 
     public function create(User $user): bool
@@ -25,7 +33,13 @@ class ActivityPolicy
 
     public function update(User $user, Activity $activity): bool
     {
-        return true; // Allow all authenticated users to update activities
+        // Allow users to update activities they own or if they have specific permissions
+        if ($user->id === $activity->owner_id || $user->can('activities.update')) {
+            return true;
+        }
+
+        // Additional team fallback check if team access is enabled
+        return $this->tenantAndTeamCheck($user, $activity);
     }
 
     public function delete(User $user, Activity $activity): bool

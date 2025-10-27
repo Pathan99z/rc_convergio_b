@@ -31,6 +31,7 @@ class Company extends Model
         'email',
         'status',
         'source',
+        'team_id',
     ];
 
     protected $casts = [
@@ -74,6 +75,14 @@ class Company extends Model
     public function deals(): HasMany
     {
         return $this->hasMany(Deal::class);
+    }
+
+    /**
+     * Get the team that owns the company.
+     */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(Team::class);
     }
 
     /**

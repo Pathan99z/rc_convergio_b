@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -34,6 +35,13 @@ class AppServiceProvider extends ServiceProvider
             // Point to a frontend URL you control; for local testing we'll just use app.url
             return config('app.url')."/reset-password?token={$token}&email={$email}";
         });
+
+        // Define morph map for polymorphic relationships
+        Relation::morphMap([
+            'deal' => \App\Models\Deal::class,
+            'contact' => \App\Models\Contact::class,
+            'company' => \App\Models\Company::class,
+        ]);
 
         // Auto-start queue worker for campaign automation
         $this->startQueueWorkerIfNeeded();

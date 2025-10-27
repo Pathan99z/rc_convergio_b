@@ -8,6 +8,7 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Models\User;
+use App\Services\LicenseService;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\Verified;
@@ -22,6 +23,13 @@ use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
+    protected LicenseService $licenseService;
+
+    public function __construct(LicenseService $licenseService)
+    {
+        $this->licenseService = $licenseService;
+    }
+
     public function register(RegisterRequest $request): JsonResponse
     {
         $data = $request->validated();
@@ -33,6 +41,9 @@ class AuthController extends Controller
             'organization_name' => $data['organization_name'],
             'status' => 'active', // Automatically set status to active for public registrations
         ]);
+
+        // Set tenant_id to user's own ID for public registrations
+        $user->update(['tenant_id' => $user->id]);
 
         event(new Registered($user));
 
@@ -88,13 +99,38 @@ class AuthController extends Controller
 
         RateLimiter::clear($key);
 
+        // Validate license if enabled
+        if ($this->licenseService->isLicenseCheckEnabled()) {
+            $licenseValidation = $this->licenseService->validateLicense($user);
+            
+            if (!$licenseValidation['valid']) {
+                return $this->error($this->getLicenseErrorMessage($licenseValidation['reason']), 403, [
+                    'license_invalid' => true,
+                    'license_reason' => $licenseValidation['reason'],
+                    'license_info' => $licenseValidation['license'] ? [
+                        'status' => $licenseValidation['license']->status,
+                        'expires_at' => $licenseValidation['license']->expires_at->toIso8601String(),
+                        'days_remaining' => $licenseValidation['license']->daysRemaining(),
+                    ] : null,
+                ]);
+            }
+        }
+
         [$plainTextToken, $expiresAt] = $this->createTokenWithExpiry($user, 'login');
 
-        return $this->success([
+        $responseData = [
             'access_token' => $plainTextToken,
             'expires_at' => $expiresAt?->toIso8601String(),
             'user' => $this->transformUser($user),
-        ]);
+        ];
+
+        // Include license information in response
+        $licenseInfo = $this->licenseService->getLicenseInfo($user);
+        if ($licenseInfo) {
+            $responseData['license'] = $licenseInfo;
+        }
+
+        return $this->success($responseData);
     }
 
     public function verifyEmail(Request $request): JsonResponse
@@ -178,6 +214,39 @@ class AuthController extends Controller
         return $this->success(['message' => 'Verification link sent!']);
     }
 
+    /**
+     * Logout user and invalidate token
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        try {
+            // Revoke the token that was used to authenticate the current request
+            $request->user()->currentAccessToken()->delete();
+
+            return $this->success([
+                'message' => 'Successfully logged out'
+            ]);
+        } catch (\Exception $e) {
+            return $this->error('Failed to logout', 500);
+        }
+    }
+
+    /**
+     * Get authenticated user details
+     */
+    public function me(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            
+            return $this->success([
+                'user' => $this->transformUser($user)
+            ]);
+        } catch (\Exception $e) {
+            return $this->error('Failed to fetch user details', 500);
+        }
+    }
+
     private function transformUser(User $user): array
     {
         // Avoid relation load errors if Spatie tables are not present yet
@@ -207,6 +276,23 @@ class AuthController extends Controller
         $expiresAt = now()->addMinutes($minutes)->toImmutable();
         $token = $user->createToken($name, ['*'], $expiresAt);
         return [$token->plainTextToken, $token->accessToken->expires_at];
+    }
+
+    /**
+     * Get appropriate error message for license validation failure.
+     */
+    private function getLicenseErrorMessage(string $reason): string
+    {
+        switch ($reason) {
+            case 'No license found':
+                return 'Your account does not have a valid license. Please contact support.';
+            case 'License is inactive':
+                return 'Your license has been deactivated. Please contact support.';
+            case 'License has expired':
+                return 'Your license has expired. Please renew your subscription to continue using the service.';
+            default:
+                return 'License validation failed. Please contact support.';
+        }
     }
 
     private function success(array $data = [], int $status = 200): JsonResponse

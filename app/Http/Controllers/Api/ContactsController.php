@@ -8,6 +8,8 @@ use App\Http\Requests\Contacts\UpdateContactRequest;
 use App\Jobs\ImportContactsJob;
 use App\Models\Contact;
 use App\Services\CampaignAutomationService;
+use App\Services\AssignmentService;
+use App\Services\TeamAccessService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +23,9 @@ class ContactsController extends Controller
 {
     public function __construct(
         private CacheRepository $cache,
-        private CampaignAutomationService $automationService
+        private CampaignAutomationService $automationService,
+        private AssignmentService $assignmentService,
+        private TeamAccessService $teamAccessService
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -33,8 +37,9 @@ class ContactsController extends Controller
 
         $query = Contact::query();
 
-        // Filter by owner_id to ensure users only see their own contacts
-        $query->where('owner_id', $userId);
+        // Filter by tenant_id to ensure users only see contacts from their organization
+        // Note: Removed owner_id filter to allow users to see all contacts assigned by assignment rules
+        $query->where('tenant_id', $tenantId);
 
         if ($ownerId = $request->query('owner_id')) {
             $query->where('owner_id', $ownerId);
@@ -72,8 +77,17 @@ class ContactsController extends Controller
             });
         });
 
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
+
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $contacts = $query->paginate($perPage);
+        
+        // Create cache key for this specific query
+        $cacheKey = "contacts_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        $contacts = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->paginate($perPage);
+        });
 
         return response()->json([
             'data' => $contacts->items(),
@@ -114,6 +128,39 @@ class ContactsController extends Controller
 
         $contact = Contact::create($data);
 
+        // Always run assignment logic (override approach - rules take priority)
+        try {
+            $originalOwnerId = $contact->owner_id;
+            $assignedUserId = $this->assignmentService->assignOwnerForRecord($contact, 'contact', [
+                'tenant_id' => $tenantId,
+                'created_by' => $request->user()->id
+            ]);
+
+            // If assignment rule found a match, apply assignment (owner_id and team_id)
+            if ($assignedUserId) {
+                $this->assignmentService->applyAssignmentToRecord($contact, $assignedUserId);
+                Log::info('Contact assigned via assignment rules (override)', [
+                    'contact_id' => $contact->id,
+                    'original_owner_id' => $originalOwnerId,
+                    'assigned_user_id' => $assignedUserId,
+                    'tenant_id' => $tenantId,
+                    'override_type' => $originalOwnerId ? 'manual_override' : 'auto_assignment'
+                ]);
+            } else {
+                Log::info('No assignment rule matched, keeping original owner', [
+                    'contact_id' => $contact->id,
+                    'owner_id' => $originalOwnerId,
+                    'tenant_id' => $tenantId
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to run assignment rules for contact', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage(),
+                'tenant_id' => $tenantId
+            ]);
+        }
+
         // Trigger automation for contact creation
         try {
             $this->automationService->triggerContactCreated($contact->id, $data);
@@ -124,6 +171,28 @@ class ContactsController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to trigger contact creation automation', [
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        // Trigger lead scoring for contact creation
+        try {
+            $leadScoringService = new \App\Services\LeadScoringService();
+            $leadScoringService->processEvent([
+                'event' => 'contact_created',
+                'contact_id' => $contact->id,
+                'tenant_id' => $contact->tenant_id,
+                'created_at' => now()->toISOString()
+            ], $contact->tenant_id);
+            
+            Log::info('Lead scoring triggered for contact creation', [
+                'contact_id' => $contact->id,
+                'email' => $contact->email,
+                'tenant_id' => $contact->tenant_id
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to trigger lead scoring for contact creation', [
                 'contact_id' => $contact->id,
                 'error' => $e->getMessage()
             ]);
@@ -154,10 +223,28 @@ class ContactsController extends Controller
 
         $this->authorize('view', $contact);
 
+        // Get linked documents for this contact using the new relationship approach
+        $user = $request->user();
+        $tenantId = $user->tenant_id ?? $user->id;
+        
+        $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
+            ->where(function($query) {
+                $query->where('related_type', 'App\\Models\\Contact')
+                      ->orWhere('related_type', 'contact');
+            })
+            ->where('related_id', $id)
+            ->pluck('document_id');
+            
+        $documents = \App\Models\Document::where('tenant_id', $tenantId)
+            ->whereIn('id', $documentIds)
+            ->whereNull('deleted_at')
+            ->get();
+
         return response()->json([
             'success' => true,
             'data' => [
                 'contact' => $contact,
+                'documents' => $documents,
                 'timeline_summary' => [],
             ],
             'meta' => [ 'page' => 1, 'total' => 1 ],

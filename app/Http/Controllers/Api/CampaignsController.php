@@ -11,6 +11,7 @@ use App\Jobs\SendCampaignJob;
 use App\Models\Campaign;
 use App\Models\Contact;
 use App\Services\FeatureRestrictionService;
+use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +25,8 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 class CampaignsController extends Controller
 {
     public function __construct(
-        private FeatureRestrictionService $featureRestrictionService
+        private FeatureRestrictionService $featureRestrictionService,
+        private TeamAccessService $teamAccessService
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -46,8 +48,8 @@ class CampaignsController extends Controller
 
         $query = Campaign::query()->where('tenant_id', $tenantId);
 
-        // Filter by created_by to ensure users only see their own campaigns
-        $query->where('created_by', $userId);
+        // ✅ FIX: Apply team filtering instead of created_by filtering
+        $this->teamAccessService->applyTeamFilter($query);
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);

@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'feature.restrict' => \App\Http\Middleware\FeatureRestrictionMiddleware::class,
             'security.headers' => \App\Http\Middleware\SecurityHeadersMiddleware::class,
             'disable.tracking.dev' => \App\Http\Middleware\DisableTrackingInDev::class,
+            'license.check' => \App\Http\Middleware\CheckLicenseMiddleware::class,
         ]);
         
         // Apply security headers to all requests

@@ -120,19 +120,28 @@ class SendCampaignJob implements ShouldQueue
 
     private function sendEmail(CampaignRecipient $recipient): void
     {
-        // Implement email sending with your preferred provider
-        // Example with Laravel Mail:
-        
-        // Mail::to($recipient->email)
-        //     ->send(new CampaignEmail($this->campaign, $recipient));
+        try {
+            // Send email using Laravel Mail
+            Mail::raw($this->campaign->content, function ($message) use ($recipient) {
+                $message->to($recipient->email, $recipient->name)
+                        ->subject($this->campaign->subject)
+                        ->from(config('mail.from.address'), config('mail.from.name'));
+            });
 
-        // For now, just log the email would be sent
-        Log::info('Email would be sent', [
-            'recipient_id' => $recipient->id,
-            'email' => $recipient->email,
-            'campaign_id' => $this->campaign->id,
-            'subject' => $this->campaign->subject,
-        ]);
+            Log::info('Email sent successfully', [
+                'recipient_id' => $recipient->id,
+                'email' => $recipient->email,
+                'campaign_id' => $this->campaign->id,
+                'subject' => $this->campaign->subject,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to send email', [
+                'recipient_id' => $recipient->id,
+                'email' => $recipient->email,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
 
     /**

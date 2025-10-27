@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Traits\HasTenantScope;
 
 class Event extends Model
 {
-    use HasFactory;
+    use HasFactory, HasTenantScope;
 
     /**
      * The attributes that are mass assignable.
@@ -29,6 +30,7 @@ class Event extends Model
         'cancelled_at',
         'tenant_id',
         'created_by',
+        'team_id',
     ];
 
     /**

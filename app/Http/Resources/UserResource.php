@@ -20,6 +20,14 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'email_verified_at' => $this->email_verified_at?->toISOString(),
             'organization_name' => $this->organization_name,
+            'tenant_id' => $this->tenant_id, // ✅ ADD: Tenant ID for admin visibility
+            'team_id' => $this->team_id, // ✅ ADD: Team ID for team management
+            'team' => $this->whenLoaded('team', function () { // ✅ ADD: Team relationship
+                return [
+                    'id' => $this->team->id,
+                    'name' => $this->team->name,
+                ];
+            }),
             'status' => $this->status ?? 'active',
             'roles' => $this->whenLoaded('roles', function () {
                 return $this->roles->map(function ($role) {

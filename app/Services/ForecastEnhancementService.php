@@ -56,13 +56,14 @@ class ForecastEnhancementService
         $exportData = [
             'forecast_summary' => $forecast,
             'deals' => $deals->map(function ($deal) {
+                $probability = $deal->probability ?? ($deal->stage->probability ?? 50);
                 return [
                     'id' => $deal->id,
                     'title' => $deal->title,
                     'value' => $deal->value,
                     'currency' => $deal->currency,
                     'status' => $deal->status,
-                    'probability' => $deal->probability,
+                    'probability' => $probability,
                     'expected_close_date' => $deal->expected_close_date,
                     'stage_name' => $deal->stage->name ?? 'Unknown',
                     'contact_name' => $deal->contact->name ?? 'Unknown',
@@ -77,7 +78,8 @@ class ForecastEnhancementService
                 'total_deals' => $deals->count(),
                 'total_value' => $deals->sum('value'),
                 'weighted_value' => $deals->sum(function ($deal) {
-                    return $deal->value * ($deal->probability / 100);
+                    $probability = $deal->probability ?? ($deal->stage->probability ?? 50);
+                    return $deal->value * ($probability / 100);
                 }),
             ]
         ];
@@ -293,6 +295,31 @@ class ForecastEnhancementService
                 'poor' => $accuracy['accuracy'] < 70,
             ]
         ];
+    }
+
+    /**
+     * Get forecast data for export.
+     */
+    public function getForecastData(int $tenantId, array $filters = []): array
+    {
+        $timeframe = $filters['timeframe'] ?? 'monthly';
+        $includeTrends = $filters['include_trends'] ?? false;
+        $includePipelineBreakdown = $filters['include_pipeline_breakdown'] ?? false;
+
+        // Generate forecast data
+        $forecast = $this->forecastService->generateForecast($tenantId, $timeframe);
+
+        // Add trends if requested
+        if ($includeTrends) {
+            $forecast['trends'] = $this->forecastService->getForecastTrends($tenantId, 6);
+        }
+
+        // Add pipeline breakdown if requested
+        if ($includePipelineBreakdown) {
+            $forecast['pipeline_breakdown'] = $this->forecastService->getForecastByPipeline($tenantId, $timeframe);
+        }
+
+        return $forecast;
     }
 }
 

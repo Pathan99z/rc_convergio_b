@@ -27,6 +27,14 @@ class LeadScoringController extends Controller
     public function getRules(Request $request): JsonResponse
     {
         $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated',
+                'error' => 'User not authenticated'
+            ], 401);
+        }
+        
         $tenantId = $user->tenant_id;
 
         $query = LeadScoringRule::where('tenant_id', $tenantId);
@@ -64,6 +72,14 @@ class LeadScoringController extends Controller
     public function createRule(Request $request): JsonResponse
     {
         $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated',
+                'error' => 'User not authenticated'
+            ], 401);
+        }
+        
         $tenantId = $user->tenant_id;
 
         $validated = $request->validate([
@@ -253,6 +269,14 @@ class LeadScoringController extends Controller
     public function getStats(): JsonResponse
     {
         $user = Auth::user();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated',
+                'error' => 'User not authenticated'
+            ], 401);
+        }
+        
         $tenantId = $user->tenant_id;
 
         try {

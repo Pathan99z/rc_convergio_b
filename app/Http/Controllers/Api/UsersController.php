@@ -32,6 +32,30 @@ class UsersController extends Controller
     }
 
     /**
+     * Update current user profile.
+     */
+    public function updateProfile(Request $request): JsonResource
+    {
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|email|unique:users,email,' . $request->user()->id,
+            'organization_name' => 'sometimes|nullable|string|max:255',
+            'password' => 'sometimes|string|min:8|confirmed',
+        ]);
+
+        $user = $request->user();
+        $data = $request->only(['name', 'email', 'organization_name']);
+
+        if ($request->filled('password')) {
+            $data['password'] = bcrypt($request->password);
+        }
+
+        $user->update($data);
+
+        return new UserResource($user->fresh());
+    }
+
+    /**
      * Display a listing of users (Admin only).
      */
     public function index(Request $request): AnonymousResourceCollection
@@ -53,8 +77,63 @@ class UsersController extends Controller
         ];
 
         $users = $this->userService->getUsers($filters, $request->get('per_page', 15));
+        
+        // Load team relationship for each user
+        $users->getCollection()->load('team');
 
         return UserResource::collection($users);
+    }
+
+    /**
+     * Get users available for assignment (Team-aware).
+     * This endpoint provides users that can be assigned as owners for deals, tasks, etc.
+     */
+    public function forAssignment(Request $request): JsonResponse
+    {
+        $currentUser = $request->user();
+        $tenantId = $currentUser->tenant_id;
+        
+        $query = User::query()
+            ->where('tenant_id', $tenantId)
+            ->select('id', 'name', 'email', 'team_id')
+            ->with('team:id,name')
+            ->orderBy('name');
+        
+        // Apply team filtering based on user role and team access
+        if (config('features.team_access_enabled')) {
+            if ($currentUser->hasRole('admin')) {
+                // Admin can see all users in tenant
+                // No additional filtering needed
+            } else {
+                // Team members can only see:
+                // 1. Themselves
+                // 2. Other members of their team
+                // 3. Users with no team assignment
+                $query->where(function ($q) use ($currentUser) {
+                    $q->where('id', $currentUser->id)  // Themselves
+                      ->orWhere('team_id', $currentUser->team_id)  // Same team
+                      ->orWhereNull('team_id');  // No team assignment
+                });
+            }
+        }
+        
+        $users = $query->get();
+        
+        return response()->json([
+            'success' => true,
+            'data' => $users->map(function ($user) {
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'team_id' => $user->team_id,
+                    'team' => $user->team ? [
+                        'id' => $user->team->id,
+                        'name' => $user->team->name,
+                    ] : null,
+                ];
+            })
+        ]);
     }
 
     /**

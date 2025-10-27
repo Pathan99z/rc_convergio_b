@@ -14,8 +14,8 @@ class ContactPolicy
 
     public function view(User $user, Contact $contact): bool
     {
-        // Allow users to view contacts they own or if they have specific permissions
-        return $user->id === $contact->owner_id || $user->can('contacts.view');
+        // Allow users to view contacts within their tenant (including contacts assigned by assignment rules)
+        return $user->tenant_id === $contact->tenant_id;
     }
 
     public function create(User $user): bool
@@ -25,14 +25,14 @@ class ContactPolicy
 
     public function update(User $user, Contact $contact): bool
     {
-        // Allow users to update contacts they own or if they have specific permissions
-        return $user->id === $contact->owner_id || $user->can('contacts.update');
+        // Allow users to update contacts within their tenant (including contacts assigned by assignment rules)
+        return $user->tenant_id === $contact->tenant_id;
     }
 
     public function delete(User $user, Contact $contact): bool
     {
-        // Allow users to delete contacts they own or if they have specific permissions
-        return $user->id === $contact->owner_id || $user->can('contacts.delete');
+        // Allow users to delete contacts within their tenant (including contacts assigned by assignment rules)
+        return $user->tenant_id === $contact->tenant_id;
     }
 }
 

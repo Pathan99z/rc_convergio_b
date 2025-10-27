@@ -4,12 +4,19 @@ namespace App\Services;
 
 use App\Models\Company;
 use App\Models\Contact;
+use App\Services\TeamAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class CompanyService
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
+
     /**
      * Get paginated companies with filters
      */
@@ -27,7 +34,7 @@ class CompanyService
         // Handle search query
         if (!empty($filters['q'])) {
             $searchTerm = $filters['q'];
-            \Log::info('Searching for companies with term: ' . $searchTerm);
+            Log::info('Searching for companies with term: ' . $searchTerm);
             
             $query->where(function($q) use ($searchTerm) {
                 // Primary search on company name (exact match first, then partial)
@@ -37,7 +44,7 @@ class CompanyService
                   ->orWhere('website', 'like', '%' . $searchTerm . '%'); // Website contains
             });
             
-            \Log::info('Search query built, will execute with filters: ' . json_encode($filters));
+            Log::info('Search query built, will execute with filters: ' . json_encode($filters));
         }
 
         if (!empty($filters['industry'])) {
@@ -57,7 +64,15 @@ class CompanyService
         $sortOrder = $filters['sortOrder'] ?? 'desc';
         $query->orderBy($sortBy, $sortOrder);
 
-        return $query->paginate($perPage);
+        // Apply team filtering if enabled
+        $this->teamAccessService->applyTeamFilter($query);
+
+        // Create cache key for this specific query
+        $cacheKey = "companies_list_{$filters['tenant_id']}_" . md5(serialize($filters)) . "_{$perPage}";
+        
+        return Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->paginate($perPage);
+        });
     }
 
     /**

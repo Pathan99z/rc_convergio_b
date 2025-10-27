@@ -305,7 +305,7 @@ class LeadScoringEnhancementService
     /**
      * Export contacts with lead scores.
      */
-    public function exportContactsWithScores(int $tenantId, array $filters = []): array
+public function exportContactsWithScores(int $tenantId, array $filters = []): array
     {
         $query = Contact::where('tenant_id', $tenantId);
 
@@ -328,7 +328,7 @@ class LeadScoringEnhancementService
 
         $contacts = $query->orderBy('lead_score', 'desc')->get();
 
-        $format = $filters['format'] ?? 'json';
+        $format = $filters['format'] ?? 'csv';
         $filename = 'contacts_with_scores_export_' . now()->format('Y-m-d_H-i-s') . '.' . $format;
 
         // Generate export data
@@ -346,9 +346,17 @@ class LeadScoringEnhancementService
             ];
         });
 
-        // Store file temporarily
+        // Store file with proper format
         $filePath = 'exports/' . $filename;
-        Storage::put($filePath, json_encode($exportData, JSON_PRETTY_PRINT));
+        
+        if ($format === 'csv') {
+            // Generate proper CSV content
+            $csvContent = $this->generateCsvContent($exportData);
+            Storage::disk('public')->put($filePath, $csvContent);
+        } else {
+            // For JSON format, keep the existing logic
+            Storage::disk('public')->put($filePath, json_encode($exportData, JSON_PRETTY_PRINT));
+        }
 
         return [
             'filename' => $filename,
@@ -357,5 +365,36 @@ class LeadScoringEnhancementService
             'total_contacts' => $contacts->count(),
             'format' => $format,
         ];
+    }
+
+    /**
+     * Generate CSV content from export data.
+     */
+    private function generateCsvContent($data): string
+    {
+        if ($data->isEmpty()) {
+            return '';
+        }
+
+        // Get headers from first item
+        $headers = array_keys($data->first());
+        
+        // Start output buffer
+        $output = fopen('php://temp', 'r+');
+        
+        // Write headers
+        fputcsv($output, $headers);
+        
+        // Write data rows
+        foreach ($data as $row) {
+            fputcsv($output, $row);
+        }
+        
+        // Get content
+        rewind($output);
+        $content = stream_get_contents($output);
+        fclose($output);
+        
+        return $content;
     }
 }

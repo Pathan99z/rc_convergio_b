@@ -74,7 +74,6 @@ class SendCampaignEmails implements ShouldQueue
                             'sent_at' => $now,
                             'delivered_at' => $now,
                             'bounced_at' => null,
-                            'error_message' => null,
                             'updated_at' => $now,
                         ]);
                         $sent++;
@@ -83,7 +82,6 @@ class SendCampaignEmails implements ShouldQueue
                         DB::table('campaign_recipients')->where('id', $row->id)->update([
                             'status' => 'bounced',
                             'bounced_at' => $now,
-                            'error_message' => $e->getMessage(),
                             'updated_at' => $now,
                         ]);
                         $bounced++;

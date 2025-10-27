@@ -9,17 +9,20 @@ use App\Http\Resources\CompanyResource;
 use App\Jobs\ImportCompaniesJob;
 use App\Models\Company;
 use App\Services\CompanyService;
+use App\Services\TeamAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class CompaniesController extends Controller
 {
     public function __construct(
-        private CompanyService $companyService
+        private CompanyService $companyService,
+        private TeamAccessService $teamAccessService
     ) {}
 
     /**
@@ -125,26 +128,52 @@ class CompaniesController extends Controller
     /**
      * Display the specified company.
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, $id): JsonResponse
     {
-        $company = Company::findOrFail($id);
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Company not found');
+        }
+        
+        $company = Company::findOrFail((int) $id);
         
         $this->authorize('view', $company);
 
         $company->load(['owner:id,name,email', 'contacts']);
 
+        // Get linked documents for this company
+        $user = $request->user();
+        $tenantId = $user ? ($user->tenant_id ?? $user->id) : 1;
+        
+        // Get linked documents for this company using the new relationship approach
+        $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
+            ->where('related_type', 'App\\Models\\Company')
+            ->where('related_id', $id)
+            ->pluck('document_id');
+            
+        $documents = \App\Models\Document::where('tenant_id', $tenantId)
+            ->whereIn('id', $documentIds)
+            ->whereNull('deleted_at')
+            ->get();
+
         return response()->json([
             'success' => true,
-            'data' => new CompanyResource($company)
+            'data' => new CompanyResource($company),
+            'documents' => $documents
         ]);
     }
 
     /**
      * Update the specified company.
      */
-    public function update(UpdateCompanyRequest $request, int $id): JsonResponse
+    public function update(UpdateCompanyRequest $request, $id): JsonResponse
     {
-        $company = Company::findOrFail($id);
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Company not found');
+        }
+        
+        $company = Company::findOrFail((int) $id);
         $this->authorize('update', $company);
 
         $data = $request->validated();
@@ -161,9 +190,14 @@ class CompaniesController extends Controller
     /**
      * Remove the specified company (soft delete).
      */
-    public function destroy(int $id): JsonResponse
+    public function destroy($id): JsonResponse
     {
-        $company = Company::findOrFail($id);
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Company not found');
+        }
+        
+        $company = Company::findOrFail((int) $id);
         $this->authorize('delete', $company);
 
         $this->companyService->deleteCompany($company);
@@ -201,10 +235,15 @@ class CompaniesController extends Controller
     /**
      * Restore a deleted company.
      */
-    public function restore(Request $request, int $id): JsonResponse
+    public function restore(Request $request, $id): JsonResponse
     {
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Company not found');
+        }
+        
         // Find the company first (including soft deleted ones)
-        $company = Company::withTrashed()->findOrFail($id);
+        $company = Company::withTrashed()->findOrFail((int) $id);
         $this->authorize('restore', $company);
 
         $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
@@ -227,9 +266,14 @@ class CompaniesController extends Controller
     /**
      * Attach contacts to a company.
      */
-    public function attachContacts(Request $request, int $id): JsonResponse
+    public function attachContacts(Request $request, $id): JsonResponse
     {
-        $company = Company::findOrFail($id);
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Company not found');
+        }
+        
+        $company = Company::findOrFail((int) $id);
         $this->authorize('update', $company);
 
         $request->validate([
@@ -249,9 +293,14 @@ class CompaniesController extends Controller
     /**
      * Detach a contact from a company.
      */
-    public function detachContact(Request $request, int $id, int $contactId): JsonResponse
+    public function detachContact(Request $request, $id, $contactId): JsonResponse
     {
-        $company = Company::findOrFail($id);
+        // Validate that IDs are valid integers
+        if (!is_numeric($id) || $id <= 0 || !is_numeric($contactId) || $contactId <= 0) {
+            abort(404, 'Company or contact not found');
+        }
+        
+        $company = Company::findOrFail((int) $id);
         $this->authorize('update', $company);
 
         $detached = $this->companyService->detachContact($company, $contactId);
@@ -301,9 +350,14 @@ class CompaniesController extends Controller
     /**
      * Get company activity log (placeholder).
      */
-    public function activityLog(int $id): JsonResponse
+    public function activityLog($id): JsonResponse
     {
-        $company = Company::findOrFail($id);
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Company not found');
+        }
+        
+        $company = Company::findOrFail((int) $id);
         $this->authorize('view', $company);
 
         // Placeholder for activity log - would integrate with a logging system
@@ -539,9 +593,14 @@ class CompaniesController extends Controller
     /**
      * Get contacts associated with a company.
      */
-    public function getCompanyContacts(int $id): JsonResponse
+    public function getCompanyContacts($id): JsonResponse
     {
-        $company = Company::findOrFail($id);
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Company not found');
+        }
+        
+        $company = Company::findOrFail((int) $id);
         $this->authorize('view', $company);
 
         $contacts = $company->contacts()->with(['owner:id,name,email'])->get();
@@ -555,9 +614,14 @@ class CompaniesController extends Controller
     /**
      * Get deals associated with a company.
      */
-    public function getDeals(Request $request, int $id): JsonResponse
+    public function getDeals(Request $request, $id): JsonResponse
     {
-        $company = Company::findOrFail($id);
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Company not found');
+        }
+        
+        $company = Company::findOrFail((int) $id);
         $this->authorize('view', $company);
 
         // Apply filters

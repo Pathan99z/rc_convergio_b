@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\Traits\HasTenantScope;
 
 class Form extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, HasTenantScope;
 
     protected $fillable = [
         'name',
@@ -23,6 +24,7 @@ class Form extends Model
         'cancelled_at',
         'created_by',
         'tenant_id',
+        'team_id',
     ];
 
     protected $casts = [

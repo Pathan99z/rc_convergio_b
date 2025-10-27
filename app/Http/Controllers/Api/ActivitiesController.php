@@ -7,15 +7,20 @@ use App\Http\Requests\Activities\StoreActivityRequest;
 use App\Http\Requests\Activities\UpdateActivityRequest;
 use App\Http\Resources\ActivityResource;
 use App\Models\Activity;
+use App\Services\TeamAccessService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
 class ActivitiesController extends Controller
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Activity::class);
@@ -33,13 +38,15 @@ class ActivitiesController extends Controller
 
         $query = Activity::query()->where('tenant_id', $tenantId);
 
-        // Filter by owner_id to ensure users only see their own activities
-        // Only override if explicitly requested (for admin functionality)
+        // Apply owner-based filtering (activities are owner-specific)
         if ($ownerId = $request->query('owner_id')) {
             $query->where('owner_id', $ownerId);
         } else {
             $query->where('owner_id', $userId);
         }
+        
+        // Apply team filtering if team access is enabled
+        $this->teamAccessService->applyTeamFilter($query);
         if ($type = $request->query('type')) {
             $query->where('type', $type);
         }
@@ -77,7 +84,13 @@ class ActivitiesController extends Controller
         $query->orderBy($mappedSort[0], $mappedSort[1]);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $activities = $query->with(['owner', 'related'])->paginate($perPage);
+        
+        // Create cache key for this specific query
+        $cacheKey = "activities_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        $activities = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['owner', 'related'])->paginate($perPage);
+        });
 
         // Log the query results for debugging
         Log::info('Activities index results:', [

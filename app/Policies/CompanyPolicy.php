@@ -4,11 +4,12 @@ namespace App\Policies;
 
 use App\Models\Company;
 use App\Models\User;
+use App\Policies\Concerns\ChecksTenantAndTeam;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
 class CompanyPolicy
 {
-    use HandlesAuthorization;
+    use HandlesAuthorization, ChecksTenantAndTeam;
 
     /**
      * Determine whether the user can view any models.
@@ -23,9 +24,7 @@ class CompanyPolicy
      */
     public function view(User $user, Company $company): bool
     {
-        // For testing, allow all authenticated users to view companies
-        // In production, implement proper tenant-based access control
-        return true;
+        return $this->tenantAndTeamCheck($user, $company);
     }
 
     /**
@@ -41,8 +40,7 @@ class CompanyPolicy
      */
     public function update(User $user, Company $company): bool
     {
-        // For testing, allow all authenticated users to update companies
-        return true;
+        return $this->tenantAndTeamCheck($user, $company);
     }
 
     /**
@@ -50,8 +48,7 @@ class CompanyPolicy
      */
     public function delete(User $user, Company $company): bool
     {
-        // For testing, allow all authenticated users to delete companies
-        return true;
+        return $this->tenantAndTeamCheck($user, $company);
     }
 
     /**
@@ -59,8 +56,7 @@ class CompanyPolicy
      */
     public function restore(User $user, Company $company): bool
     {
-        // For testing, allow all authenticated users to restore companies
-        return true;
+        return $this->tenantAndTeamCheck($user, $company);
     }
 
     /**
@@ -68,7 +64,6 @@ class CompanyPolicy
      */
     public function forceDelete(User $user, Company $company): bool
     {
-        // For testing, allow all authenticated users to permanently delete companies
-        return true;
+        return $this->tenantAndTeamCheck($user, $company);
     }
 }

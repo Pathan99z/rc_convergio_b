@@ -12,11 +12,15 @@ use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\VisitorIntent;
 use App\Models\LeadScoringRule;
+use App\Services\TeamAccessService;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class AnalyticsService
 {
+    public function __construct(
+        private TeamAccessService $teamAccessService
+    ) {}
     /**
      * Get date range based on period.
      */
@@ -107,24 +111,31 @@ class AnalyticsService
         $dateRange = $this->getDateRange($period);
         
         // Total should be filtered by the selected period
-        $total = Contact::forTenant($tenantId)
-            ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-            ->count();
+        $totalQuery = Contact::forTenant($tenantId)
+            ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']]);
+        $this->teamAccessService->applyTeamFilter($totalQuery);
+        $total = $totalQuery->count();
             
-        $thisPeriod = Contact::forTenant($tenantId)
-            ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-            ->count();
+        $thisPeriodQuery = Contact::forTenant($tenantId)
+            ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']]);
+        $this->teamAccessService->applyTeamFilter($thisPeriodQuery);
+        $thisPeriod = $thisPeriodQuery->count();
         
-        $lastPeriod = Contact::forTenant($tenantId)
-            ->whereBetween('created_at', [$dateRange['previous_start'], $dateRange['previous_end']])
-            ->count();
+        $lastPeriodQuery = Contact::forTenant($tenantId)
+            ->whereBetween('created_at', [$dateRange['previous_start'], $dateRange['previous_end']]);
+        $this->teamAccessService->applyTeamFilter($lastPeriodQuery);
+        $lastPeriod = $lastPeriodQuery->count();
         
         // For high score and avg score, we still use all-time data as these are attributes, not time-based
-        $highScore = Contact::forTenant($tenantId)
-            ->where('lead_score', '>=', 80)
+        $highScoreQuery = Contact::forTenant($tenantId)
+            ->where('lead_score', '>=', 80);
+        $this->teamAccessService->applyTeamFilter($highScoreQuery);
+        $highScore = $highScoreQuery
             ->count();
         
-        $avgScore = Contact::forTenant($tenantId)->avg('lead_score') ?? 0;
+        $avgScoreQuery = Contact::forTenant($tenantId);
+        $this->teamAccessService->applyTeamFilter($avgScoreQuery);
+        $avgScore = $avgScoreQuery->avg('lead_score') ?? 0;
         
         return [
             'total' => $total,
@@ -144,17 +155,20 @@ class AnalyticsService
         $dateRange = $this->getDateRange($period);
         
         // Total should be filtered by the selected period
-        $total = Company::forTenant($tenantId)
-            ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-            ->count();
+        $totalQuery = Company::forTenant($tenantId)
+            ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']]);
+        $this->teamAccessService->applyTeamFilter($totalQuery);
+        $total = $totalQuery->count();
             
-        $thisPeriod = Company::forTenant($tenantId)
-            ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']])
-            ->count();
+        $thisPeriodQuery = Company::forTenant($tenantId)
+            ->whereBetween('created_at', [$dateRange['start'], $dateRange['end']]);
+        $this->teamAccessService->applyTeamFilter($thisPeriodQuery);
+        $thisPeriod = $thisPeriodQuery->count();
         
-        $lastPeriod = Company::forTenant($tenantId)
-            ->whereBetween('created_at', [$dateRange['previous_start'], $dateRange['previous_end']])
-            ->count();
+        $lastPeriodQuery = Company::forTenant($tenantId)
+            ->whereBetween('created_at', [$dateRange['previous_start'], $dateRange['previous_end']]);
+        $this->teamAccessService->applyTeamFilter($lastPeriodQuery);
+        $lastPeriod = $lastPeriodQuery->count();
         
         return [
             'total' => $total,
@@ -420,9 +434,11 @@ class AnalyticsService
      */
     public function getTopCampaigns(int $tenantId, int $limit = 5): array
     {
-        return Campaign::forTenant($tenantId)
+        $query = Campaign::forTenant($tenantId)
             ->withCount('recipients')
-            ->orderBy('recipients_count', 'desc')
+            ->orderBy('recipients_count', 'desc');
+        $this->teamAccessService->applyTeamFilter($query);
+        return $query
             ->limit($limit)
             ->get()
             ->map(function ($campaign) {
@@ -441,7 +457,9 @@ class AnalyticsService
      */
     public function getRecentActivities(int $tenantId, int $limit = 10): array
     {
-        return Activity::forTenant($tenantId)
+        $query = Activity::forTenant($tenantId);
+        $this->teamAccessService->applyTeamFilter($query);
+        return $query
             ->with(['contact', 'company'])
             ->orderBy('created_at', 'desc')
             ->limit($limit)
@@ -642,7 +660,9 @@ class AnalyticsService
      */
     public function getForecastAnalytics(int $tenantId): array
     {
-        $deals = Deal::forTenant($tenantId)->where('status', 'active')->get();
+        $dealsQuery = Deal::forTenant($tenantId)->where('status', 'active');
+        $this->teamAccessService->applyTeamFilter($dealsQuery);
+        $deals = $dealsQuery->get();
         
         $totalValue = $deals->sum('value');
         $weightedValue = $deals->sum(function ($deal) {
@@ -650,16 +670,19 @@ class AnalyticsService
             return ($deal->value * $probability) / 100;
         });
         
-        $thisMonth = Deal::forTenant($tenantId)
+        $thisMonthQuery = Deal::forTenant($tenantId)
             ->where('status', 'active')
             ->whereMonth('expected_close_date', now()->month)
-            ->whereYear('expected_close_date', now()->year)
-            ->sum('value');
+            ->whereYear('expected_close_date', now()->year);
+        $this->teamAccessService->applyTeamFilter($thisMonthQuery);
+        $thisMonth = $thisMonthQuery->sum('value');
             
-        $nextMonth = Deal::forTenant($tenantId)
+        $nextMonthQuery = Deal::forTenant($tenantId)
             ->where('status', 'active')
             ->whereMonth('expected_close_date', now()->addMonth()->month)
-            ->whereYear('expected_close_date', now()->addMonth()->year)
+            ->whereYear('expected_close_date', now()->addMonth()->year);
+        $this->teamAccessService->applyTeamFilter($nextMonthQuery);
+        $nextMonth = $nextMonthQuery
             ->sum('value');
         
         return [
