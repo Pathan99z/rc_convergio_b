@@ -106,7 +106,7 @@ class DealsController extends Controller
             'total_deals_before_pagination' => $query->count(),
         ]);
         
-        $deals = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+        $deals = Cache::remember($cacheKey, 30, function () use ($query, $perPage) {
             return $query->with(['pipeline', 'stage', 'owner', 'contact', 'company'])->paginate($perPage);
         });
         
@@ -200,6 +200,9 @@ class DealsController extends Controller
                 'tenant_id' => $tenantId
             ]);
         }
+
+        // Clear deals cache to ensure immediate visibility of new deal
+        $this->clearDealsCache($tenantId, $user->id);
 
         $response = [
             'data' => new DealResource($deal->load(['pipeline', 'stage', 'owner', 'contact', 'company'])),
@@ -507,5 +510,50 @@ class DealsController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * Clear deals cache for immediate data visibility.
+     */
+    private function clearDealsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear deals list cache patterns
+            $cachePatterns = [
+                "deals_list_{$tenantId}_{$userId}_*",
+                "deals_summary_{$tenantId}_{$userId}_*",
+            ];
+
+            // Since Laravel doesn't support wildcard cache clearing by default,
+            // we'll clear the most common cache keys
+            $commonParams = [
+                '', // No additional params
+                md5(serialize(['sort' => '-created_at', 'page' => 1, 'per_page' => 15])),
+                md5(serialize(['sort' => '-updated_at', 'page' => 1, 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                $cacheKey = "deals_list_{$tenantId}_{$userId}_" . $params;
+                Cache::forget($cacheKey);
+            }
+
+            // Clear summary cache
+            Cache::forget("deals_summary_{$tenantId}_{$userId}_7d");
+            Cache::forget("deals_summary_{$tenantId}_{$userId}_30d");
+            Cache::forget("deals_summary_{$tenantId}_{$userId}_90d");
+
+            Log::info('Deals cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) + 3
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear deals cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }
