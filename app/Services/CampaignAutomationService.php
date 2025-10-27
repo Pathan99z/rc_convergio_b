@@ -68,31 +68,38 @@ class CampaignAutomationService
             Log::info('Processing automation immediately', [
                 'automation_id' => $automation->id,
                 'campaign_id' => $automation->campaign_id,
+                'template_id' => $automation->template_id,
+                'content_type' => $automation->content_type,
                 'contact_id' => $contactId,
                 'trigger_event' => $automation->trigger_event,
                 'action' => $automation->action
             ]);
 
-            // Get the campaign and contact
-            $campaign = \App\Models\Campaign::find($automation->campaign_id);
+            // Get the contact
             $contact = Contact::find($contactId);
-
-            if (!$campaign) {
-                Log::error('Campaign not found for automation', ['campaign_id' => $automation->campaign_id]);
-                return;
-            }
-
             if (!$contact) {
                 Log::error('Contact not found for automation', ['contact_id' => $contactId]);
                 return;
             }
 
-            // Process the automation action immediately
-            $this->processAction($automation, $campaign, $contact);
+            // Handle template-based automations (no campaign required)
+            if ($automation->content_type === 'template' && $automation->template_id) {
+                $this->processTemplateAutomation($automation, $contact);
+            } else {
+                // Handle campaign-based automations (backward compatibility)
+                $campaign = \App\Models\Campaign::find($automation->campaign_id);
+                if (!$campaign) {
+                    Log::error('Campaign not found for automation', ['campaign_id' => $automation->campaign_id]);
+                    return;
+                }
+                $this->processAction($automation, $campaign, $contact);
+            }
 
             Log::info('Automation processed successfully', [
                 'automation_id' => $automation->id,
-                'campaign_id' => $campaign->id,
+                'campaign_id' => $automation->campaign_id,
+                'template_id' => $automation->template_id,
+                'content_type' => $automation->content_type,
                 'contact_id' => $contactId
             ]);
 
@@ -102,6 +109,75 @@ class CampaignAutomationService
                 'contact_id' => $contactId,
                 'error' => $e->getMessage()
             ]);
+        }
+    }
+
+    /**
+     * Process template-based automation (no campaign required).
+     */
+    private function processTemplateAutomation(CampaignAutomation $automation, Contact $contact): void
+    {
+        switch ($automation->action) {
+            case 'send_email':
+                $this->sendTemplateEmail($automation, $contact);
+                break;
+                
+            case 'add_to_segment':
+                $this->addToSegment($automation, $contact);
+                break;
+                
+            case 'update_contact':
+                $this->updateContact($automation, $contact);
+                break;
+                
+            default:
+                Log::warning('Unknown automation action for template automation', [
+                    'action' => $automation->action,
+                    'automation_id' => $automation->id
+                ]);
+        }
+    }
+
+    /**
+     * Send email using template (no campaign required).
+     */
+    private function sendTemplateEmail(CampaignAutomation $automation, Contact $contact): void
+    {
+        try {
+            // Get template content and subject
+            $emailContent = $this->getTemplateContent($automation->template_id, $contact);
+            $subject = $this->getTemplateSubject($automation->template_id, $contact);
+            
+            // Send email immediately using Laravel Mail
+            Mail::html($emailContent, function ($message) use ($subject, $contact) {
+                $message->to($contact->email, $contact->first_name . ' ' . $contact->last_name)
+                        ->subject($subject)
+                        ->from(config('mail.from.address'), config('mail.from.name'));
+            });
+
+            // Log the automation execution
+            $this->logAutomationExecution($automation, $contact, 'success');
+
+            Log::info('Template automation email sent successfully', [
+                'automation_id' => $automation->id,
+                'template_id' => $automation->template_id,
+                'content_type' => $automation->content_type,
+                'contact_id' => $contact->id,
+                'email' => $contact->email
+            ]);
+
+        } catch (\Exception $e) {
+            // Log failed execution
+            $this->logAutomationExecution($automation, $contact, 'failed', $e->getMessage());
+            
+            Log::error('Failed to send template automation email', [
+                'automation_id' => $automation->id,
+                'template_id' => $automation->template_id,
+                'content_type' => $automation->content_type,
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
         }
     }
 

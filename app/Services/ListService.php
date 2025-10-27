@@ -17,8 +17,7 @@ class ListService
     {
         $query = ContactList::query()
             ->forTenant($filters['tenant_id'] ?? null)
-            ->with(['creator:id,name,email'])
-            ->withCount('contacts');
+            ->with(['creator:id,name,email']);
 
         // Apply filters
         if (!empty($filters['name'])) {
@@ -46,7 +45,19 @@ class ListService
         $sortOrder = $filters['sortOrder'] ?? 'desc';
         $query->orderBy($sortBy, $sortOrder);
 
-        return $query->paginate($perPage);
+        $lists = $query->paginate($perPage);
+
+        // Calculate correct contact count for each list
+        foreach ($lists->items() as $list) {
+            if ($list->type === 'dynamic') {
+                $list->contacts_count = $list->getContacts()->count();
+            } else {
+                // For static lists, use the existing count
+                $list->contacts_count = $list->contacts()->count();
+            }
+        }
+
+        return $lists;
     }
 
     /**

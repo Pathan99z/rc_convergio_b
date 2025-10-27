@@ -162,6 +162,22 @@ class ContactList extends Model
                     $this->applyStringCondition($q, 'industry', $operator, $value);
                 });
                 break;
+            case 'company.size':
+                $query->whereHas('company', function ($q) use ($operator, $value) {
+                    $this->applyNumericCondition($q, 'size', $operator, $value);
+                });
+                break;
+            // Frontend field name mappings
+            case 'company_size':
+                $query->whereHas('company', function ($q) use ($operator, $value) {
+                    $this->applyNumericCondition($q, 'size', $operator, $value);
+                });
+                break;
+            case 'industry':
+                $query->whereHas('company', function ($q) use ($operator, $value) {
+                    $this->applyStringCondition($q, 'industry', $operator, $value);
+                });
+                break;
             case 'created_at':
                 $this->applyDateCondition($query, $field, $operator, $value);
                 break;
@@ -198,6 +214,31 @@ class ContactList extends Model
             default:
                 // Fallback to equals for unknown operators
                 $query->where($field, '=', $value);
+                break;
+        }
+    }
+
+    /**
+     * Apply numeric-based conditions with new operator format.
+     */
+    private function applyNumericCondition($query, $field, $operator, $value)
+    {
+        switch ($operator) {
+            case 'equals':
+                $query->where($field, '=', (int)$value);
+                break;
+            case 'not_equals':
+                $query->where($field, '!=', (int)$value);
+                break;
+            case 'greater_than':
+                $query->where($field, '>', (int)$value);
+                break;
+            case 'less_than':
+                $query->where($field, '<', (int)$value);
+                break;
+            default:
+                // Fallback to equals for unknown operators
+                $query->where($field, '=', (int)$value);
                 break;
         }
     }

@@ -29,26 +29,34 @@ class DealsController extends Controller
     {
         $this->authorize('viewAny', Deal::class);
 
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
+        // Get tenant_id from authenticated user - ensure proper tenant isolation
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        // Validate tenant_id exists
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
         }
-        $userId = $request->user()->id;
+        
+        $userId = $user->id;
 
         $query = Deal::query()->where('tenant_id', $tenantId);
 
-        // Apply owner-based filtering (deals are owner-specific)
-        $query->where('owner_id', $userId);
+        // Apply owner-based filtering only if user is not admin
+        // Admin users should see all deals in their tenant
+        if (!$user->hasRole('admin')) {
+            $query->where('owner_id', $userId);
+        }
         
         // Apply team filtering if team access is enabled
-        $this->teamAccessService->applyTeamFilter($query);
+        // Admin users see all tenant data regardless of team settings
+        if (!$user->hasRole('admin')) {
+            $this->teamAccessService->applyTeamFilter($query);
+        }
 
         if ($ownerId = $request->query('owner_id')) {
             $query->where('owner_id', $ownerId);
@@ -126,16 +134,17 @@ class DealsController extends Controller
     {
         $this->authorize('create', Deal::class);
 
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
+        // Get tenant_id from authenticated user - ensure proper tenant isolation
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        // Validate tenant_id exists
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
         }
 
         // Idempotency via table with 5-minute window
@@ -156,35 +165,40 @@ class DealsController extends Controller
         $data = $request->validated();
         $data['tenant_id'] = $tenantId;
         
-        // Only set owner_id if not already provided in the request
-        if (empty($data['owner_id'])) {
-            $data['owner_id'] = $request->user()->id; // Set owner to current user
-        }
-
+        // Create the deal with the owner_id from frontend (if provided)
         $deal = Deal::create($data);
 
-        // Run assignment logic if no owner is set or if we want to override
-        if (empty($deal->owner_id) || $request->boolean('run_assignment', false)) {
-            try {
-                $assignedUserId = $this->assignmentService->assignOwnerForRecord($deal, 'deal', [
-                    'tenant_id' => $tenantId,
-                    'created_by' => $request->user()->id
-                ]);
+        // Run assignment logic to potentially override the owner (like ContactsController)
+        try {
+            $originalOwnerId = $deal->owner_id;
+            $assignedUserId = $this->assignmentService->assignOwnerForRecord($deal, 'deal', [
+                'tenant_id' => $tenantId,
+                'created_by' => $user->id
+            ]);
 
-                if ($assignedUserId && $assignedUserId !== $deal->owner_id) {
-                    $this->assignmentService->applyAssignmentToRecord($deal, $assignedUserId);
-                    Log::info('Deal assigned via assignment rules', [
-                        'deal_id' => $deal->id,
-                        'assigned_user_id' => $assignedUserId,
-                        'tenant_id' => $tenantId
-                    ]);
-                }
-            } catch (\Exception $e) {
-                Log::error('Failed to assign deal via assignment rules', [
+            // If assignment rule found a match, apply assignment (owner_id and team_id)
+            if ($assignedUserId) {
+                $this->assignmentService->applyAssignmentToRecord($deal, $assignedUserId);
+                Log::info('Deal assigned via assignment rules (override)', [
                     'deal_id' => $deal->id,
-                    'error' => $e->getMessage()
+                    'original_owner_id' => $originalOwnerId,
+                    'assigned_user_id' => $assignedUserId,
+                    'tenant_id' => $tenantId,
+                    'override_type' => $originalOwnerId ? 'manual_override' : 'auto_assignment'
+                ]);
+            } else {
+                Log::info('No assignment rule matched, keeping original owner', [
+                    'deal_id' => $deal->id,
+                    'owner_id' => $originalOwnerId,
+                    'tenant_id' => $tenantId
                 ]);
             }
+        } catch (\Exception $e) {
+            Log::error('Failed to run assignment rules for deal', [
+                'deal_id' => $deal->id,
+                'error' => $e->getMessage(),
+                'tenant_id' => $tenantId
+            ]);
         }
 
         $response = [
@@ -208,16 +222,17 @@ class DealsController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
+        // Get tenant_id from authenticated user - ensure proper tenant isolation
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        // Validate tenant_id exists
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
         }
         
         $deal = Deal::where('tenant_id', $tenantId)->findOrFail($id);
@@ -243,16 +258,17 @@ class DealsController extends Controller
 
     public function update(UpdateDealRequest $request, int $id): JsonResponse
     {
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
+        // Get tenant_id from authenticated user - ensure proper tenant isolation
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        // Validate tenant_id exists
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
         }
         
         $deal = Deal::where('tenant_id', $tenantId)->findOrFail($id);
@@ -273,16 +289,17 @@ class DealsController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
+        // Get tenant_id from authenticated user - ensure proper tenant isolation
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        // Validate tenant_id exists
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
         }
         
         $deal = Deal::where('tenant_id', $tenantId)->findOrFail($id);
@@ -296,16 +313,17 @@ class DealsController extends Controller
 
     public function move(MoveDealRequest $request, int $id): JsonResponse
     {
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
+        // Get tenant_id from authenticated user - ensure proper tenant isolation
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        // Validate tenant_id exists
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
         }
         
         $deal = Deal::where('tenant_id', $tenantId)->findOrFail($id);
@@ -324,21 +342,29 @@ class DealsController extends Controller
     {
         $this->authorize('viewAny', Deal::class);
 
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
+        // Get tenant_id from authenticated user - ensure proper tenant isolation
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        // Validate tenant_id exists
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
         }
-        $userId = $request->user()->id;
+        
+        $userId = $user->id;
         $range = $request->query('range', '7d');
 
-        $query = Deal::query()->where('tenant_id', $tenantId)->where('owner_id', $userId);
+        $query = Deal::query()->where('tenant_id', $tenantId);
+
+        // Apply owner-based filtering only if user is not admin
+        // Admin users should see all deals in their tenant
+        if (!$user->hasRole('admin')) {
+            $query->where('owner_id', $userId);
+        }
 
         // Calculate date range
         $endDate = now();
@@ -384,23 +410,28 @@ class DealsController extends Controller
     {
         $this->authorize('viewAny', Deal::class);
 
-        // Get tenant_id from header or use user's organization as fallback
-        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
-        if ($tenantId === 0) {
-            // Use organization_name to determine tenant_id
-            $user = $request->user();
-            if ($user->organization_name === 'Globex LLC') {
-                $tenantId = 4; // chitti's organization
-            } else {
-                $tenantId = 1; // default tenant
-            }
+        // Get tenant_id from authenticated user - ensure proper tenant isolation
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        // Validate tenant_id exists
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
         }
-        $userId = $request->user()->id;
+        
+        $userId = $user->id;
 
         $query = Deal::query()->where('tenant_id', $tenantId);
 
-        // Filter by owner_id to ensure users only see their own deals
-        $query->where('owner_id', $userId);
+        // Apply owner-based filtering only if user is not admin
+        // Admin users should see all deals in their tenant
+        if (!$user->hasRole('admin')) {
+            $query->where('owner_id', $userId);
+        }
 
         // Apply filters
         if ($ownerId = $request->query('owner_id')) {

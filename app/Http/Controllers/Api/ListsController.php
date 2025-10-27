@@ -57,7 +57,11 @@ class ListsController extends Controller
         }
 
         // Load the contact count for the response
-        $list->loadCount('contacts');
+        if ($list->type === 'dynamic') {
+            $list->contacts_count = $list->getContacts()->count();
+        } else {
+            $list->loadCount('contacts');
+        }
 
         return new ListResource($list);
     }
@@ -69,8 +73,14 @@ class ListsController extends Controller
     {
         $this->authorize('view', $list);
 
-        $list->load(['creator:id,name,email'])
-             ->loadCount('contacts');
+        $list->load(['creator:id,name,email']);
+
+        // For dynamic segments, calculate count based on rules
+        if ($list->type === 'dynamic') {
+            $list->contacts_count = $list->getContacts()->count();
+        } else {
+            $list->loadCount('contacts');
+        }
 
         return new ListResource($list);
     }
@@ -92,7 +102,12 @@ class ListsController extends Controller
         }
 
         // Refresh the list and load the updated contact count
-        $list->refresh()->loadCount('contacts');
+        $list->refresh();
+        if ($list->type === 'dynamic') {
+            $list->contacts_count = $list->getContacts()->count();
+        } else {
+            $list->loadCount('contacts');
+        }
         
         return new ListResource($list);
     }
