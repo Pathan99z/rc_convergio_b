@@ -3,7 +3,6 @@
 use Illuminate\Support\Facades\Route;
 
 use Illuminate\Support\Facades\Http;
-// use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\N8nController;
 
 
@@ -42,32 +41,7 @@ use App\Http\Controllers\Api\FacebookOAuthController;
 use App\Http\Controllers\Api\GoogleOAuthController;
 use App\Http\Controllers\Api\TeamsOAuthController;
 use App\Http\Controllers\Api\OutlookOAuthController;
-<<<<<<< HEAD
 // use Illuminate\Support\Facades\Route;
-=======
-use App\Http\Controllers\Api\DocumentsController;
-use App\Http\Controllers\Api\IntegrationController;
-use Illuminate\Support\Facades\Route;
-// use App\Http\Controllers\Api\SocialMediaController;
-// use App\Http\Controllers\Api\SocialMediaOAuthController;
-use App\Http\Controllers\Api\ContactJourneyFlowController;
-use App\Http\Controllers\Api\SocialListeningController;
-
-
-// CMS Controllers (EXISTING)
-use App\Http\Controllers\Api\Cms\PageController;
-use App\Http\Controllers\Api\Cms\TemplateController;
-use App\Http\Controllers\Api\Cms\PersonalizationController;
-use App\Http\Controllers\Api\Cms\ABTestController;
-use App\Http\Controllers\Api\Cms\DomainController;
-use App\Http\Controllers\Api\Cms\LanguageController;
-use App\Http\Controllers\Api\Cms\MembershipController;
-
-// Missing Controllers (NEED TO CREATE)
-use App\Http\Controllers\Api\Cms\SeoController;
-use App\Http\Controllers\Api\SocialMediaController;
-use App\Http\Controllers\Api\SocialMediaOAuthController;
->>>>>>> origin/main
 
 Route::prefix('auth')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
