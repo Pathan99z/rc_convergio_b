@@ -76,6 +76,31 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('GOOGLE_REDIRECT_URI', env('APP_URL') . '/oauth/google/callback'),
+        'enabled' => env('GOOGLE_ENABLED', false),
+    ],
+
+    'zoom' => [
+        'client_id' => env('ZOOM_CLIENT_ID'),
+        'client_secret' => env('ZOOM_CLIENT_SECRET'),
+        'account_id' => env('ZOOM_ACCOUNT_ID'),
+        'webhook_secret' => env('ZOOM_WEBHOOK_SECRET'),
+        'enabled' => env('ZOOM_INTEGRATION_ENABLED', false),
+    ],
+
+    'outlook' => [
+        'client_id' => env('OUTLOOK_CLIENT_ID'),
+        'client_secret' => env('OUTLOOK_CLIENT_SECRET'),
+        'tenant_id' => env('OUTLOOK_TENANT_ID'),
+        'redirect_uri' => env('OUTLOOK_REDIRECT_URI'),
+        'enabled' => env('OUTLOOK_ENABLED', false),
+    ],
+
+    'teams' => [
+        'client_id' => env('TEAMS_CLIENT_ID'),
+        'client_secret' => env('TEAMS_CLIENT_SECRET'),
+        'tenant_id' => env('TEAMS_TENANT_ID'),
+        'redirect_uri' => env('TEAMS_REDIRECT_URI'),
+        'enabled' => env('TEAMS_ENABLED', false),
     ],
 
 ];

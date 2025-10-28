@@ -712,7 +712,7 @@ Route::prefix('public')->group(function () {
     Route::get('campaigns/unsubscribe/{recipientId}', [\App\Http\Controllers\Api\UnsubscribeController::class, 'unsubscribe'])->name('campaigns.unsubscribe')->where('recipientId', '[0-9]+');
 });
 // CMS Management Routes
-Route::prefix('cms')->middleware(['throttle:60,1'])->group(function () {
+Route::prefix('cms')->middleware(['auth:sanctum', 'throttle:60,1'])->group(function () {
     // Pages Management
     Route::get('pages', [PageController::class, 'index']);
     Route::post('pages', [PageController::class, 'store']);

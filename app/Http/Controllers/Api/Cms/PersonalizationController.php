@@ -635,11 +635,11 @@ class PersonalizationController extends Controller
         switch ($operator) {
             case '=':
             case 'equals':
-                return $actualValue == $expectedValue;
+                return strtolower((string)$actualValue) == strtolower((string)$expectedValue);
             
             case '!=':
             case 'not_equals':
-                return $actualValue != $expectedValue;
+                return strtolower((string)$actualValue) != strtolower((string)$expectedValue);
             
             case 'contains':
                 return str_contains(strtolower((string)$actualValue), strtolower((string)$expectedValue));

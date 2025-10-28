@@ -108,10 +108,10 @@ class PersonalizationRule extends Model
         switch ($operator) {
             case '=':
             case 'equals':
-                return $contextValue == $value;
+                return strtolower($contextValue) == strtolower($value);
             case '!=':
             case 'not_equals':
-                return $contextValue != $value;
+                return strtolower($contextValue) != strtolower($value);
             case 'contains':
                 return str_contains(strtolower($contextValue), strtolower($value));
             case 'starts_with':
