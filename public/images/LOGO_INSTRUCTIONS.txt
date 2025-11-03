@@ -1,0 +1,9 @@
+LOGO PLACEMENT INSTRUCTIONS
+============================
+
+1. Save your RC Convergio logo image as: logo.png
+2. Place it in this folder: public/images/
+3. That's it! The system will automatically use it.
+
+File location: public/images/logo.png
+

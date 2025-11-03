@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
@@ -56,9 +57,27 @@ class User extends Authenticatable implements MustVerifyEmail
 
     /**
      * Send the email verification notification with a custom route.
+     * Includes duplicate prevention to avoid sending multiple emails.
      */
     public function sendEmailVerificationNotification(): void
     {
+        // Prevent duplicate emails even if called multiple times (e.g., from multiple API calls)
+        // Cache key: user_id + email prevents duplicates for 5 minutes
+        $cacheKey = 'verification_email_sent_' . $this->id . '_' . md5($this->email);
+        
+        // Check if email was already sent recently (within 5 minutes)
+        if (Cache::has($cacheKey)) {
+            Log::info('Skipping duplicate verification email', [
+                'user_id' => $this->id,
+                'email' => $this->email,
+            ]);
+            return;
+        }
+        
+        // Mark email as sent for 5 minutes to prevent duplicates
+        Cache::put($cacheKey, true, now()->addMinutes(5));
+        
+        // Send notification (queued for async processing)
         $this->notify(new \App\Notifications\VerifyEmailNotification());
     }
 

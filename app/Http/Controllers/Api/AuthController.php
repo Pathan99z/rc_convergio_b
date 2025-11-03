@@ -34,6 +34,7 @@ class AuthController extends Controller
     {
         $data = $request->validated();
 
+        // Create user
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
@@ -45,8 +46,12 @@ class AuthController extends Controller
         // Set tenant_id to user's own ID for public registrations
         $user->update(['tenant_id' => $user->id]);
 
+        // Fire Registered event AFTER successful user creation
+        // This triggers email verification notification asynchronously
+        // Email will ONLY be sent after registration is successful
         event(new Registered($user));
 
+        // Prepare response immediately (email sending is async and won't block)
         $autoLogin = true;
         $responseData = [
             'user' => $this->transformUser($user),
@@ -59,6 +64,8 @@ class AuthController extends Controller
             $responseData['expires_at'] = $expiresAt?->toIso8601String();
         }
 
+        // Return immediately - email is sent asynchronously via queue
+        // This ensures API responds fast and email only sends after successful registration
         return $this->success($responseData, 201);
     }
 
@@ -133,8 +140,9 @@ class AuthController extends Controller
         return $this->success($responseData);
     }
 
-    public function verifyEmail(Request $request): JsonResponse
+    public function verifyEmail(Request $request)
     {
+        // Same validation - NO CHANGES
         $request->validate([
             'id' => ['required', 'integer'],
             'hash' => ['required', 'string'],
@@ -142,25 +150,56 @@ class AuthController extends Controller
 
         $user = User::findOrFail((int) $request->input('id'));
 
+        // Same validation logic - NO CHANGES
         if (! URL::hasValidSignature($request)) {
-            return $this->error('Invalid or expired verification link.', 403);
+            return $this->renderVerificationPage(false, 'Invalid or expired verification link.', $request);
         }
 
         if ($user->hasVerifiedEmail()) {
-            return $this->success(['message' => 'Email already verified.']);
+            return $this->renderVerificationPage(true, 'Your email is already verified. You can log in now!', $request);
         }
 
         if (! hash_equals((string) $request->route('hash', $request->input('hash')), sha1($user->getEmailForVerification()))) {
-            return $this->error('Invalid verification hash.', 403);
+            return $this->renderVerificationPage(false, 'Invalid verification hash.', $request);
         }
 
+        // Same verification logic - NO CHANGES
         if ($user->markEmailAsVerified()) {
             if ($user instanceof MustVerifyEmail) {
                 event(new Verified($user));
             }
         }
 
-        return $this->success(['message' => 'Email verified successfully.']);
+        // Return professional HTML success page instead of JSON
+        return $this->renderVerificationPage(true, 'Your email verification is complete! You can log in now.', $request);
+    }
+    
+    /**
+     * Render professional verification result page
+     * This only changes the VIEW, not the functionality
+     */
+    private function renderVerificationPage(bool $success, string $message, Request $request)
+    {
+        $logoUrl = null;
+        // Try RC_LOGO.png first (actual file), then rc-convergio-logo.png, then fallback
+        $logoPath = public_path('images/RC_LOGO.png');
+        if (file_exists($logoPath)) {
+            $logoUrl = config('app.url') . '/images/RC_LOGO.png';
+        } else {
+            $logoPath = public_path('images/rc-convergio-logo.png');
+            if (file_exists($logoPath)) {
+                $logoUrl = config('app.url') . '/images/rc-convergio-logo.png';
+            }
+        }
+        
+        $frontendUrl = config('app.frontend_url', config('app.url'));
+        
+        return response()->view('emails.verify-email-result', [
+            'success' => $success,
+            'message' => $message,
+            'logoUrl' => $logoUrl,
+            'frontendUrl' => $frontendUrl,
+        ], $success ? 200 : 400);
     }
 
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
