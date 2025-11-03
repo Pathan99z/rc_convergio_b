@@ -82,6 +82,14 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Send the password reset notification with custom template.
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        $this->notify(new \App\Notifications\ResetPasswordNotification($token));
+    }
+
+    /**
      * Get the tenant ID for this user.
      * For admin-created users, use the assigned tenant_id.
      * For public registrations, fall back to user ID for backward compatibility.

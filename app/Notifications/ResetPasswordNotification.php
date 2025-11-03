@@ -2,16 +2,13 @@
 
 namespace App\Notifications;
 
-use Illuminate\Auth\Notifications\VerifyEmail as BaseVerifyEmail;
+use Illuminate\Auth\Notifications\ResetPassword as BaseResetPassword;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Support\Facades\URL;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Carbon;
 
-class VerifyEmailNotification extends BaseVerifyEmail implements ShouldQueue
+class ResetPasswordNotification extends BaseResetPassword implements ShouldQueue
 {
     use Queueable;
     
@@ -20,26 +17,17 @@ class VerifyEmailNotification extends BaseVerifyEmail implements ShouldQueue
      * This prevents duplicate email sends on retries
      */
     public $tries = 1;
-    protected function verificationUrl($notifiable): string
-    {
-        $temporarySignedUrl = URL::temporarySignedRoute(
-            'auth.verify',
-            Carbon::now()->addMinutes(60),
-            [
-                'id' => $notifiable->getKey(),
-                'hash' => sha1($notifiable->getEmailForVerification()),
-            ]
-        );
-
-        return $temporarySignedUrl;
-    }
-
+    
+    /**
+     * Build the mail representation of the notification.
+     */
     public function toMail($notifiable): MailMessage
     {
-        $url = $this->verificationUrl($notifiable);
+        // Use parent's resetUrl() method which respects ResetPassword::createUrlUsing() callbacks
+        // This ensures the URL points to frontend as configured in AuthServiceProvider/AppServiceProvider
+        $url = parent::resetUrl($notifiable);
         
         // Get logo as base64 embedded image (works in most email clients)
-        // For Gmail: Base64 may be blocked, but we'll use it as best option
         $logoBase64 = $this->getLogoBase64();
         
         // Also try to get public URL (works in Gmail if APP_URL is set to real domain)
@@ -47,10 +35,10 @@ class VerifyEmailNotification extends BaseVerifyEmail implements ShouldQueue
         
         // Use MailMessage's view method with variables properly passed
         $mailMessage = new MailMessage();
-        $mailMessage->subject('Verify Your Email Address - RC Convergio');
+        $mailMessage->subject('Reset Password Notification - RC Convergio');
         
         // Pass both base64 and URL - template will use URL if available (for Gmail), else base64
-        return $mailMessage->view('emails.verify-email', [
+        return $mailMessage->view('emails.reset-password', [
             'url' => $url,
             'logoBase64' => $logoBase64,
             'logoUrl' => $logoUrl,
@@ -103,7 +91,7 @@ class VerifyEmailNotification extends BaseVerifyEmail implements ShouldQueue
     }
     
     /**
-     * Get logo as base64 data URI (fallback if CID embedding fails)
+     * Get logo as base64 data URI (fallback)
      */
     private function getLogoBase64(): ?string
     {
@@ -124,5 +112,4 @@ class VerifyEmailNotification extends BaseVerifyEmail implements ShouldQueue
         return null;
     }
 }
-
 
