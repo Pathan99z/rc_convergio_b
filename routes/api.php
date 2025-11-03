@@ -45,7 +45,7 @@ use App\Http\Controllers\Api\Cms\LanguageController;
 use App\Http\Controllers\Api\Cms\MembershipController;
 
 // Missing Controllers (NEED TO CREATE)
-use App\Http\Controllers\Api\Cms\SeoController;
+use App\Http\Controllers\Api\SeoController;
 use App\Http\Controllers\Api\SocialMediaController;
 use App\Http\Controllers\Api\SocialMediaOAuthController;
 
@@ -798,13 +798,19 @@ Route::get('contact-journey-flow/{contactId}', [ContactJourneyFlowController::cl
 Route::get('contact-journey-flow/email/{email}', [ContactJourneyFlowController::class, 'getContactJourneyFlowByEmail']);
 
 // SEO - Enhanced Analytics & Google Search Console Integration
-Route::prefix('seo')->group(function () {
-    // ... (all your SEO routes)
+Route::prefix('seo')->middleware(['auth:sanctum'])->group(function () {
+    Route::get('pages', [SeoController::class, 'getPages']);
+    Route::get('recommendations', [SeoController::class, 'getRecommendations']);
+    Route::get('connection-status', [SeoController::class, 'checkConnection']);
+    Route::get('metrics', [SeoController::class, 'getDashboardData']);
+    Route::post('connect', [SeoController::class, 'initiateConnection']);
+    Route::post('scan', [SeoController::class, 'startSiteScan']);
+    Route::post('recommendations/{id}/resolve', [SeoController::class, 'resolveRecommendation'])->whereNumber('id');
 });
 
 // Social Media Management - Posts
-Route::prefix('social')->group(function () {
-    // ... (all your social media routes)
+Route::prefix('social-media')->middleware(['auth:sanctum'])->group(function () {
+    Route::get('listening', [SocialMediaController::class, 'listening']);
 });
 
 // Missing API endpoints
