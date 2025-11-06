@@ -83,10 +83,13 @@ class User extends Authenticatable implements MustVerifyEmail
 
     /**
      * Send the password reset notification with custom template.
+     * Uses notifyNow() to send immediately instead of queuing for instant delivery.
      */
     public function sendPasswordResetNotification($token): void
     {
-        $this->notify(new \App\Notifications\ResetPasswordNotification($token));
+        // Use notifyNow() to bypass queue and send immediately for password reset emails
+        // This ensures instant delivery while keeping other notifications queued
+        $this->notifyNow(new \App\Notifications\ResetPasswordNotification($token));
     }
 
     /**
