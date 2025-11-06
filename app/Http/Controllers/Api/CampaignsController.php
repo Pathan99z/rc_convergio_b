@@ -163,7 +163,20 @@ class CampaignsController extends Controller
         
         $data['tenant_id'] = $tenantId;
         $data['created_by'] = $request->user()->id;
-        $data['status'] = 'draft';
+        
+        // If scheduled_at is provided and in the future, automatically set status to 'scheduled'
+        // Otherwise, keep it as 'draft'
+        if (isset($data['scheduled_at']) && $data['scheduled_at']) {
+            $scheduleAt = Carbon::parse($data['scheduled_at']);
+            if ($scheduleAt->isFuture()) {
+                $data['status'] = 'scheduled';
+            } else {
+                $data['status'] = 'draft';
+            }
+        } else {
+            $data['status'] = 'draft';
+        }
+        
         // Persist new recipient settings additively under settings to avoid schema changes
         $data['settings'] = array_merge($data['settings'] ?? [], [
             'recipient_mode' => $data['recipient_mode'] ?? null,
@@ -211,6 +224,35 @@ class CampaignsController extends Controller
 
         // If this is a regular campaign, save to campaigns table
         $campaign = Campaign::create($data);
+
+        // If campaign was created with scheduled_at in the future, automatically schedule it
+        if ($campaign->status === 'scheduled' && $campaign->scheduled_at && $campaign->scheduled_at->isFuture()) {
+            // FREEZE AUDIENCE: Resolve and save contacts at the moment of scheduling
+            $this->freezeCampaignAudience($campaign);
+            
+            // Check queue connection - if sync, don't dispatch (let scheduled command handle it)
+            // If async (database/redis), dispatch with delay
+            $queue = config('queue.default');
+            if ($queue !== 'sync') {
+                // Dispatch the sending job with delay for async queues
+                Bus::chain([
+                    new \App\Jobs\SendCampaignEmails($campaign->id),
+                ])->delay($campaign->scheduled_at)->dispatch();
+                
+                FrameworkLog::info('Campaign auto-scheduled on creation (async queue)', [
+                    'campaign_id' => $campaign->id,
+                    'scheduled_at' => $campaign->scheduled_at->toIso8601String(),
+                    'queue' => $queue,
+                ]);
+            } else {
+                // For sync queue, just mark as scheduled - ProcessScheduledCampaigns command will handle it
+                FrameworkLog::info('Campaign auto-scheduled on creation (sync queue - will be processed by scheduled command)', [
+                    'campaign_id' => $campaign->id,
+                    'scheduled_at' => $campaign->scheduled_at->toIso8601String(),
+                    'queue' => $queue,
+                ]);
+            }
+        }
 
         return response()->json([
             'data' => new CampaignResource($campaign->load(['recipients'])),

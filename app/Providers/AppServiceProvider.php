@@ -45,6 +45,9 @@ class AppServiceProvider extends ServiceProvider
 
         // Auto-start queue worker for campaign automation
         $this->startQueueWorkerIfNeeded();
+        
+        // Auto-start scheduler for scheduled campaigns
+        $this->startSchedulerIfNeeded();
     }
 
     /**
@@ -90,5 +93,65 @@ class AppServiceProvider extends ServiceProvider
         
         // Log that we started the worker
         \Illuminate\Support\Facades\Log::info('Queue worker started automatically for campaign automation');
+    }
+
+    /**
+     * Automatically start Laravel scheduler if not running
+     * This ensures scheduled campaigns are processed on time
+     */
+    private function startSchedulerIfNeeded(): void
+    {
+        // Only start in web context (not CLI) and if not already running
+        if (php_sapi_name() !== 'cli' && !$this->isSchedulerRunning()) {
+            $this->startSchedulerInBackground();
+        }
+    }
+
+    /**
+     * Check if scheduler is already running
+     */
+    private function isSchedulerRunning(): bool
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $processes = shell_exec('tasklist /FI "IMAGENAME eq php.exe" /FO CSV | findstr "schedule:run"');
+            return !empty($processes);
+        } else {
+            $processes = shell_exec('ps aux | grep "schedule:run" | grep -v grep');
+            return !empty($processes);
+        }
+    }
+
+    /**
+     * Start scheduler in background
+     * On Windows, we'll use a loop to run schedule:run every minute
+     */
+    private function startSchedulerInBackground(): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            // Windows: Use a batch script that runs schedule:run in a loop
+            $scriptsDir = base_path('scripts');
+            if (!is_dir($scriptsDir)) {
+                mkdir($scriptsDir, 0755, true);
+            }
+            $scriptPath = $scriptsDir . '/start-scheduler.bat';
+            if (!file_exists($scriptPath)) {
+                // Create the script if it doesn't exist
+                $scriptContent = "@echo off\n";
+                $scriptContent .= ":loop\n";
+                $scriptContent .= "cd /d " . base_path() . "\n";
+                $scriptContent .= "php artisan schedule:run\n";
+                $scriptContent .= "timeout /t 60 /nobreak > nul\n";
+                $scriptContent .= "goto loop\n";
+                file_put_contents($scriptPath, $scriptContent);
+            }
+            pclose(popen("start /B {$scriptPath}", 'r'));
+        } else {
+            // Linux/Mac: Use a simple loop
+            $command = 'while true; do php artisan schedule:run; sleep 60; done';
+            exec("{$command} > /dev/null 2>&1 &");
+        }
+        
+        // Log that we started the scheduler
+        \Illuminate\Support\Facades\Log::info('Laravel scheduler started automatically for scheduled campaigns');
     }
 }

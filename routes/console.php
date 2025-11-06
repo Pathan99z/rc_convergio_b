@@ -11,3 +11,7 @@ Artisan::command('inspire', function () {
 // Social Media Management Scheduler
 Schedule::command('social-media:publish-scheduled')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('social-media:sync-analytics')->daily();
+
+// Campaign Scheduler - Process scheduled campaigns that are due
+// This ensures campaigns are sent automatically at their scheduled time
+Schedule::command('campaigns:process-scheduled')->everyMinute()->withoutOverlapping();
