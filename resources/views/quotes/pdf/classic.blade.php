@@ -133,6 +133,9 @@
         <p>We appreciate your consideration of our services.</p>
         <p>This quotation is valid until {{ $quote->valid_until ? $quote->valid_until->format('F j, Y') : 'further notice' }}.</p>
         <p>Please contact us if you have any questions regarding this quotation.</p>
+        <p style="margin-top: 20px; font-size: 10px; color: #999; border-top: 1px solid #bdc3c7; padding-top: 15px;">
+            Powered by <strong>RC Convergio</strong>
+        </p>
     </div>
 </body>
 </html>

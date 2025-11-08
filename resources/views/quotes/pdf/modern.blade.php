@@ -176,7 +176,10 @@
 
         <div class="footer">
             <p style="font-size: 18px; margin: 0 0 10px 0;">Thank you for choosing our services!</p>
-            <p style="margin: 0;">This quote is valid until {{ $quote->valid_until ? $quote->valid_until->format('F j, Y') : 'further notice' }}.</p>
+            <p style="margin: 0 0 20px 0;">This quote is valid until {{ $quote->valid_until ? $quote->valid_until->format('F j, Y') : 'further notice' }}.</p>
+            <p style="margin-top: 20px; font-size: 11px; color: rgba(255,255,255,0.7); border-top: 1px solid rgba(255,255,255,0.2); padding-top: 15px;">
+                Powered by <strong>RC Convergio</strong>
+            </p>
         </div>
     </div>
 </body>

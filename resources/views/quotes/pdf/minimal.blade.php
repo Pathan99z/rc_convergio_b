@@ -152,6 +152,9 @@
         @if($quote->valid_until)
         <p>Valid until {{ $quote->valid_until->format('F j, Y') }}.</p>
         @endif
+        <p style="margin-top: 20px; font-size: 10px; color: #999; border-top: 1px solid #eee; padding-top: 10px;">
+            Powered by <strong>RC Convergio</strong>
+        </p>
     </div>
 </body>
 </html>
