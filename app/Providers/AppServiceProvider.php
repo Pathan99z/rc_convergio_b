@@ -261,11 +261,30 @@ class AppServiceProvider extends ServiceProvider
                 $this->app->config->set('view.compiled', $tempViewPath);
                 config(['view.compiled' => $tempViewPath]);
                 
-                // Also override the view compiler directly when it's resolved
+                // Override the Blade compiler's compiled path before it's resolved
+                // Use beforeResolving to ensure it's set before any views are compiled
+                $this->app->beforeResolving('view', function ($view, $app) use ($tempViewPath) {
+                    if ($view instanceof \Illuminate\View\Factory) {
+                        try {
+                            $compiler = $view->getEngineResolver()->resolve('blade')->getCompiler();
+                            if (method_exists($compiler, 'setCompiledPath')) {
+                                $compiler->setCompiledPath($tempViewPath);
+                            }
+                        } catch (\Exception $e) {
+                            // Ignore if compiler not available yet
+                        }
+                    }
+                });
+                
+                // Also extend when view is resolved
                 $this->app->extend('view', function ($view, $app) use ($tempViewPath) {
-                    $compiler = $view->getEngineResolver()->resolve('blade')->getCompiler();
-                    if (method_exists($compiler, 'setCompiledPath')) {
-                        $compiler->setCompiledPath($tempViewPath);
+                    try {
+                        $compiler = $view->getEngineResolver()->resolve('blade')->getCompiler();
+                        if (method_exists($compiler, 'setCompiledPath')) {
+                            $compiler->setCompiledPath($tempViewPath);
+                        }
+                    } catch (\Exception $e) {
+                        // Ignore if compiler not available
                     }
                     return $view;
                 });

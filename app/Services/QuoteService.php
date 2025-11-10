@@ -134,9 +134,67 @@ class QuoteService
 
         return DB::transaction(function () use ($quote, $contactId) {
             // Generate PDF if not exists
+            // Wrap in try-catch to handle permission errors gracefully
             if (!$quote->pdf_path) {
-                $pdfPath = $this->generatePDF($quote);
-                $quote->update(['pdf_path' => $pdfPath]);
+                try {
+                    $pdfPath = $this->generatePDF($quote);
+                    $quote->update(['pdf_path' => $pdfPath]);
+                } catch (\Exception $e) {
+                    $errorMessage = $e->getMessage();
+                    
+                    // Check if it's a permission error and try one more time with forced temp directory
+                    if (strpos($errorMessage, 'Permission denied') !== false || 
+                        strpos($errorMessage, 'Failed to open stream') !== false ||
+                        strpos($errorMessage, 'storage/framework/views') !== false ||
+                        strpos($errorMessage, 'file_put_contents') !== false) {
+                        
+                        // Force use temp directory and retry
+                        try {
+                            $tempViewPath = sys_get_temp_dir() . '/laravel_views_' . md5(base_path());
+                            if (!is_dir($tempViewPath)) {
+                                @mkdir($tempViewPath, 0755, true);
+                            }
+                            
+                            if (is_dir($tempViewPath) && is_writable($tempViewPath)) {
+                                // Force config change and clear cache
+                                $originalPath = config('view.compiled');
+                                config(['view.compiled' => $tempViewPath]);
+                                
+                                try {
+                                    \Illuminate\Support\Facades\Artisan::call('view:clear');
+                                } catch (\Exception $clearException) {
+                                    // Ignore
+                                }
+                                
+                                // Get fresh compiler instance
+                                $view = app('view');
+                                $compiler = $view->getEngineResolver()->resolve('blade')->getCompiler();
+                                if (method_exists($compiler, 'setCompiledPath')) {
+                                    $compiler->setCompiledPath($tempViewPath);
+                                }
+                                
+                                // Retry PDF generation
+                                $pdfPath = $this->generatePDF($quote);
+                                $quote->update(['pdf_path' => $pdfPath]);
+                                
+                                // Restore original path
+                                config(['view.compiled' => $originalPath]);
+                                
+                                \Illuminate\Support\Facades\Log::info('Quote send: Used temp directory for PDF generation', [
+                                    'quote_id' => $quote->id
+                                ]);
+                            } else {
+                                throw $e; // Re-throw if temp directory not available
+                            }
+                        } catch (\Exception $e2) {
+                            // If temp directory approach also fails, throw original error
+                            throw new \Exception('Failed to generate PDF due to storage permission issues. Please ensure storage/framework/views is writable or contact administrator.');
+                        }
+                    } else {
+                        // Not a permission error, re-throw original
+                        throw $e;
+                    }
+                }
             }
 
             // Update quote status
