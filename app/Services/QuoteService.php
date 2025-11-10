@@ -350,45 +350,36 @@ class QuoteService
                 $templateName = 'emails.quote-pdf';
             }
             
-            // CRITICAL FIX: Use in-memory Blade compilation first to completely bypass storage
-            // This works even when storage/framework/views is not writable
-            // Falls back to normal render() if in-memory compilation fails
+            // Try normal render() first (works fine when storage is writable - LOCAL)
+            // Only use in-memory compilation when permission errors occur (SERVER)
             try {
-                // Method 1: Try in-memory compilation (no storage write needed)
-                $html = $this->compileBladeInMemory($templateName, compact('quote'));
+                $html = view($templateName, compact('quote'))->render();
                 $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
                 $pdf->setPaper('A4', 'portrait');
                 $pdf->setOptions(['isRemoteEnabled' => true]);
-                
-                \Illuminate\Support\Facades\Log::info('PDF generation: Used in-memory Blade compilation', [
-                    'template' => $templateName,
-                    'quote_id' => $quote->id
-                ]);
             } catch (\Exception $e) {
-                // If in-memory compilation fails, try normal render with temp directory fallback
                 $errorMessage = $e->getMessage();
                 
-                try {
-                    $html = view($templateName, compact('quote'))->render();
-                    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
-                    $pdf->setPaper('A4', 'portrait');
-                    $pdf->setOptions(['isRemoteEnabled' => true]);
-                    
-                    \Illuminate\Support\Facades\Log::info('PDF generation: Used normal render() after in-memory failed', [
-                        'template' => $templateName,
-                        'quote_id' => $quote->id
-                    ]);
-                } catch (\Exception $e2) {
-                    $errorMessage2 = $e2->getMessage();
-                    
-                    // Check if it's a permission error and try temp directory
-                    $isPermissionError = strpos($errorMessage2, 'Permission denied') !== false || 
-                        strpos($errorMessage2, 'Failed to open stream') !== false ||
-                        strpos($errorMessage2, 'storage/framework/views') !== false ||
-                        strpos($errorMessage2, 'file_put_contents') !== false;
-                    
-                    if ($isPermissionError) {
-                        // Try temp directory approach
+                // Check if error is related to storage permissions
+                $isPermissionError = strpos($errorMessage, 'Permission denied') !== false || 
+                    strpos($errorMessage, 'Failed to open stream') !== false ||
+                    strpos($errorMessage, 'storage/framework/views') !== false ||
+                    strpos($errorMessage, 'file_put_contents') !== false;
+                
+                if ($isPermissionError) {
+                    // Permission error - try in-memory compilation (bypasses storage)
+                    try {
+                        $html = $this->compileBladeInMemory($templateName, compact('quote'));
+                        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
+                        $pdf->setPaper('A4', 'portrait');
+                        $pdf->setOptions(['isRemoteEnabled' => true]);
+                        
+                        \Illuminate\Support\Facades\Log::info('PDF generation: Used in-memory compilation due to permission error', [
+                            'template' => $templateName,
+                            'quote_id' => $quote->id
+                        ]);
+                    } catch (\Exception $e2) {
+                        // In-memory also failed, try temp directory
                         try {
                             $tempViewPath = sys_get_temp_dir() . '/laravel_views_' . md5(base_path());
                             if (!is_dir($tempViewPath)) {
@@ -434,15 +425,15 @@ class QuoteService
                             ]);
                             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($templateName, compact('quote'));
                         }
-                    } else {
-                        // Not a permission error, use loadView
-                        \Illuminate\Support\Facades\Log::warning('PDF generation: render() failed, using loadView', [
-                            'error' => $errorMessage2,
-                            'template' => $templateName,
-                            'quote_id' => $quote->id
-                        ]);
-                        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($templateName, compact('quote'));
                     }
+                } else {
+                    // Not a permission error, use loadView
+                    \Illuminate\Support\Facades\Log::warning('PDF generation: render() failed, using loadView', [
+                        'error' => $errorMessage,
+                        'template' => $templateName,
+                        'quote_id' => $quote->id
+                    ]);
+                    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($templateName, compact('quote'));
                 }
             }
             
