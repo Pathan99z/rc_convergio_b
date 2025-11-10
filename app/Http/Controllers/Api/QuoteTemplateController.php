@@ -170,6 +170,21 @@ class QuoteTemplateController extends Controller
         ];
 
         try {
+            // Try to ensure storage/framework/views directory exists (non-blocking)
+            // Don't fail if permissions can't be fixed - let the actual PDF generation attempt happen
+            // The error will be caught in the catch block if permission issues occur
+            $viewsDir = storage_path('framework/views');
+            if (!is_dir($viewsDir)) {
+                @mkdir($viewsDir, 0755, true);
+            }
+            
+            // Try to fix permissions on Linux servers (non-blocking - won't fail if it doesn't work)
+            if (is_dir($viewsDir) && PHP_OS_FAMILY !== 'Windows' && !is_writable($viewsDir)) {
+                @chmod($viewsDir, 0755);
+                // Also try to fix parent directories
+                @chmod(storage_path('framework'), 0755);
+            }
+
             // Generate PDF using the template's layout
             if (class_exists('Barryvdh\DomPDF\Facade\Pdf')) {
                 // Use 'quote' variable name to match the Blade templates
@@ -189,9 +204,20 @@ class QuoteTemplateController extends Controller
                 ]);
             }
         } catch (\Exception $e) {
+            // Check if error is related to file permissions
+            $errorMessage = $e->getMessage();
+            if (strpos($errorMessage, 'Permission denied') !== false || strpos($errorMessage, 'Failed to open stream') !== false) {
+                return response()->json([
+                    'error' => 'Storage permission issue',
+                    'message' => 'Unable to write compiled views. Please ensure storage/framework/views is writable.',
+                    'path' => storage_path('framework/views'),
+                    'hint' => 'On Linux servers, run: chmod -R 775 storage && chown -R www-data:www-data storage'
+                ], 500);
+            }
+            
             return response()->json([
                 'error' => 'Failed to generate preview',
-                'message' => $e->getMessage()
+                'message' => $errorMessage
             ], 500);
         }
     }

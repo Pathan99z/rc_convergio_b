@@ -187,7 +187,7 @@ class AppServiceProvider extends ServiceProvider
         ];
 
         foreach ($criticalDirectories as $directory) {
-            // Only create if directory doesn't exist
+            // Create directory if it doesn't exist
             if (!is_dir($directory)) {
                 try {
                     // Create directory with recursive flag (creates parent directories if needed)
@@ -199,12 +199,23 @@ class AppServiceProvider extends ServiceProvider
                 }
             }
 
-            // Try to set writable permissions on Linux servers only (ignored on Windows)
+            // Try to fix permissions on Linux servers (even if directory already exists)
             if (is_dir($directory) && PHP_OS_FAMILY !== 'Windows') {
                 try {
-                    @chmod($directory, 0755);
+                    // Check if directory is writable
+                    if (!is_writable($directory)) {
+                        // Try to set writable permissions (0755 = rwxr-xr-x)
+                        @chmod($directory, 0755);
+                        
+                        // Also ensure parent directories have correct permissions
+                        $parentDir = dirname($directory);
+                        if (is_dir($parentDir) && !is_writable($parentDir)) {
+                            @chmod($parentDir, 0755);
+                        }
+                    }
                 } catch (\Exception $e) {
-                    // Silently fail - permissions might be managed by system or already correct
+                    // Silently fail - permissions might be managed by system or require sudo
+                    // This is expected on some servers where PHP doesn't have permission to chmod
                 }
             }
         }
