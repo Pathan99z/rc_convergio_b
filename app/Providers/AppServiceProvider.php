@@ -43,6 +43,10 @@ class AppServiceProvider extends ServiceProvider
             'company' => \App\Models\Company::class,
         ]);
 
+        // Ensure storage directories exist (safe - no background processes, no loops)
+        // This fixes permission issues on servers (Linux/ngrok) while working locally
+        $this->ensureStorageDirectoriesExist();
+
         // Auto-start queue worker for campaign automation
         $this->startQueueWorkerIfNeeded();
         
@@ -167,5 +171,42 @@ class AppServiceProvider extends ServiceProvider
         
         // Log that we started the scheduler
         \Illuminate\Support\Facades\Log::info('Laravel scheduler started automatically for scheduled campaigns');
+    }
+
+    /**
+     * Ensure all required storage directories exist with proper permissions
+     * SAFE: Only creates directories, no background processes, no loops, no blocking
+     * This fixes permission issues on servers (Linux/ngrok) while working locally
+     * Does not affect any APIs, login, or other functionality
+     */
+    private function ensureStorageDirectoriesExist(): void
+    {
+        // Only check critical directories that are needed for Blade compilation and file operations
+        $criticalDirectories = [
+            storage_path('framework/views'), // Critical for PDF generation and Blade templates
+        ];
+
+        foreach ($criticalDirectories as $directory) {
+            // Only create if directory doesn't exist
+            if (!is_dir($directory)) {
+                try {
+                    // Create directory with recursive flag (creates parent directories if needed)
+                    mkdir($directory, 0755, true);
+                } catch (\Exception $e) {
+                    // Silently fail - log only if directory creation fails
+                    // This won't break the application, just log the issue for debugging
+                    \Illuminate\Support\Facades\Log::warning("Storage directory check: {$directory} - " . $e->getMessage());
+                }
+            }
+
+            // Try to set writable permissions on Linux servers only (ignored on Windows)
+            if (is_dir($directory) && PHP_OS_FAMILY !== 'Windows') {
+                try {
+                    @chmod($directory, 0755);
+                } catch (\Exception $e) {
+                    // Silently fail - permissions might be managed by system or already correct
+                }
+            }
+        }
     }
 }
