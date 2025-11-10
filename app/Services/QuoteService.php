@@ -294,20 +294,86 @@ class QuoteService
             
             // WORKAROUND: Use render() + loadHTML() to bypass storage/framework/views compilation
             // This fixes permission issues on servers where storage is not writable
-            // Falls back to loadView() if render() fails (maintains backward compatibility)
+            // Falls back to alternative methods if render() fails due to permission issues
             try {
                 $html = view($templateName, compact('quote'))->render();
                 $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
                 $pdf->setPaper('A4', 'portrait');
                 $pdf->setOptions(['isRemoteEnabled' => true]);
             } catch (\Exception $e) {
-                // Fallback to loadView if render fails (shouldn't happen, but maintains compatibility)
-                \Illuminate\Support\Facades\Log::warning('PDF generation: render() failed, falling back to loadView', [
-                    'error' => $e->getMessage(),
-                    'template' => $templateName,
-                    'quote_id' => $quote->id
-                ]);
-                $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($templateName, compact('quote'));
+                $errorMessage = $e->getMessage();
+                
+                // Check if error is related to storage permissions (comprehensive check)
+                $isPermissionError = strpos($errorMessage, 'Permission denied') !== false || 
+                    strpos($errorMessage, 'Failed to open stream') !== false ||
+                    strpos($errorMessage, 'storage/framework/views') !== false ||
+                    strpos($errorMessage, 'Unable to write compiled views') !== false ||
+                    strpos($errorMessage, 'file_put_contents') !== false ||
+                    strpos($errorMessage, 'permission') !== false;
+                
+                if ($isPermissionError) {
+                    
+                    // Permission error - try to use temp directory for view compilation
+                    try {
+                        // Force use temp directory for this specific view compilation
+                        $tempViewPath = sys_get_temp_dir() . '/laravel_views_' . md5(base_path());
+                        if (!is_dir($tempViewPath)) {
+                            @mkdir($tempViewPath, 0755, true);
+                        }
+                        
+                        if (is_dir($tempViewPath) && is_writable($tempViewPath)) {
+                            // Temporarily override view compiled path
+                            $originalPath = config('view.compiled');
+                            config(['view.compiled' => $tempViewPath]);
+                            
+                            // Clear view cache to force recompilation with new path
+                            try {
+                                \Illuminate\Support\Facades\Artisan::call('view:clear');
+                            } catch (\Exception $clearException) {
+                                // Ignore clear errors
+                            }
+                            
+                            // Get fresh view instance to ensure it uses new path
+                            $view = app('view');
+                            $compiler = $view->getEngineResolver()->resolve('blade')->getCompiler();
+                            if (method_exists($compiler, 'setCompiledPath')) {
+                                $compiler->setCompiledPath($tempViewPath);
+                            }
+                            
+                            // Try render again with temp path
+                            $html = view($templateName, compact('quote'))->render();
+                            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
+                            $pdf->setPaper('A4', 'portrait');
+                            $pdf->setOptions(['isRemoteEnabled' => true]);
+                            
+                            // Restore original path
+                            config(['view.compiled' => $originalPath]);
+                            
+                            \Illuminate\Support\Facades\Log::info('PDF generation: Used temp directory for view compilation', [
+                                'template' => $templateName,
+                                'quote_id' => $quote->id
+                            ]);
+                        } else {
+                            throw $e; // Re-throw if temp directory also fails
+                        }
+                    } catch (\Exception $e2) {
+                        // Temp directory approach also failed, try direct loadView as last resort
+                        \Illuminate\Support\Facades\Log::warning('PDF generation: render() failed, trying loadView as last resort', [
+                            'error' => $e2->getMessage(),
+                            'template' => $templateName,
+                            'quote_id' => $quote->id
+                        ]);
+                        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($templateName, compact('quote'));
+                    }
+                } else {
+                    // Other error - fallback to loadView
+                    \Illuminate\Support\Facades\Log::warning('PDF generation: render() failed, falling back to loadView', [
+                        'error' => $errorMessage,
+                        'template' => $templateName,
+                        'quote_id' => $quote->id
+                    ]);
+                    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($templateName, compact('quote'));
+                }
             }
             
             $filename = 'quote-' . $quote->quote_number . '.pdf';

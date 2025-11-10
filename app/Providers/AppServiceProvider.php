@@ -257,9 +257,18 @@ class AppServiceProvider extends ServiceProvider
             if (is_dir($tempViewPath) && is_writable($tempViewPath)) {
                 // Configure Laravel to use temp directory for compiled views
                 // This is done early in register() so it's set before any views compile
-                // Use both methods to ensure it's set properly
+                // Use multiple methods to ensure it's set properly
                 $this->app->config->set('view.compiled', $tempViewPath);
                 config(['view.compiled' => $tempViewPath]);
+                
+                // Also override the view compiler directly when it's resolved
+                $this->app->extend('view', function ($view, $app) use ($tempViewPath) {
+                    $compiler = $view->getEngineResolver()->resolve('blade')->getCompiler();
+                    if (method_exists($compiler, 'setCompiledPath')) {
+                        $compiler->setCompiledPath($tempViewPath);
+                    }
+                    return $view;
+                });
                 
                 \Illuminate\Support\Facades\Log::info('Using temporary directory for view compilation', [
                     'path' => $tempViewPath,
