@@ -270,8 +270,20 @@ class QuoteController extends Controller
         $this->authorize('view', $quote);
 
         try {
-            // Generate PDF if it doesn't exist
+            // Check if PDF exists in storage, regenerate if missing
+            // This ensures PDFs are always available and include latest branding
+            $needsRegeneration = false;
+            
             if (!$quote->pdf_path) {
+                $needsRegeneration = true;
+            } else {
+                // Verify the file actually exists in storage
+                if (!\Illuminate\Support\Facades\Storage::disk('public')->exists($quote->pdf_path)) {
+                    $needsRegeneration = true;
+                }
+            }
+            
+            if ($needsRegeneration) {
                 $pdfPath = $this->quoteService->generatePDF($quote);
                 $quote->update(['pdf_path' => $pdfPath]);
             }
@@ -282,9 +294,14 @@ class QuoteController extends Controller
                 return response()->json(['message' => 'Failed to generate PDF'], 500);
             }
 
+            // Default to 'attachment' for downloads, but allow 'inline' if view parameter is set
+            // This ensures proper download behavior while maintaining flexibility
+            $disposition = request()->has('view') ? 'inline' : 'attachment';
+            $filename = 'quote-' . $quote->quote_number . '.pdf';
+
             return response($pdfContent, 200, [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="' . $quote->quote_number . '.pdf"'
+                'Content-Disposition' => $disposition . '; filename="' . $filename . '"'
             ]);
 
         } catch (\Exception $e) {

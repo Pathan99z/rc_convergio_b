@@ -170,26 +170,28 @@ class QuoteTemplateController extends Controller
         ];
 
         try {
-            // Try to ensure storage/framework/views directory exists (non-blocking)
-            // Don't fail if permissions can't be fixed - let the actual PDF generation attempt happen
-            // The error will be caught in the catch block if permission issues occur
-            $viewsDir = storage_path('framework/views');
-            if (!is_dir($viewsDir)) {
-                @mkdir($viewsDir, 0755, true);
-            }
-            
-            // Try to fix permissions on Linux servers (non-blocking - won't fail if it doesn't work)
-            if (is_dir($viewsDir) && PHP_OS_FAMILY !== 'Windows' && !is_writable($viewsDir)) {
-                @chmod($viewsDir, 0755);
-                // Also try to fix parent directories
-                @chmod(storage_path('framework'), 0755);
-            }
-
             // Generate PDF using the template's layout
             if (class_exists('Barryvdh\DomPDF\Facade\Pdf')) {
                 // Use 'quote' variable name to match the Blade templates
                 $quote = $sampleQuote;
-                $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView("quotes.pdf.{$quoteTemplate->layout}", compact('quote'));
+                
+                // WORKAROUND: Use render() + loadHTML() to bypass storage/framework/views compilation
+                // This fixes permission issues on servers where storage is not writable
+                // Falls back to loadView() if render() fails (maintains backward compatibility)
+                try {
+                    $html = view("quotes.pdf.{$quoteTemplate->layout}", compact('quote'))->render();
+                    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
+                    $pdf->setPaper('A4', 'portrait');
+                    $pdf->setOptions(['isRemoteEnabled' => true]);
+                } catch (\Exception $e) {
+                    // Fallback to loadView if render fails (shouldn't happen, but maintains compatibility)
+                    \Illuminate\Support\Facades\Log::warning('PDF preview: render() failed, falling back to loadView', [
+                        'error' => $e->getMessage(),
+                        'template' => "quotes.pdf.{$quoteTemplate->layout}",
+                        'template_id' => $quoteTemplate->id
+                    ]);
+                    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView("quotes.pdf.{$quoteTemplate->layout}", compact('quote'));
+                }
                 
                 return response($pdf->output(), 200, [
                     'Content-Type' => 'application/pdf',

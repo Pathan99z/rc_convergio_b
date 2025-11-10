@@ -292,7 +292,24 @@ class QuoteService
                 $templateName = 'emails.quote-pdf';
             }
             
-            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($templateName, compact('quote'));
+            // WORKAROUND: Use render() + loadHTML() to bypass storage/framework/views compilation
+            // This fixes permission issues on servers where storage is not writable
+            // Falls back to loadView() if render() fails (maintains backward compatibility)
+            try {
+                $html = view($templateName, compact('quote'))->render();
+                $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html);
+                $pdf->setPaper('A4', 'portrait');
+                $pdf->setOptions(['isRemoteEnabled' => true]);
+            } catch (\Exception $e) {
+                // Fallback to loadView if render fails (shouldn't happen, but maintains compatibility)
+                \Illuminate\Support\Facades\Log::warning('PDF generation: render() failed, falling back to loadView', [
+                    'error' => $e->getMessage(),
+                    'template' => $templateName,
+                    'quote_id' => $quote->id
+                ]);
+                $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView($templateName, compact('quote'));
+            }
+            
             $filename = 'quote-' . $quote->quote_number . '.pdf';
             $path = 'quotes/' . $filename;
             \Illuminate\Support\Facades\Storage::disk('public')->put($path, $pdf->output());

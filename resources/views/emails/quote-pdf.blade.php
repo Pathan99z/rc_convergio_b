@@ -58,6 +58,10 @@
 
     <div class="footer">
         <p>Thank you for your business!</p>
+        <p>This quote is valid until {{ $quote->valid_until ? $quote->valid_until->format('F j, Y') : 'further notice' }}.</p>
+        <p style="margin-top: 20px; font-size: 10px; color: #999; border-top: 1px solid #eee; padding-top: 10px;">
+            Powered by <strong>RC Convergio</strong>
+        </p>
     </div>
 </body>
 </html>
