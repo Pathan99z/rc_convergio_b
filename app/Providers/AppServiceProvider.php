@@ -47,7 +47,8 @@ class AppServiceProvider extends ServiceProvider
         $this->startQueueWorkerIfNeeded();
         
         // Auto-start scheduler for scheduled campaigns
-        $this->startSchedulerIfNeeded();
+        // TEMPORARILY DISABLED - Commented out to prevent server issues
+        // $this->startSchedulerIfNeeded();
     }
 
     /**
@@ -84,8 +85,14 @@ class AppServiceProvider extends ServiceProvider
         $command = 'php artisan queue:work --queue=default --tries=3 --timeout=120 --memory=512';
         
         if (PHP_OS_FAMILY === 'Windows') {
-            // Windows: Start in background
-            pclose(popen("start /B {$command}", 'r'));
+            // Windows: Use exec() instead of popen() to avoid PowerShell input redirection error
+            // The empty quotes after start /B ensure proper command parsing
+            try {
+                exec("start /B \"\" {$command} > NUL 2>&1");
+            } catch (\Exception $e) {
+                // Silently fail - queue worker is optional for basic functionality
+                \Illuminate\Support\Facades\Log::warning('Failed to start queue worker: ' . $e->getMessage());
+            }
         } else {
             // Linux/Mac: Start in background
             exec("{$command} > /dev/null 2>&1 &");
@@ -144,7 +151,14 @@ class AppServiceProvider extends ServiceProvider
                 $scriptContent .= "goto loop\n";
                 file_put_contents($scriptPath, $scriptContent);
             }
-            pclose(popen("start /B {$scriptPath}", 'r'));
+            // Use exec() instead of popen() to avoid PowerShell input redirection error
+            // The empty quotes after start /B ensure proper command parsing
+            try {
+                exec("start /B \"\" \"{$scriptPath}\" > NUL 2>&1");
+            } catch (\Exception $e) {
+                // Silently fail - scheduler is optional for basic functionality
+                \Illuminate\Support\Facades\Log::warning('Failed to start scheduler: ' . $e->getMessage());
+            }
         } else {
             // Linux/Mac: Use a simple loop
             $command = 'while true; do php artisan schedule:run; sleep 60; done';
