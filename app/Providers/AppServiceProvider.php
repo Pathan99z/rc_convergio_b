@@ -16,7 +16,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Configure view cache path early to fix permission issues on servers
+        // This must be done in register() before any views are compiled
+        $this->configureViewCachePath();
     }
 
     /**
@@ -46,6 +48,10 @@ class AppServiceProvider extends ServiceProvider
         // Ensure storage directories exist (safe - no background processes, no loops)
         // This fixes permission issues on servers (Linux/ngrok) while working locally
         $this->ensureStorageDirectoriesExist();
+        
+        // Double-check view cache path is configured (safety check)
+        // This ensures the config set in register() is still valid
+        $this->verifyViewCachePath();
 
         // Auto-start queue worker for campaign automation
         $this->startQueueWorkerIfNeeded();
@@ -218,6 +224,77 @@ class AppServiceProvider extends ServiceProvider
                     // This is expected on some servers where PHP doesn't have permission to chmod
                 }
             }
+        }
+    }
+
+    /**
+     * Configure view cache path to use writable directory
+     * This fixes permission issues when storage/framework/views is not writable
+     * Must be called in register() before any views are compiled
+     */
+    private function configureViewCachePath(): void
+    {
+        $defaultViewPath = storage_path('framework/views');
+        
+        // Check if default path exists and is writable
+        if (is_dir($defaultViewPath) && is_writable($defaultViewPath)) {
+            // Default path is writable, use it (Laravel default)
+            return;
+        }
+        
+        // Default path is not writable, try to use system temp directory
+        try {
+            // Use system temp directory with a unique subdirectory for this app
+            $tempBase = sys_get_temp_dir();
+            $tempViewPath = $tempBase . '/laravel_views_' . md5(base_path());
+            
+            // Create temp directory if it doesn't exist
+            if (!is_dir($tempViewPath)) {
+                @mkdir($tempViewPath, 0755, true);
+            }
+            
+            // Only use temp path if it's writable
+            if (is_dir($tempViewPath) && is_writable($tempViewPath)) {
+                // Configure Laravel to use temp directory for compiled views
+                // This is done early in register() so it's set before any views compile
+                // Use both methods to ensure it's set properly
+                $this->app->config->set('view.compiled', $tempViewPath);
+                config(['view.compiled' => $tempViewPath]);
+                
+                \Illuminate\Support\Facades\Log::info('Using temporary directory for view compilation', [
+                    'path' => $tempViewPath,
+                    'reason' => 'Default storage path is not writable'
+                ]);
+            } else {
+                // Temp directory also not writable, log warning but continue
+                // Will catch errors in PDF generation and handle gracefully
+                \Illuminate\Support\Facades\Log::warning('Cannot use temp directory for view compilation', [
+                    'temp_path' => $tempViewPath,
+                    'default_path' => $defaultViewPath
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Silently fail - will use default path and catch errors in PDF generation
+            // This ensures the app doesn't break if temp directory access fails
+            \Illuminate\Support\Facades\Log::warning('Failed to configure view cache path: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Verify view cache path is configured and writable
+     * Safety check called in boot() to ensure config from register() is still valid
+     */
+    private function verifyViewCachePath(): void
+    {
+        // Get the configured view compiled path (or default)
+        $viewPath = config('view.compiled', storage_path('framework/views'));
+        
+        // If path is not writable and we're on a server (not Windows), log a warning
+        if (PHP_OS_FAMILY !== 'Windows' && is_dir($viewPath) && !is_writable($viewPath)) {
+            \Illuminate\Support\Facades\Log::warning('View cache path is not writable', [
+                'path' => $viewPath,
+                'configured_path' => config('view.compiled')
+            ]);
         }
     }
 }
