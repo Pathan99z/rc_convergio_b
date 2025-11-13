@@ -177,6 +177,21 @@ class CampaignsController extends Controller
             $data['status'] = 'draft';
         }
         
+        // Handle CSV file upload if CSV mode is selected
+        $csvFile = null;
+        if (isset($data['recipient_mode']) && $data['recipient_mode'] === 'csv' && $request->hasFile('csv_file')) {
+            $csvFile = $request->file('csv_file');
+            // Validate CSV mode requires CSV file
+            if (!$csvFile) {
+                return response()->json([
+                    'message' => 'CSV file is required when recipient mode is csv',
+                    'errors' => [
+                        'csv_file' => ['CSV file is required when recipient mode is csv']
+                    ]
+                ], 422);
+            }
+        }
+
         // Persist new recipient settings additively under settings to avoid schema changes
         $data['settings'] = array_merge($data['settings'] ?? [], [
             'recipient_mode' => $data['recipient_mode'] ?? null,
@@ -224,6 +239,23 @@ class CampaignsController extends Controller
 
         // If this is a regular campaign, save to campaigns table
         $campaign = Campaign::create($data);
+        
+        // Handle CSV file upload after campaign is created (need campaign ID)
+        if ($csvFile && isset($data['recipient_mode']) && $data['recipient_mode'] === 'csv') {
+            $csvService = new \App\Services\CampaignCsvService();
+            $csvFilePath = $csvService->saveCsvFile($csvFile, $campaign->id);
+            
+            // Update campaign settings with CSV file path
+            $settings = $campaign->settings ?? [];
+            $settings['csv_file_path'] = $csvFilePath;
+            $settings['csv_uploaded_at'] = now()->toISOString();
+            $campaign->update(['settings' => $settings]);
+            
+            Log::info('CSV file saved for campaign', [
+                'campaign_id' => $campaign->id,
+                'csv_file_path' => $csvFilePath
+            ]);
+        }
 
         // If campaign was created with scheduled_at in the future, automatically schedule it
         if ($campaign->status === 'scheduled' && $campaign->scheduled_at && $campaign->scheduled_at->isFuture()) {
@@ -535,6 +567,47 @@ class CampaignsController extends Controller
                     'frozen_at' => now()->toISOString()
                 ])
             ]);
+        } elseif ($mode === 'csv') {
+            // CSV mode: Parse CSV and count emails (no campaign_recipients created)
+            $csvFilePath = $settings['csv_file_path'] ?? null;
+            
+            if (!$csvFilePath) {
+                FrameworkLog::warning('CSV mode selected but no CSV file path found', [
+                    'campaign_id' => $campaign->id
+                ]);
+                return;
+            }
+            
+            $fullCsvPath = storage_path('app/' . $csvFilePath);
+            
+            if (!file_exists($fullCsvPath)) {
+                FrameworkLog::error('CSV file not found for campaign', [
+                    'campaign_id' => $campaign->id,
+                    'csv_path' => $fullCsvPath
+                ]);
+                return;
+            }
+            
+            // Parse CSV to count emails
+            $csvService = new \App\Services\CampaignCsvService();
+            $emailCount = $csvService->countEmailsInCsv($fullCsvPath);
+            
+            // Store email count in settings (for display purposes)
+            $campaign->update([
+                'settings' => array_merge($settings, [
+                    'csv_email_count' => $emailCount,
+                    'frozen_at' => now()->toISOString()
+                ])
+            ]);
+            
+            FrameworkLog::info('CSV campaign audience frozen', [
+                'campaign_id' => $campaign->id,
+                'email_count' => $emailCount
+            ]);
+            
+            // CSV mode doesn't create campaign_recipients records
+            // Emails will be sent directly from CSV file in SendCampaignEmails job
+            return;
         } else {
             FrameworkLog::warning('No valid recipient mode found for campaign', [
                 'campaign_id' => $campaign->id,

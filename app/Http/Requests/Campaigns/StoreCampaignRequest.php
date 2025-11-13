@@ -23,10 +23,11 @@ class StoreCampaignRequest extends FormRequest
             'settings' => ['nullable', 'array'],
             'owner_id' => ['nullable', 'exists:users,id'],
             // Additive fields for new design (stored under settings)
-            'recipient_mode' => ['nullable', 'string', 'in:manual,segment'],
+            'recipient_mode' => ['nullable', 'string', 'in:manual,segment,csv'],
             'recipient_contact_ids' => ['nullable', 'array'],
             'recipient_contact_ids.*' => ['integer', 'exists:contacts,id'],
             'segment_id' => ['nullable', 'integer', 'exists:lists,id'],
+            'csv_file' => ['nullable', 'file', 'mimes:csv,txt', 'max:10240'], // 10MB max for CSV files
             'is_template' => ['nullable', 'boolean'],
         ];
     }

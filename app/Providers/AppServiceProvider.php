@@ -190,6 +190,7 @@ class AppServiceProvider extends ServiceProvider
         // Only check critical directories that are needed for Blade compilation and file operations
         $criticalDirectories = [
             storage_path('framework/views'), // Critical for PDF generation and Blade templates
+            storage_path('app/temp/campaigns'), // Critical for CSV campaign file storage
         ];
 
         foreach ($criticalDirectories as $directory) {
