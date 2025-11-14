@@ -33,6 +33,12 @@ class MoveDealRequest extends FormRequest
                     $query->where('tenant_id', $tenantId);
                 })
             ],
+            'reason' => [
+                'required',
+                'string',
+                'min:3',
+                'max:1000'
+            ],
         ];
     }
 }

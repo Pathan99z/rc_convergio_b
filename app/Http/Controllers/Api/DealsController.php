@@ -7,7 +7,9 @@ use App\Http\Requests\Deals\StoreDealRequest;
 use App\Http\Requests\Deals\UpdateDealRequest;
 use App\Http\Requests\Deals\MoveDealRequest;
 use App\Http\Resources\DealResource;
+use App\Http\Resources\DealStageHistoryResource;
 use App\Models\Deal;
+use App\Models\DealStageHistory;
 use App\Services\AssignmentService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
@@ -333,11 +335,89 @@ class DealsController extends Controller
 
         $this->authorize('move', $deal);
 
-        $deal->update(['stage_id' => $request->validated()['stage_id']]);
-
+        // Capture previous stage BEFORE update
+        $previousStageId = $deal->stage_id;
+        $validated = $request->validated();
+        $newStageId = $validated['stage_id'];
+        $reason = $validated['reason'];
+        
+        // Only proceed if stage actually changed
+        if ($previousStageId == $newStageId) {
+            return response()->json([
+                'message' => 'Deal is already in this stage',
+            ], 422);
+        }
+        
+        // Use database transaction for consistency
+        DB::transaction(function () use ($deal, $newStageId, $previousStageId, $reason, $user, $tenantId) {
+            // Update deal stage
+            $deal->update(['stage_id' => $newStageId]);
+            
+            // Create history record (lightweight, fast insert)
+            DealStageHistory::create([
+                'deal_id' => $deal->id,
+                'from_stage_id' => $previousStageId,
+                'to_stage_id' => $newStageId,
+                'reason' => $reason,
+                'moved_by' => $user->id,
+                'tenant_id' => $tenantId,
+            ]);
+        });
+        
+        // Load relationships efficiently (only what's needed)
+        $deal->load(['pipeline:id,name', 'stage:id,name,color', 'owner:id,name,email']);
+        
+        // Get latest movement for response
+        $latestMovement = $deal->latestStageMovement()
+            ->with(['fromStage:id,name', 'toStage:id,name', 'movedBy:id,name'])
+            ->first();
+        
         return response()->json([
-            'data' => new DealResource($deal->load(['pipeline', 'stage', 'owner', 'contact', 'company'])),
+            'data' => new DealResource($deal),
+            'stage_movement' => $latestMovement ? [
+                'from_stage' => $latestMovement->fromStage?->name,
+                'to_stage' => $latestMovement->toStage->name,
+                'reason' => $latestMovement->reason,
+                'moved_by' => $latestMovement->movedBy->name,
+                'moved_at' => $latestMovement->created_at->toISOString(),
+            ] : null,
             'message' => 'Deal moved successfully',
+        ]);
+    }
+
+    /**
+     * Get stage movement history for a deal.
+     */
+    public function stageHistory(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        $tenantId = $user->tenant_id;
+        
+        if (!$tenantId) {
+            Log::error('DealsController: User has no tenant_id', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            abort(403, 'Invalid tenant access');
+        }
+        
+        $deal = Deal::where('tenant_id', $tenantId)->findOrFail($id);
+        $this->authorize('view', $deal);
+        
+        $perPage = min($request->get('per_page', 10), 50); // Default 10, max 50
+        
+        $history = $deal->stageHistory()
+            ->with(['fromStage:id,name,color', 'toStage:id,name,color', 'movedBy:id,name,email'])
+            ->paginate($perPage);
+        
+        return response()->json([
+            'data' => DealStageHistoryResource::collection($history->items()),
+            'pagination' => [
+                'current_page' => $history->currentPage(),
+                'last_page' => $history->lastPage(),
+                'per_page' => $history->perPage(),
+                'total' => $history->total(),
+            ],
         ]);
     }
 

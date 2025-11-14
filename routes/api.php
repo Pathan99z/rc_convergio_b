@@ -165,6 +165,7 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     Route::put('deals/{id}', [\App\Http\Controllers\Api\DealsController::class, 'update'])->whereNumber('id');
     Route::delete('deals/{id}', [\App\Http\Controllers\Api\DealsController::class, 'destroy'])->whereNumber('id');
     Route::post('deals/{id}/move', [\App\Http\Controllers\Api\DealsController::class, 'move'])->whereNumber('id');
+    Route::get('deals/{id}/stage-history', [\App\Http\Controllers\Api\DealsController::class, 'stageHistory'])->whereNumber('id');
 
     // Quotes resource
     Route::get('quotes', [\App\Http\Controllers\Api\QuoteController::class, 'index']);

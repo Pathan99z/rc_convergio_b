@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Traits\HasTenantScope;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Facades\Cache;
 
@@ -110,6 +111,22 @@ class Deal extends Model
     public function activities(): MorphMany
     {
         return $this->morphMany(Activity::class, 'subject');
+    }
+
+    /**
+     * Get all stage movement history for the deal.
+     */
+    public function stageHistory(): HasMany
+    {
+        return $this->hasMany(DealStageHistory::class)->orderBy('created_at', 'desc');
+    }
+
+    /**
+     * Get the latest stage movement for the deal.
+     */
+    public function latestStageMovement(): HasOne
+    {
+        return $this->hasOne(DealStageHistory::class)->latestOfMany();
     }
 
     /**
