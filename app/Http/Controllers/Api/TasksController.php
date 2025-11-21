@@ -7,6 +7,9 @@ use App\Http\Requests\Tasks\StoreTaskRequest;
 use App\Http\Requests\Tasks\UpdateTaskRequest;
 use App\Http\Resources\TaskResource;
 use App\Models\Task;
+use App\Models\Contact;
+use App\Models\Deal;
+use App\Models\Quote;
 use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -161,6 +164,11 @@ class TasksController extends Controller
         $data = $request->validated();
         $data['tenant_id'] = $tenantId;
         
+        // NEW: Validate that contact belongs to the same tenant
+        $contact = Contact::where('id', $data['contact_id'])
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+        
         // Auto-assign owner_id if not provided or empty
         if (empty($data['owner_id'])) {
             $data['owner_id'] = $request->user()->id;
@@ -172,13 +180,39 @@ class TasksController extends Controller
             unset($data['assignee_id']);
         }
         
-        // Ensure related_type and related_id are set to null if not provided
-        if (!isset($data['related_type'])) {
-            $data['related_type'] = null;
+        // NEW: Handle related_entity_type and related_entity_id mapping
+        $contactId = $data['contact_id'];
+        $relatedEntityType = $data['related_entity_type'] ?? null;
+        $relatedEntityId = $data['related_entity_id'] ?? null;
+        
+        // Map related_entity_type to full model class
+        if ($relatedEntityType === 'deal' && $relatedEntityId) {
+            // Map to Deal model
+            $data['related_type'] = 'App\Models\Deal';
+            $data['related_id'] = $relatedEntityId;
+        } elseif ($relatedEntityType === 'quote' && $relatedEntityId) {
+            // Map to Quote model
+            $data['related_type'] = 'App\Models\Quote';
+            $data['related_id'] = $relatedEntityId;
+        } elseif ($relatedEntityType === 'other' || $relatedEntityType === null) {
+            // For "other" or no selection, link to Contact via polymorphic relationship
+            $data['related_type'] = 'App\Models\Contact';
+            $data['related_id'] = $contactId;
         }
-        if (!isset($data['related_id'])) {
-            $data['related_id'] = null;
+        
+        // Backward compatibility: If old related_type is provided, use it (but still require contact_id)
+        if (isset($data['related_type']) && !empty($data['related_type']) && 
+            !in_array($data['related_type'], ['App\Models\Deal', 'App\Models\Quote', 'App\Models\Contact'])) {
+            // Keep the old related_type if it's a valid model
+            // This allows existing API calls to continue working
+        } elseif (!isset($data['related_type']) || empty($data['related_type'])) {
+            // Default to Contact if nothing is set
+            $data['related_type'] = 'App\Models\Contact';
+            $data['related_id'] = $contactId;
         }
+        
+        // Remove the new fields as they're not in the Task model fillable
+        unset($data['related_entity_type'], $data['related_entity_id'], $data['contact_id']);
 
         $task = Task::create($data);
 
@@ -522,6 +556,130 @@ class TasksController extends Controller
         return response()->json([
             'message' => "Successfully completed {$updated} tasks",
             'completed_count' => $updated,
+        ]);
+    }
+
+    /**
+     * Get deals for a contact (for task creation dropdown)
+     */
+    public function getDealsForContact(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Task::class);
+
+        $request->validate([
+            'contact_id' => ['required', 'integer', 'exists:contacts,id'],
+        ]);
+
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $contactId = $request->input('contact_id');
+
+        // Verify contact belongs to tenant
+        $contact = Contact::where('id', $contactId)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        // Get deals for this contact
+        $deals = Deal::where('contact_id', $contactId)
+            ->where('tenant_id', $tenantId)
+            ->with(['pipeline', 'stage', 'owner', 'company'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'data' => $deals->map(function ($deal) {
+                return [
+                    'id' => $deal->id,
+                    'title' => $deal->title,
+                    'value' => $deal->value,
+                    'currency' => $deal->currency,
+                    'status' => $deal->status,
+                    'expected_close_date' => $deal->expected_close_date,
+                    'stage' => $deal->stage ? [
+                        'id' => $deal->stage->id,
+                        'name' => $deal->stage->name,
+                    ] : null,
+                    'pipeline' => $deal->pipeline ? [
+                        'id' => $deal->pipeline->id,
+                        'name' => $deal->pipeline->name,
+                    ] : null,
+                    'owner' => $deal->owner ? [
+                        'id' => $deal->owner->id,
+                        'name' => $deal->owner->name,
+                    ] : null,
+                ];
+            }),
+        ]);
+    }
+
+    /**
+     * Get quotes for a contact (for task creation dropdown)
+     */
+    public function getQuotesForContact(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Task::class);
+
+        $request->validate([
+            'contact_id' => ['required', 'integer', 'exists:contacts,id'],
+            'deal_id' => ['nullable', 'integer', 'exists:deals,id'],
+        ]);
+
+        $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
+        if ($tenantId === 0) {
+            $user = $request->user();
+            if ($user->organization_name === 'Globex LLC') {
+                $tenantId = 4;
+            } else {
+                $tenantId = 1;
+            }
+        }
+
+        $contactId = $request->input('contact_id');
+        $dealId = $request->input('deal_id');
+
+        // Verify contact belongs to tenant
+        $contact = Contact::where('id', $contactId)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        // Get quotes for this contact via deals
+        $query = Quote::whereHas('deal', function ($q) use ($contactId) {
+                $q->where('contact_id', $contactId);
+            })
+            ->where('tenant_id', $tenantId);
+
+        // Optionally filter by deal
+        if ($dealId) {
+            $query->where('deal_id', $dealId);
+        }
+
+        $quotes = $query->with(['deal', 'template'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'data' => $quotes->map(function ($quote) {
+                return [
+                    'id' => $quote->id,
+                    'quote_number' => $quote->quote_number,
+                    'total' => $quote->total,
+                    'currency' => $quote->currency,
+                    'status' => $quote->status,
+                    'valid_until' => $quote->valid_until,
+                    'deal' => $quote->deal ? [
+                        'id' => $quote->deal->id,
+                        'title' => $quote->deal->title,
+                    ] : null,
+                ];
+            }),
         ]);
     }
 }

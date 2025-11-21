@@ -230,6 +230,8 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     // Tasks resource
     Route::get('tasks', [\App\Http\Controllers\Api\TasksController::class, 'index']);
     Route::post('tasks', [\App\Http\Controllers\Api\TasksController::class, 'store']);
+    Route::get('tasks/deals', [\App\Http\Controllers\Api\TasksController::class, 'getDealsForContact']);
+    Route::get('tasks/quotes', [\App\Http\Controllers\Api\TasksController::class, 'getQuotesForContact']);
     Route::get('tasks/assignee/{assigneeId}', [\App\Http\Controllers\Api\TasksController::class, 'assigneeTasks'])->whereNumber('assigneeId');
     Route::get('tasks/owner/{ownerId}', [\App\Http\Controllers\Api\TasksController::class, 'ownerTasks'])->whereNumber('ownerId');
     Route::get('tasks/overdue', [\App\Http\Controllers\Api\TasksController::class, 'overdue']);

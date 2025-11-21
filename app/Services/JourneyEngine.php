@@ -298,7 +298,8 @@ class JourneyEngine
         $task = Task::create([
             'title' => $config['title'] ?? 'Journey Task',
             'description' => $config['description'] ?? 'Task created by journey workflow',
-            'contact_id' => $contact->id,
+            'related_type' => 'App\Models\Contact',
+            'related_id' => $contact->id,
             'assigned_to' => $config['assigned_to'] ?? $contact->owner_id,
             'due_date' => isset($config['due_date']) ? $config['due_date'] : now()->addDays(7),
             'priority' => $config['priority'] ?? 'medium',
