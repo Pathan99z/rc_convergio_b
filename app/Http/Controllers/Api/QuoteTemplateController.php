@@ -323,7 +323,7 @@ class QuoteTemplateController extends Controller
             // Execute the compiled PHP code and capture output
             ob_start();
             eval('?>' . $phpCode);
-            $html = ob_get_clean();
+            $html = ob_get_clean(); 
             
             return $html;
         } catch (\Exception $e) {

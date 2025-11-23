@@ -18,6 +18,7 @@ class Product extends Model
         'description',
         'sku',
         'unit_price',
+        'currency',
         'tax_rate',
         'is_active',
         'tenant_id',

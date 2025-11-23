@@ -7,13 +7,15 @@ use App\Models\QuoteItem;
 use App\Models\Deal;
 use App\Models\Activity;
 use App\Services\QuoteNumberGenerator;
+use App\Services\ExchangeRateService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class QuoteService
 {
     public function __construct(
-        private QuoteNumberGenerator $quoteNumberGenerator
+        private QuoteNumberGenerator $quoteNumberGenerator,
+        private ExchangeRateService $exchangeRateService
     ) {}
 
     /**
@@ -25,12 +27,23 @@ class QuoteService
             // Generate unique quote number
             $quoteNumber = $this->quoteNumberGenerator->generateUnique($tenantId);
 
+            // Determine quote currency: from deal if deal selected, otherwise from data or default
+            $quoteCurrency = $this->determineQuoteCurrency($data);
+
+            // Get contact_id from data or from deal
+            $contactId = $data['contact_id'] ?? null;
+            if (!$contactId && isset($data['deal_id']) && $data['deal_id']) {
+                $deal = Deal::find($data['deal_id']);
+                $contactId = $deal ? $deal->contact_id : null;
+            }
+
             // Create the quote
             $quote = Quote::create([
                 'quote_number' => $quoteNumber,
-                'deal_id' => $data['deal_id'],
+                'deal_id' => $data['deal_id'] ?? null,
+                'contact_id' => $contactId,
                 'template_id' => $data['template_id'] ?? null,
-                'currency' => $data['currency'] ?? 'USD',
+                'currency' => $quoteCurrency,
                 'valid_until' => $data['valid_until'] ?? now()->addDays(30),
                 'status' => $data['status'] ?? 'draft',
                 'tenant_id' => $tenantId,
@@ -39,20 +52,24 @@ class QuoteService
                 'quote_type' => $data['quote_type'] ?? 'primary',
             ]);
 
-            // Create quote items
+            // Create quote items with currency conversion
             if (isset($data['items']) && is_array($data['items'])) {
                 foreach ($data['items'] as $index => $itemData) {
-                    $itemData = $this->processQuoteItem($itemData, $tenantId);
+                    $processedItem = $this->processQuoteItem($itemData, $tenantId, $quoteCurrency);
                     
                     QuoteItem::create([
                         'quote_id' => $quote->id,
-                        'product_id' => $itemData['product_id'] ?? null,
-                        'name' => $itemData['name'],
-                        'description' => $itemData['description'] ?? null,
-                        'quantity' => $itemData['quantity'] ?? 1,
-                        'unit_price' => $itemData['unit_price'],
-                        'discount' => $itemData['discount'] ?? 0,
-                        'tax_rate' => $itemData['tax_rate'] ?? 0,
+                        'product_id' => $processedItem['product_id'] ?? null,
+                        'name' => $processedItem['name'],
+                        'description' => $processedItem['description'] ?? null,
+                        'quantity' => $processedItem['quantity'] ?? 1,
+                        'unit_price' => $processedItem['unit_price'], // Converted price
+                        'original_unit_price' => $processedItem['original_unit_price'] ?? null,
+                        'original_currency' => $processedItem['original_currency'] ?? null,
+                        'exchange_rate_used' => $processedItem['exchange_rate_used'] ?? null,
+                        'converted_at' => $processedItem['converted_at'] ?? null,
+                        'discount' => $processedItem['discount'] ?? 0,
+                        'tax_rate' => $processedItem['tax_rate'] ?? 0,
                         'sort_order' => $index,
                     ]);
                 }
@@ -61,10 +78,16 @@ class QuoteService
             // Calculate totals
             $this->calculateTotals($quote);
 
+            // Sync deal value if deal exists and quote total is greater
+            if ($quote->deal_id) {
+                $this->syncDealValue($quote);
+            }
+
             Log::info('Quote created', [
                 'quote_id' => $quote->id,
                 'quote_number' => $quote->quote_number,
                 'tenant_id' => $tenantId,
+                'currency' => $quoteCurrency,
             ]);
 
             return $quote->fresh(['deal', 'items', 'creator']);
@@ -227,15 +250,30 @@ class QuoteService
             // Update quote status
             $quote->update(['status' => 'accepted']);
 
-            // Get the deal
+            // Get the deal (if exists)
             $deal = $quote->deal;
 
+            // Only process deal updates if deal exists
+            if (!$deal) {
+                // Log activity for quote
+                $this->logActivity($quote, 'accepted', 'Quote accepted by client');
+                return $quote->fresh(['deal', 'items', 'creator']);
+            }
+
             // Check if this is the first accepted quote for this deal
-            $isFirstAcceptedQuote = !$deal->hasAcceptedQuotes();
+            // Count quotes with status 'accepted' excluding the current quote
+            $existingAcceptedCount = Quote::where('deal_id', $deal->id)
+                ->where('status', 'accepted')
+                ->where('id', '!=', $quote->id)
+                ->count();
+            $isFirstAcceptedQuote = $existingAcceptedCount === 0;
 
             if ($isFirstAcceptedQuote) {
                 // This is the primary quote - mark it as primary and update deal status
                 $quote->markAsPrimary();
+                
+                // Sync deal value with quote total (if quote total > deal value)
+                $this->syncDealValueOnAccept($quote, $deal);
                 
                 $deal->update([
                     'status' => 'won',
@@ -548,9 +586,15 @@ class QuoteService
      */
     /**
      * Process quote item data, auto-filling from product if product_id is provided.
+     * Handles currency conversion if product currency differs from quote currency.
      */
-    private function processQuoteItem(array $itemData, int $tenantId): array
+    private function processQuoteItem(array $itemData, int $tenantId, string $quoteCurrency): array
     {
+        $originalPrice = $itemData['unit_price'] ?? 0;
+        $originalCurrency = $quoteCurrency;
+        $exchangeRate = 1.0;
+        $convertedAt = null;
+
         // If product_id is provided, auto-fill from product
         if (isset($itemData['product_id']) && $itemData['product_id']) {
             $product = \App\Models\Product::where('id', $itemData['product_id'])
@@ -562,12 +606,316 @@ class QuoteService
                 // Auto-fill from product, but allow manual overrides
                 $itemData['name'] = $itemData['name'] ?? $product->name;
                 $itemData['description'] = $itemData['description'] ?? $product->description;
-                $itemData['unit_price'] = $itemData['unit_price'] ?? $product->unit_price;
+                
+                // Get product price and currency
+                $productPrice = $itemData['unit_price'] ?? $product->unit_price;
+                $productCurrency = $product->currency ?? 'USD';
+                
+                // Store original values
+                $originalPrice = $productPrice;
+                $originalCurrency = $productCurrency;
+                
+                // Convert if currencies differ
+                if ($productCurrency !== $quoteCurrency) {
+                    try {
+                        // Get exchange rate for today
+                        $today = now()->toDateString();
+                        $exchangeRate = $this->exchangeRateService->getRate(
+                            $productCurrency,
+                            $quoteCurrency,
+                            $today
+                        );
+                        
+                        if ($exchangeRate !== null && $exchangeRate > 0) {
+                            $convertedPrice = round($productPrice * $exchangeRate, 2);
+                            $itemData['unit_price'] = $convertedPrice;
+                            $convertedAt = now();
+                            
+                            Log::info('Product price converted', [
+                                'product_id' => $product->id,
+                                'original_price' => $productPrice,
+                                'original_currency' => $productCurrency,
+                                'converted_price' => $convertedPrice,
+                                'quote_currency' => $quoteCurrency,
+                                'exchange_rate' => $exchangeRate,
+                            ]);
+                        } else {
+                            // Rate not found, use original price
+                            Log::warning('Exchange rate not found for conversion', [
+                                'product_id' => $product->id,
+                                'from' => $productCurrency,
+                                'to' => $quoteCurrency,
+                                'date' => $today,
+                            ]);
+                            $itemData['unit_price'] = $productPrice;
+                            $exchangeRate = 1.0;
+                            $convertedAt = now();
+                        }
+                    } catch (\Exception $e) {
+                        // If conversion fails, use original price and log error
+                        Log::warning('Currency conversion failed', [
+                            'product_id' => $product->id,
+                            'from' => $productCurrency,
+                            'to' => $quoteCurrency,
+                            'error' => $e->getMessage(),
+                        ]);
+                        $itemData['unit_price'] = $productPrice;
+                        $exchangeRate = 1.0;
+                        $convertedAt = now();
+                    }
+                } else {
+                    // Same currency, no conversion needed
+                    $itemData['unit_price'] = $productPrice;
+                    $exchangeRate = 1.0;
+                    $convertedAt = now();
+                }
+                
                 $itemData['tax_rate'] = $itemData['tax_rate'] ?? $product->tax_rate;
             }
+        } else {
+            // Manual item (no product), use provided price
+            $itemData['unit_price'] = $itemData['unit_price'] ?? 0;
         }
         
+        // Store audit fields
+        $itemData['original_unit_price'] = $originalPrice;
+        $itemData['original_currency'] = $originalCurrency;
+        $itemData['exchange_rate_used'] = $exchangeRate;
+        $itemData['converted_at'] = $convertedAt;
+        
         return $itemData;
+    }
+
+    /**
+     * Determine quote currency from deal or data.
+     */
+    private function determineQuoteCurrency(array $data): string
+    {
+        // If currency explicitly provided, use it
+        if (isset($data['currency']) && !empty($data['currency'])) {
+            return $data['currency'];
+        }
+
+        // If deal_id provided, get currency from deal
+        if (isset($data['deal_id']) && $data['deal_id']) {
+            $deal = Deal::find($data['deal_id']);
+            if ($deal && $deal->currency) {
+                return $deal->currency;
+            }
+        }
+
+        // Default to USD
+        return 'USD';
+    }
+
+    /**
+     * Sync deal value with quote total (if quote total > deal value).
+     */
+    private function syncDealValue(Quote $quote): void
+    {
+        if (!$quote->deal_id) {
+            return;
+        }
+
+        $deal = $quote->deal;
+        
+        // Convert quote total to deal currency if different
+        $quoteTotalInDealCurrency = $quote->total;
+        
+        if ($quote->currency !== $deal->currency) {
+            try {
+                $quoteTotalInDealCurrency = $this->exchangeRateService->convert(
+                    $quote->total,
+                    $quote->currency,
+                    $deal->currency
+                );
+            } catch (\Exception $e) {
+                Log::warning('Failed to convert quote total to deal currency', [
+                    'quote_id' => $quote->id,
+                    'deal_id' => $deal->id,
+                    'error' => $e->getMessage(),
+                ]);
+                return;
+            }
+        }
+
+        // Only update if quote total is greater than deal value
+        if ($quoteTotalInDealCurrency > $deal->value) {
+            $oldValue = $deal->value;
+            
+            $deal->update(['value' => $quoteTotalInDealCurrency]);
+            
+            Log::info('Deal value synced with quote', [
+                'deal_id' => $deal->id,
+                'old_value' => $oldValue,
+                'new_value' => $quoteTotalInDealCurrency,
+                'quote_id' => $quote->id,
+                'quote_total' => $quote->total,
+                'quote_currency' => $quote->currency,
+                'deal_currency' => $deal->currency,
+            ]);
+        }
+    }
+
+    /**
+     * Sync deal value when quote is accepted.
+     */
+    private function syncDealValueOnAccept(Quote $quote, Deal $deal): void
+    {
+        // Convert quote total to deal currency if different
+        $quoteTotalInDealCurrency = $quote->total;
+        
+        if ($quote->currency !== $deal->currency) {
+            try {
+                $quoteTotalInDealCurrency = $this->exchangeRateService->convert(
+                    $quote->total,
+                    $quote->currency,
+                    $deal->currency
+                );
+            } catch (\Exception $e) {
+                Log::warning('Failed to convert quote total to deal currency on accept', [
+                    'quote_id' => $quote->id,
+                    'deal_id' => $deal->id,
+                    'error' => $e->getMessage(),
+                ]);
+                return;
+            }
+        }
+
+        // Only update if quote total is greater than deal value (don't reduce)
+        if ($quoteTotalInDealCurrency > $deal->value) {
+            $oldValue = $deal->value;
+            
+            $deal->update(['value' => $quoteTotalInDealCurrency]);
+            
+            Log::info('Deal value updated on quote acceptance', [
+                'deal_id' => $deal->id,
+                'old_value' => $oldValue,
+                'new_value' => $quoteTotalInDealCurrency,
+                'quote_id' => $quote->id,
+                'quote_total' => $quote->total,
+                'quote_currency' => $quote->currency,
+                'deal_currency' => $deal->currency,
+            ]);
+        } elseif ($quoteTotalInDealCurrency < $deal->value) {
+            // Log warning but don't reduce deal value
+            Log::info('Quote total is less than deal value, keeping deal value', [
+                'deal_id' => $deal->id,
+                'deal_value' => $deal->value,
+                'quote_total' => $quoteTotalInDealCurrency,
+                'quote_id' => $quote->id,
+            ]);
+        }
+    }
+
+    /**
+     * Preview prices for products in target currency.
+     */
+    public function previewPrices(array $products, string $targetCurrency, ?int $dealId = null): array
+    {
+        $items = [];
+        $subtotal = 0;
+        $totalTax = 0;
+        $totalDiscount = 0;
+
+        foreach ($products as $productData) {
+            $productId = $productData['product_id'] ?? null;
+            $quantity = $productData['quantity'] ?? 1;
+            $discount = $productData['discount'] ?? 0;
+            
+            if (!$productId) {
+                continue;
+            }
+
+            $product = \App\Models\Product::find($productId);
+            if (!$product || !$product->is_active) {
+                continue;
+            }
+
+            $productPrice = $product->unit_price;
+            $productCurrency = $product->currency ?? 'USD';
+            $originalPrice = $productPrice;
+            $originalCurrency = $productCurrency;
+            $exchangeRate = 1.0;
+            $convertedPrice = $productPrice;
+
+            // Convert if currencies differ
+            if ($productCurrency !== $targetCurrency) {
+                try {
+                    // Get rate for today
+                    $exchangeRate = $this->exchangeRateService->getRate(
+                        $productCurrency,
+                        $targetCurrency,
+                        now()->toDateString()
+                    );
+                    
+                    if ($exchangeRate !== null) {
+                        $convertedPrice = $productPrice * $exchangeRate;
+                    } else {
+                        // If rate not found, use original price and log warning
+                        Log::warning('Exchange rate not found for preview', [
+                            'product_id' => $productId,
+                            'from' => $productCurrency,
+                            'to' => $targetCurrency,
+                        ]);
+                        $convertedPrice = $productPrice;
+                        $exchangeRate = 1.0;
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Failed to convert product price in preview', [
+                        'product_id' => $productId,
+                        'from' => $productCurrency,
+                        'to' => $targetCurrency,
+                        'error' => $e->getMessage(),
+                    ]);
+                    // Use original price if conversion fails
+                    $convertedPrice = $productPrice;
+                    $exchangeRate = 1.0;
+                }
+            }
+
+            // Calculate line totals
+            $lineSubtotal = $convertedPrice * $quantity;
+            $lineDiscount = $discount;
+            $lineAfterDiscount = $lineSubtotal - $lineDiscount;
+            $taxRate = $product->tax_rate ?? 0;
+            $lineTax = $lineAfterDiscount * ($taxRate / 100);
+            $lineTotal = $lineAfterDiscount + $lineTax;
+
+            $subtotal += $lineSubtotal;
+            $totalTax += $lineTax;
+            $totalDiscount += $lineDiscount;
+
+            $items[] = [
+                'product_id' => $product->id,
+                'product_name' => $product->name,
+                'product_currency' => $productCurrency,
+                'original_unit_price' => $originalPrice,
+                'converted_unit_price' => $convertedPrice,
+                'target_currency' => $targetCurrency,
+                'exchange_rate' => $exchangeRate,
+                'rate_date' => now()->toDateString(),
+                'quantity' => $quantity,
+                'subtotal' => $lineSubtotal,
+                'discount' => $lineDiscount,
+                'tax_rate' => $taxRate,
+                'tax_amount' => $lineTax,
+                'total' => $lineTotal,
+            ];
+        }
+
+        return [
+            'target_currency' => $targetCurrency,
+            'deal_currency' => $dealId ? (Deal::find($dealId)->currency ?? null) : null,
+            'items' => $items,
+            'summary' => [
+                'subtotal' => round($subtotal, 2),
+                'discount' => round($totalDiscount, 2),
+                'tax' => round($totalTax, 2),
+                'total' => round($subtotal - $totalDiscount + $totalTax, 2),
+                'currency' => $targetCurrency,
+            ],
+        ];
     }
 
     private function logActivity($model, string $action, string $description): void

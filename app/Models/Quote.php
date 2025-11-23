@@ -16,6 +16,7 @@ class Quote extends Model
     protected $fillable = [
         'quote_number',
         'deal_id',
+        'contact_id',
         'template_id',
         'subtotal',
         'tax',

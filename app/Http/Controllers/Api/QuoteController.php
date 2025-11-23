@@ -263,6 +263,87 @@ class QuoteController extends Controller
     }
 
     /**
+     * Preview prices for products in target currency.
+     */
+    public function previewPrices(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'products' => ['required', 'array', 'min:1'],
+            'products.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'products.*.quantity' => ['nullable', 'integer', 'min:1'],
+            'products.*.discount' => ['nullable', 'numeric', 'min:0'],
+            'target_currency' => ['required', 'string', 'size:3'],
+            'deal_id' => ['nullable', 'integer', 'exists:deals,id'],
+        ]);
+
+        $tenantId = $request->user()->id;
+        
+        // Verify products belong to tenant
+        $productIds = collect($validated['products'])->pluck('product_id');
+        $productsCount = \App\Models\Product::where('tenant_id', $tenantId)
+            ->whereIn('id', $productIds)
+            ->count();
+            
+        if ($productsCount !== count($productIds)) {
+            return response()->json([
+                'message' => 'Some products not found or do not belong to your organization'
+            ], 422);
+        }
+
+        try {
+            $preview = $this->quoteService->previewPrices(
+                $validated['products'],
+                $validated['target_currency'],
+                $validated['deal_id'] ?? null
+            );
+
+            return response()->json([
+                'success' => true,
+                'data' => $preview
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to preview prices: ' . $e->getMessage()
+            ], 422);
+        }
+    }
+
+    /**
+     * Get deals for a customer.
+     */
+    public function getCustomerDeals(Request $request, int $contactId): JsonResponse
+    {
+        $tenantId = $request->user()->id;
+        
+        // Verify contact belongs to tenant
+        $contact = \App\Models\Contact::where('id', $contactId)
+            ->where('tenant_id', $tenantId)
+            ->firstOrFail();
+
+        $deals = \App\Models\Deal::where('contact_id', $contactId)
+            ->where('tenant_id', $tenantId)
+            ->whereIn('status', ['open', 'qualified', 'proposal'])
+            ->with(['pipeline', 'stage', 'owner'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $deals->map(function ($deal) {
+                return [
+                    'id' => $deal->id,
+                    'title' => $deal->title,
+                    'value' => $deal->value,
+                    'currency' => $deal->currency,
+                    'status' => $deal->status,
+                    'pipeline' => $deal->pipeline ? $deal->pipeline->name : null,
+                    'stage' => $deal->stage ? $deal->stage->name : null,
+                ];
+            })
+        ]);
+    }
+
+    /**
      * Download quote PDF.
      */
     public function pdf(Quote $quote): Response|JsonResponse

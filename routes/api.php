@@ -170,6 +170,8 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     // Quotes resource
     Route::get('quotes', [\App\Http\Controllers\Api\QuoteController::class, 'index']);
     Route::post('quotes', [\App\Http\Controllers\Api\QuoteController::class, 'store']);
+    Route::post('quotes/preview-prices', [\App\Http\Controllers\Api\QuoteController::class, 'previewPrices']);
+    Route::get('contacts/{contactId}/deals', [\App\Http\Controllers\Api\QuoteController::class, 'getCustomerDeals'])->whereNumber('contactId');
     Route::get('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'show'])->whereNumber('quote');
     Route::put('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'update'])->whereNumber('quote');
     Route::delete('quotes/{quote}', [\App\Http\Controllers\Api\QuoteController::class, 'destroy'])->whereNumber('quote');
@@ -177,6 +179,10 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     Route::post('quotes/{quote}/accept', [\App\Http\Controllers\Api\QuoteController::class, 'accept'])->whereNumber('quote');
     Route::post('quotes/{quote}/reject', [\App\Http\Controllers\Api\QuoteController::class, 'reject'])->whereNumber('quote');
     Route::get('quotes/{quote}/pdf', [\App\Http\Controllers\Api\QuoteController::class, 'pdf'])->whereNumber('quote');
+
+    // Exchange Rates
+    Route::get('exchange-rates/rate', [\App\Http\Controllers\Api\ExchangeRateController::class, 'getRate']);
+    Route::post('exchange-rates/refresh', [\App\Http\Controllers\Api\ExchangeRateController::class, 'refresh']);
 
     // Products resource
     Route::get('products', [\App\Http\Controllers\Api\ProductController::class, 'index']);
