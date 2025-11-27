@@ -300,4 +300,38 @@ class FormsController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Check if a form name already exists.
+     */
+    public function checkDuplicate(Request $request): JsonResponse
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'exclude_id' => 'nullable|integer'
+        ]);
+
+        $name = $request->input('name');
+        $excludeId = $request->input('exclude_id');
+        
+        // Get the tenant ID for proper scoping
+        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
+
+        // Query forms table to check for duplicate names
+        // Scope to current tenant to prevent checking across tenants
+        $query = Form::where('name', $name)
+                     ->where('tenant_id', $tenantId);
+
+        // Exclude the current form when editing
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        $exists = $query->exists();
+
+        return response()->json([
+            'success' => true,
+            'exists' => $exists
+        ]);
+    }
 }
