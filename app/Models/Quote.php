@@ -67,6 +67,14 @@ class Quote extends Model
     }
 
     /**
+     * Get the contact associated with the quote.
+     */
+    public function contact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class);
+    }
+
+    /**
      * Get the items for the quote.
      */
     public function items(): HasMany

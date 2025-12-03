@@ -130,8 +130,8 @@
                         @endif
                     </td>
                     <td style="text-align: center;">{{ $item->quantity }}</td>
-                    <td style="text-align: right;">${{ number_format($item->unit_price, 2) }}</td>
-                    <td style="text-align: right;"><strong>${{ number_format($item->total, 2) }}</strong></td>
+                    <td style="text-align: right;">{{ formatCurrency($item->unit_price, $quote->currency) }}</td>
+                    <td style="text-align: right;"><strong>{{ formatCurrency($item->total, $quote->currency) }}</strong></td>
                 </tr>
                 @endforeach
             </tbody>
@@ -139,12 +139,12 @@
     </div>
 
     <div class="totals">
-        <p>Subtotal: ${{ number_format($quote->subtotal, 2) }}</p>
+        <p>Subtotal: {{ formatCurrency($quote->subtotal, $quote->currency) }}</p>
         @if($quote->discount > 0)
-        <p>Discount: -${{ number_format($quote->discount, 2) }}</p>
+        <p>Discount: -{{ formatCurrency($quote->discount, $quote->currency) }}</p>
         @endif
-        <p>Tax: ${{ number_format($quote->tax, 2) }}</p>
-        <div class="total-line">Total: ${{ number_format($quote->total, 2) }} {{ $quote->currency }}</div>
+        <p>Tax: {{ formatCurrency($quote->tax, $quote->currency) }}</p>
+        <div class="total-line">Total: {{ formatCurrency($quote->total, $quote->currency) }}</div>
     </div>
 
     <div class="footer">

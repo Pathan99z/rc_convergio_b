@@ -95,23 +95,23 @@
                     <td>{{ $item->name }}</td>
                     <td>{{ $item->description ?? '-' }}</td>
                     <td>{{ $item->quantity }}</td>
-                    <td>${{ number_format($item->unit_price, 2) }}</td>
-                    <td>${{ number_format($item->discount, 2) }}</td>
-                    <td>${{ number_format($item->total, 2) }}</td>
+                    <td>{{ formatCurrency($item->unit_price, $quote->currency) }}</td>
+                    <td>{{ formatCurrency($item->discount, $quote->currency) }}</td>
+                    <td>{{ formatCurrency($item->total, $quote->currency) }}</td>
                 </tr>
                 @endforeach
             </tbody>
         </table>
 
         <div class="quote-totals">
-            <p><strong>Subtotal:</strong> ${{ number_format($quote->subtotal, 2) }}</p>
+            <p><strong>Subtotal:</strong> {{ formatCurrency($quote->subtotal, $quote->currency) }}</p>
             @if($quote->discount > 0)
-                <p><strong>Discount:</strong> -${{ number_format($quote->discount, 2) }}</p>
+                <p><strong>Discount:</strong> -{{ formatCurrency($quote->discount, $quote->currency) }}</p>
             @endif
             @if($quote->tax > 0)
-                <p><strong>Tax:</strong> ${{ number_format($quote->tax, 2) }}</p>
+                <p><strong>Tax:</strong> {{ formatCurrency($quote->tax, $quote->currency) }}</p>
             @endif
-            <p class="total-row"><strong>Total:</strong> ${{ number_format($quote->total, 2) }} {{ $quote->currency }}</p>
+            <p class="total-row"><strong>Total:</strong> {{ formatCurrency($quote->total, $quote->currency) }}</p>
         </div>
     </div>
 

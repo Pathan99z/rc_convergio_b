@@ -26,6 +26,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Load currency helper function automatically (no composer dump-autoload needed)
+        if (file_exists(app_path('Helpers/CurrencyHelper.php'))) {
+            require_once app_path('Helpers/CurrencyHelper.php');
+        }
+
         RateLimiter::for('login', function (Request $request): Limit {
             $email = (string) str($request->input('email', ''))->lower();
             return Limit::perMinutes(15, 5)->by($email.'|'.$request->ip());

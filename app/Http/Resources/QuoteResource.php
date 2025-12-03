@@ -18,6 +18,7 @@ class QuoteResource extends JsonResource
             'id' => $this->id,
             'quote_number' => $this->quote_number,
             'deal_id' => $this->deal_id,
+            'contact_id' => $this->contact_id,
             'template_id' => $this->template_id,
             'subtotal' => $this->subtotal,
             'tax' => $this->tax,
@@ -112,6 +113,17 @@ class QuoteResource extends JsonResource
                     'name' => $this->template->name,
                     'layout' => $this->template->layout,
                     'layout_display' => $this->template->layout_display,
+                ];
+            }),
+            
+            'contact' => $this->whenLoaded('contact', function () {
+                return [
+                    'id' => $this->contact->id,
+                    'first_name' => $this->contact->first_name,
+                    'last_name' => $this->contact->last_name,
+                    'name' => $this->contact->first_name . ' ' . $this->contact->last_name,
+                    'email' => $this->contact->email,
+                    'phone' => $this->contact->phone,
                 ];
             }),
             

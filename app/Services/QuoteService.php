@@ -156,6 +156,20 @@ class QuoteService
         }
 
         return DB::transaction(function () use ($quote, $contactId) {
+            // If quote doesn't have a deal, create one automatically when sending
+            if (!$quote->deal_id) {
+                $deal = $this->createDealFromQuote($quote, $contactId);
+                $quote->update(['deal_id' => $deal->id]);
+                $quote->refresh();
+                
+                Log::info('Deal created automatically when sending quote', [
+                    'quote_id' => $quote->id,
+                    'quote_number' => $quote->quote_number,
+                    'deal_id' => $deal->id,
+                    'contact_id' => $contactId,
+                ]);
+            }
+
             // Generate PDF if not exists
             // Wrap in try-catch to handle permission errors gracefully
             if (!$quote->pdf_path) {
@@ -223,6 +237,11 @@ class QuoteService
             // Update quote status
             $quote->update(['status' => 'sent']);
 
+            // Sync deal value if deal exists and quote total is greater
+            if ($quote->deal_id) {
+                $this->syncDealValue($quote);
+            }
+
             // Log activity
             $this->logActivity($quote, 'sent', 'Quote sent to client');
 
@@ -230,10 +249,74 @@ class QuoteService
                 'quote_id' => $quote->id,
                 'quote_number' => $quote->quote_number,
                 'contact_id' => $contactId,
+                'deal_id' => $quote->deal_id,
             ]);
 
             return $quote->fresh(['deal', 'items', 'creator']);
         });
+    }
+
+    /**
+     * Create a deal automatically from a quote when sending without a deal.
+     */
+    private function createDealFromQuote(Quote $quote, int $contactId): Deal
+    {
+        // Get the contact to determine company
+        $contact = \App\Models\Contact::find($contactId);
+        if (!$contact) {
+            throw new \Exception('Contact not found');
+        }
+
+        // Get default pipeline for tenant
+        $pipeline = \App\Models\Pipeline::where('tenant_id', $quote->tenant_id)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->first();
+
+        if (!$pipeline) {
+            throw new \Exception('No active pipeline found for tenant');
+        }
+
+        // Get first active stage for the pipeline
+        $stage = \App\Models\Stage::where('pipeline_id', $pipeline->id)
+            ->where('tenant_id', $quote->tenant_id)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->first();
+
+        if (!$stage) {
+            throw new \Exception('No active stage found for pipeline');
+        }
+
+        // Create deal title from quote number
+        $dealTitle = 'Quote ' . $quote->quote_number;
+
+        // Create the deal
+        $deal = Deal::create([
+            'title' => $dealTitle,
+            'description' => 'Deal created automatically from quote ' . $quote->quote_number,
+            'value' => $quote->total,
+            'currency' => $quote->currency,
+            'status' => 'open',
+            'pipeline_id' => $pipeline->id,
+            'stage_id' => $stage->id,
+            'owner_id' => $quote->created_by,
+            'contact_id' => $contactId,
+            'company_id' => $contact->company_id,
+            'tenant_id' => $quote->tenant_id,
+        ]);
+
+        Log::info('Deal created from quote', [
+            'deal_id' => $deal->id,
+            'quote_id' => $quote->id,
+            'quote_number' => $quote->quote_number,
+            'contact_id' => $contactId,
+            'value' => $deal->value,
+            'currency' => $deal->currency,
+        ]);
+
+        return $deal;
     }
 
     /**
@@ -377,15 +460,27 @@ class QuoteService
         // Check if DomPDF is available
         if (class_exists('Barryvdh\DomPDF\Facade\Pdf')) {
             // Determine the template to use based on quote template or default
-            $templateName = 'emails.quote-pdf'; // Default fallback
+            $templateName = 'quotes.pdf.default'; // Default fallback
             
-            if ($quote->template) {
-                $templateName = 'quotes.pdf.' . $quote->template->layout;
+            // If quote has a template_id, use that template's layout
+            if ($quote->template_id && $quote->template) {
+                $layout = $quote->template->layout;
+                $templateName = 'quotes.pdf.' . $layout;
+            }
+            // If no template_id but there's a default template for tenant, use it
+            elseif (!$quote->template_id) {
+                $defaultTemplate = \App\Models\QuoteTemplate::where('tenant_id', $quote->tenant_id)
+                    ->where('is_default', true)
+                    ->first();
+                
+                if ($defaultTemplate) {
+                    $templateName = 'quotes.pdf.' . $defaultTemplate->layout;
+                }
             }
             
             // Check if the specific template exists, otherwise fall back to default
             if (!view()->exists($templateName)) {
-                $templateName = 'emails.quote-pdf';
+                $templateName = 'quotes.pdf.default';
             }
             
             // Try normal render() first (works fine when storage is writable - LOCAL)
