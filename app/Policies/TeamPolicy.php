@@ -16,6 +16,11 @@ class TeamPolicy
      */
     public function viewAny(User $user): bool
     {
+        // Super admin can view all teams
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
         return $user->tenant_id != null;
     }
 
@@ -32,7 +37,8 @@ class TeamPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasRole('admin');
+        // Super admin and tenant admins can create teams
+        return $user->isSuperAdmin() || $user->hasRole('admin');
     }
 
     /**
@@ -40,6 +46,11 @@ class TeamPolicy
      */
     public function update(User $user, Team $team): bool
     {
+        // Super admin can update any team
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
         return $this->tenantAndTeamCheck($user, $team) && $user->hasRole('admin');
     }
 
@@ -48,6 +59,11 @@ class TeamPolicy
      */
     public function delete(User $user, Team $team): bool
     {
+        // Super admin can delete any team
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
         return $this->tenantAndTeamCheck($user, $team) && $user->hasRole('admin');
     }
 
@@ -56,6 +72,11 @@ class TeamPolicy
      */
     public function manageMembers(User $user, Team $team): bool
     {
+        // Super admin can manage any team
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
         return $user->tenant_id === $team->tenant_id && $user->hasRole('admin');
     }
 
@@ -64,6 +85,11 @@ class TeamPolicy
      */
     public function addMember(User $user, Team $team): bool
     {
+        // Super admin can add members to any team
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
         return $user->tenant_id === $team->tenant_id && $user->hasRole('admin');
     }
 
@@ -72,6 +98,11 @@ class TeamPolicy
      */
     public function removeMember(User $user, Team $team): bool
     {
+        // Super admin can remove members from any team
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
         return $user->tenant_id === $team->tenant_id && $user->hasRole('admin');
     }
 }

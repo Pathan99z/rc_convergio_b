@@ -112,6 +112,21 @@ return [
             // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
         ],
 
+        'console' => [
+            'driver' => 'mysql',
+            'host' => env('CONSOLE_DB_HOST'),
+            'port' => env('CONSOLE_DB_PORT', '3306'),
+            'database' => env('CONSOLE_DB_DATABASE'),
+            'username' => env('CONSOLE_DB_USERNAME'),
+            'password' => env('CONSOLE_DB_PASSWORD'),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => false, // Console may have different strict mode
+            'engine' => null,
+        ],
+
     ],
 
     /*

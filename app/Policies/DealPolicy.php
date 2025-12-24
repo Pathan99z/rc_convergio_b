@@ -17,6 +17,7 @@ class DealPolicy
 
     public function view(User $user, Deal $deal): bool
     {
+        // Super admin can view any deal (handled by tenantAndTeamCheck)
         // Allow users to view deals they own or if they have specific permissions
         if ($user->id === $deal->owner_id || $user->can('deals.view')) {
             return true;
@@ -33,6 +34,7 @@ class DealPolicy
 
     public function update(User $user, Deal $deal): bool
     {
+        // Super admin can update any deal (handled by tenantAndTeamCheck)
         // Allow users to update deals they own or if they have specific permissions
         if ($user->id === $deal->owner_id || $user->can('deals.update')) {
             return true;

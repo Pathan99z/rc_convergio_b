@@ -30,6 +30,11 @@ trait ChecksTenantAndTeam
      */
     protected function tenantAndTeamCheck(User $user, Model $model): bool
     {
+        // Super admin bypasses all tenant and team checks
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
         // Basic tenant validation - user and model must have same tenant_id
         if ($user->tenant_id !== $model->tenant_id) {
             return false;

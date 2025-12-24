@@ -58,6 +58,16 @@ Route::prefix('auth')->group(function () {
     Route::post('resend-verification', [AuthController::class, 'resendVerificationEmail'])->middleware('throttle:3,1');
 });
 
+// SSO redirect (requires authentication)
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('sso/redirect', [AuthController::class, 'ssoRedirect'])->name('sso.redirect');
+});
+
+// SSO JTI verification (public endpoint, rate-limited for security)
+// This endpoint is called by external products (Console) to verify JTI
+Route::post('sso/verify-jti', [AuthController::class, 'verifyJti'])
+    ->middleware('throttle:60,1'); // 60 requests per minute per IP
+
 // Public tracking endpoint for external websites
 Route::post('tracking/events', [\App\Http\Controllers\Api\TrackingController::class, 'logEvent']);
 
@@ -1087,6 +1097,23 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     });
 
     // Help Center Admin endpoints
+    // Super Admin Routes (requires super_admin role)
+    // Rate limiting: 100 requests per minute for super admin endpoints
+    Route::middleware(['auth:sanctum', 'role:super_admin', 'throttle:100,1'])->prefix('super-admin')->group(function () {
+        Route::get('tenants', [\App\Http\Controllers\Api\SuperAdminController::class, 'listTenants']);
+        Route::get('tenants/{id}', [\App\Http\Controllers\Api\SuperAdminController::class, 'getTenant'])->whereNumber('id');
+        Route::post('tenants', [\App\Http\Controllers\Api\SuperAdminController::class, 'createTenant']);
+        Route::put('tenants/{id}', [\App\Http\Controllers\Api\SuperAdminController::class, 'updateTenant'])->whereNumber('id');
+        
+        Route::get('users', [\App\Http\Controllers\Api\SuperAdminController::class, 'listAllUsers']);
+        Route::get('users/{id}', [\App\Http\Controllers\Api\SuperAdminController::class, 'getUser'])->whereNumber('id');
+        Route::post('users', [\App\Http\Controllers\Api\SuperAdminController::class, 'createUser']);
+        Route::put('users/{id}', [\App\Http\Controllers\Api\SuperAdminController::class, 'updateUser'])->whereNumber('id');
+        
+        Route::get('stats', [\App\Http\Controllers\Api\SuperAdminController::class, 'systemStats']);
+        Route::get('stats/tenants/{id}', [\App\Http\Controllers\Api\SuperAdminController::class, 'tenantStats'])->whereNumber('id');
+    });
+
     Route::prefix('admin/help')->middleware(['auth:sanctum'])->group(function () {
         // Categories with manual ID handling to avoid route model binding issues with tenant scoping
         Route::get('categories', [\App\Http\Controllers\Api\Help\CategoryController::class, 'index']);

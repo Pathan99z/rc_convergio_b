@@ -20,6 +20,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'security.headers' => \App\Http\Middleware\SecurityHeadersMiddleware::class,
             'disable.tracking.dev' => \App\Http\Middleware\DisableTrackingInDev::class,
             'license.check' => \App\Http\Middleware\CheckLicenseMiddleware::class,
+            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
+            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
+            'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
         ]);
         
         // Apply security headers to all requests

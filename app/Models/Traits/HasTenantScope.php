@@ -12,7 +12,15 @@ trait HasTenantScope
     {
         static::addGlobalScope('tenant', function (Builder $builder): void {
             if (Auth::check()) {
-                $builder->where('tenant_id', Auth::user()->tenant_id ?? Auth::id());
+                $user = Auth::user();
+                
+                // Super admin bypasses tenant scope
+                if ($user && $user->isSuperAdmin()) {
+                    return; // Don't apply tenant filter for super admin
+                }
+                
+                // Regular users: apply tenant scope
+                $builder->where('tenant_id', $user->tenant_id ?? $user->id);
             }
         });
 

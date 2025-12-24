@@ -14,8 +14,8 @@ class UserPolicy
      */
     public function viewAny(User $user): bool
     {
-        // Only admins can view all users
-        return $user->hasRole('admin');
+        // Super admin and tenant admins can view all users
+        return $user->isSuperAdmin() || $user->hasRole('admin');
     }
 
     /**
@@ -23,8 +23,13 @@ class UserPolicy
      */
     public function view(User $user, User $model): bool
     {
-        // Users can view their own profile, admins can view any profile
-        return $user->id === $model->id || $user->hasRole('admin');
+        // Super admin can view any user
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
+        // Users can view their own profile, admins can view any profile in their tenant
+        return $user->id === $model->id || ($user->hasRole('admin') && $user->tenant_id === $model->tenant_id);
     }
 
     /**
@@ -32,8 +37,8 @@ class UserPolicy
      */
     public function create(User $user): bool
     {
-        // Only admins can create new users
-        return $user->hasRole('admin');
+        // Super admin and tenant admins can create new users
+        return $user->isSuperAdmin() || $user->hasRole('admin');
     }
 
     /**
@@ -41,8 +46,13 @@ class UserPolicy
      */
     public function update(User $user, User $model): bool
     {
-        // Users can update their own profile, admins can update any profile
-        return $user->id === $model->id || $user->hasRole('admin');
+        // Super admin can update any user
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
+        // Users can update their own profile, admins can update any profile in their tenant
+        return $user->id === $model->id || ($user->hasRole('admin') && $user->tenant_id === $model->tenant_id);
     }
 
     /**
@@ -50,8 +60,13 @@ class UserPolicy
      */
     public function delete(User $user, User $model): bool
     {
-        // Only admins can delete users, and users cannot delete themselves
-        return $user->hasRole('admin') && $user->id !== $model->id;
+        // Super admin can delete any user except themselves
+        if ($user->isSuperAdmin()) {
+            return $user->id !== $model->id;
+        }
+        
+        // Tenant admins can delete users in their tenant, and users cannot delete themselves
+        return $user->hasRole('admin') && $user->tenant_id === $model->tenant_id && $user->id !== $model->id;
     }
 
     /**
@@ -59,8 +74,13 @@ class UserPolicy
      */
     public function restore(User $user, User $model): bool
     {
-        // Only admins can restore deleted users
-        return $user->hasRole('admin');
+        // Super admin can restore any user
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
+        // Tenant admins can restore deleted users in their tenant
+        return $user->hasRole('admin') && $user->tenant_id === $model->tenant_id;
     }
 
     /**
@@ -68,7 +88,12 @@ class UserPolicy
      */
     public function forceDelete(User $user, User $model): bool
     {
-        // Only admins can permanently delete users, and users cannot delete themselves
-        return $user->hasRole('admin') && $user->id !== $model->id;
+        // Super admin can permanently delete any user except themselves
+        if ($user->isSuperAdmin()) {
+            return $user->id !== $model->id;
+        }
+        
+        // Tenant admins can permanently delete users in their tenant, and users cannot delete themselves
+        return $user->hasRole('admin') && $user->tenant_id === $model->tenant_id && $user->id !== $model->id;
     }
 }

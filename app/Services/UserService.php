@@ -21,8 +21,15 @@ class UserService
         $currentUser = Auth::user();
         
         $query = User::query()
-            ->where('tenant_id', $currentUser->tenant_id) // ✅ CRITICAL: Filter by tenant_id
             ->with(['roles:id,name']);
+        
+        // Super admin can see all users, optionally filter by tenant_id
+        if (!$currentUser->isSuperAdmin()) {
+            $query->where('tenant_id', $currentUser->tenant_id); // ✅ CRITICAL: Filter by tenant_id
+        } elseif (isset($filters['tenant_id'])) {
+            // Super admin can filter by tenant_id if provided
+            $query->where('tenant_id', $filters['tenant_id']);
+        }
 
         // Apply filters
         if (!empty($filters['name'])) {

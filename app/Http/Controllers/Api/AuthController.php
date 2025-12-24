@@ -8,14 +8,19 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Models\User;
+use App\Constants\LinkedAccountConstants;
+use App\Services\GenericLinkedAccountService;
 use App\Services\LicenseService;
+use App\Services\SsoService;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
@@ -24,32 +29,51 @@ use Illuminate\Support\Str;
 class AuthController extends Controller
 {
     protected LicenseService $licenseService;
+    protected GenericLinkedAccountService $linkedAccountService;
+    protected SsoService $ssoService;
 
-    public function __construct(LicenseService $licenseService)
-    {
+    public function __construct(
+        LicenseService $licenseService,
+        GenericLinkedAccountService $linkedAccountService,
+        SsoService $ssoService
+    ) {
         $this->licenseService = $licenseService;
+        $this->linkedAccountService = $linkedAccountService;
+        $this->ssoService = $ssoService;
     }
 
     public function register(RegisterRequest $request): JsonResponse
     {
         $data = $request->validated();
 
-        // Create user
-        $user = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => $data['password'],
-            'organization_name' => $data['organization_name'],
-            'status' => 'active', // Automatically set status to active for public registrations
-        ]);
+        DB::beginTransaction();
+        try {
+            // Create user
+            $user = User::create([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'password' => $data['password'],
+                'organization_name' => $data['organization_name'],
+                'status' => 'active', // Automatically set status to active for public registrations
+            ]);
 
-        // Set tenant_id to user's own ID for public registrations
-        $user->update(['tenant_id' => $user->id]);
+            // Set tenant_id to user's own ID for public registrations
+            $user->update(['tenant_id' => $user->id]);
 
-        // Fire Registered event AFTER successful user creation
-        // This triggers email verification notification asynchronously
-        // Email will ONLY be sent after registration is successful
-        event(new Registered($user));
+            DB::commit();
+
+            // Fire Registered event AFTER successful user creation
+            // This triggers email verification notification asynchronously
+            // Email will ONLY be sent after registration is successful
+            event(new Registered($user));
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Registration failed', [
+                'error' => $e->getMessage(),
+                'email' => $data['email'] ?? null,
+            ]);
+            return $this->error('Registration failed. Please try again.', 500);
+        }
 
         // Prepare response immediately (email sending is async and won't block)
         $autoLogin = true;
@@ -283,6 +307,122 @@ class AuthController extends Controller
             ]);
         } catch (\Exception $e) {
             return $this->error('Failed to fetch user details', 500);
+        }
+    }
+
+    /**
+     * Generate SSO token and return redirect URL (industry standard JSON response)
+     * Frontend will handle the redirect to external product
+     */
+    public function ssoRedirect(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            $productId = (int) $request->input('product_id', LinkedAccountConstants::PRODUCT_CONSOLE);
+
+            // Generate SSO token
+            $token = $this->ssoService->generateSsoToken($user, $productId);
+
+            if (!$token) {
+                Log::error('Failed to generate SSO token', [
+                    'user_id' => $user->id,
+                    'product_id' => $productId,
+                ]);
+                return $this->error('Failed to generate SSO token. Please try again.', 500);
+            }
+
+            // Get redirect URL
+            $redirectUrl = $this->ssoService->getSsoRedirectUrl($productId, $token);
+
+            if (!$redirectUrl) {
+                Log::error('Invalid product ID for SSO redirect', [
+                    'product_id' => $productId,
+                ]);
+                return $this->error('Invalid product. Please contact support.', 400);
+            }
+
+            // Return JSON with redirect URL (industry standard for API redirects)
+            // Frontend will handle the redirect using window.open() or window.location.href
+            return $this->success([
+                'redirect_url' => $redirectUrl,
+                'product_id' => $productId,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('SSO redirect failed', [
+                'error' => $e->getMessage(),
+                'user_id' => $request->user()?->id,
+            ]);
+            return $this->error('SSO redirect failed. Please try again.', 500);
+        }
+    }
+
+    /**
+     * Verify and mark JTI as used (for Console SSO verification)
+     * This endpoint is called by Console to verify JTI before login
+     * Industry standard: API-based verification (no direct DB access)
+     */
+    public function verifyJti(Request $request): JsonResponse
+    {
+        $request->validate([
+            'jti' => ['required', 'string', 'max:255'],
+        ]);
+
+        try {
+            $jti = $request->input('jti');
+            
+            // Find token in database
+            $ssoToken = \App\Models\SsoToken::where('jti', $jti)->first();
+            
+            if (!$ssoToken) {
+                Log::warning('JTI verification failed: Token not found', [
+                    'jti' => $jti,
+                    'ip' => $request->ip(),
+                ]);
+                return $this->error('Token not found', 404);
+            }
+            
+            // Check if expired
+            if ($ssoToken->isExpired()) {
+                Log::warning('JTI verification failed: Token expired', [
+                    'jti' => $jti,
+                    'expires_at' => $ssoToken->expires_at,
+                ]);
+                return $this->error('Token expired', 400);
+            }
+            
+            // Check if already used (replay attack prevention)
+            if ($ssoToken->used) {
+                Log::warning('JTI verification failed: Token already used (replay attack)', [
+                    'jti' => $jti,
+                    'ip' => $request->ip(),
+                ]);
+                return $this->error('Token already used', 400);
+            }
+            
+            // Mark as used (atomic operation to prevent race conditions)
+            $ssoToken->markAsUsed();
+            
+            Log::info('JTI verified and marked as used', [
+                'jti' => $jti,
+                'product_id' => $ssoToken->product_id,
+                'ip' => $request->ip(),
+            ]);
+            
+            return $this->success([
+                'valid' => true,
+                'jti' => $jti,
+                'expires_at' => $ssoToken->expires_at->toIso8601String(),
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('JTI verification failed', [
+                'jti' => $request->input('jti'),
+                'error' => $e->getMessage(),
+                'ip' => $request->ip(),
+            ]);
+            
+            return $this->error('Verification failed', 500);
         }
     }
 

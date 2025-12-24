@@ -203,4 +203,20 @@ class User extends Authenticatable implements MustVerifyEmail
                 ->get();
         });
     }
+
+    /**
+     * Check if user is super admin
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->hasRole('super_admin');
+    }
+
+    /**
+     * Check if user can bypass tenant scope
+     */
+    public function canBypassTenantScope(): bool
+    {
+        return $this->isSuperAdmin();
+    }
 }
