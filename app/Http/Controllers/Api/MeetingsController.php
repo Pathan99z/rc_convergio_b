@@ -16,6 +16,8 @@ use App\Jobs\SendMeetingNotificationJob;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class MeetingsController extends Controller
@@ -34,56 +36,65 @@ class MeetingsController extends Controller
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
+        $userId = $user->id;
 
-        $query = Meeting::forTenant($tenantId)
-            ->with(['contact:id,first_name,last_name,email', 'user:id,name']);
+        // Create cache key with tenant and user isolation
+        $cacheKey = "meetings_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache meetings list for 5 minutes (300 seconds)
+        $meetings = Cache::remember($cacheKey, 300, function () use ($tenantId, $request) {
+            $query = Meeting::forTenant($tenantId)
+                ->with(['contact:id,first_name,last_name,email', 'user:id,name']);
 
-        // ✅ FIX: Apply team filtering if team access is enabled
-        $this->teamAccessService->applyTeamFilter($query);
+            // ✅ FIX: Apply team filtering if team access is enabled
+            $this->teamAccessService->applyTeamFilter($query);
 
-        // Filter by user if provided
-        if ($request->has('user_id')) {
-            $query->forUser($request->get('user_id'));
-        }
+            // Filter by user if provided
+            if ($request->has('user_id')) {
+                $query->forUser($request->get('user_id'));
+            }
 
-        // Filter by contact if provided
-        if ($request->has('contact_id')) {
-            $query->forContact($request->get('contact_id'));
-        }
+            // Filter by contact if provided
+            if ($request->has('contact_id')) {
+                $query->forContact($request->get('contact_id'));
+            }
 
-        // Filter by status if provided
-        if ($request->has('status')) {
-            $query->withStatus($request->get('status'));
-        }
+            // Filter by status if provided
+            if ($request->has('status')) {
+                $query->withStatus($request->get('status'));
+            }
 
-        // Filter by integration provider if provided
-        if ($request->has('provider')) {
-            $query->fromProvider($request->get('provider'));
-        }
+            // Filter by integration provider if provided
+            if ($request->has('provider')) {
+                $query->fromProvider($request->get('provider'));
+            }
 
-        // Filter by date range if provided
-        if ($request->has('start_date') && $request->has('end_date')) {
-            $query->inDateRange($request->get('start_date'), $request->get('end_date'));
-        }
+            // Filter by date range if provided
+            if ($request->has('start_date') && $request->has('end_date')) {
+                $query->inDateRange($request->get('start_date'), $request->get('end_date'));
+            }
 
-        // Filter upcoming meetings if requested
-        if ($request->boolean('upcoming')) {
-            $query->upcoming();
-        }
+            // Filter upcoming meetings if requested
+            if ($request->boolean('upcoming')) {
+                $query->upcoming();
+            }
 
-        $meetings = $query->orderBy('scheduled_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+            $meetings = $query->orderBy('scheduled_at', 'desc')
+                ->paginate($request->get('per_page', 15));
 
-        // Add additional data to each meeting
-        $meetings->getCollection()->transform(function ($meeting) {
-            $meeting->meeting_link = $meeting->getMeetingLink();
-            $meeting->meeting_id = $meeting->getMeetingId();
-            $meeting->duration_formatted = $meeting->getDurationFormatted();
-            $meeting->summary = $meeting->getSummary();
-            $meeting->is_upcoming = $meeting->isUpcoming();
-            $meeting->is_in_progress = $meeting->isInProgress();
-            $meeting->is_completed = $meeting->isCompleted();
-            return $meeting;
+            // Add additional data to each meeting
+            $meetings->getCollection()->transform(function ($meeting) {
+                $meeting->meeting_link = $meeting->getMeetingLink();
+                $meeting->meeting_id = $meeting->getMeetingId();
+                $meeting->duration_formatted = $meeting->getDurationFormatted();
+                $meeting->summary = $meeting->getSummary();
+                $meeting->is_upcoming = $meeting->isUpcoming();
+                $meeting->is_in_progress = $meeting->isInProgress();
+                $meeting->is_completed = $meeting->isCompleted();
+                return $meeting;
+            });
+            
+            return $meetings;
         });
 
         return response()->json([
@@ -116,6 +127,9 @@ class MeetingsController extends Controller
 
         try {
             $meeting = $this->meetingService->createMeeting($validated, $tenantId);
+
+            // Clear cache after creating meeting
+            $this->clearMeetingsCache($tenantId, $user->id);
 
             return response()->json([
                 'data' => new MeetingResource($meeting->load(['contact', 'user'])),
@@ -160,6 +174,9 @@ class MeetingsController extends Controller
         try {
             $result = $this->meetingService->syncFromGoogle($user->id, $tenantId, $validated['meetings']);
 
+            // Clear cache after syncing Google meetings
+            $this->clearMeetingsCache($tenantId, $user->id);
+
             return response()->json([
                 'data' => $result,
                 'message' => 'Google meetings synced successfully'
@@ -192,6 +209,9 @@ class MeetingsController extends Controller
 
         try {
             $result = $this->meetingService->syncFromOutlook($user->id, $tenantId, $validated['meetings']);
+
+            // Clear cache after syncing Outlook meetings
+            $this->clearMeetingsCache($tenantId, $user->id);
 
             return response()->json([
                 'data' => $result,
@@ -235,19 +255,28 @@ class MeetingsController extends Controller
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
+        $userId = $user->id;
 
-        $meeting = Meeting::forTenant($tenantId)
-            ->with(['contact:id,first_name,last_name,email', 'user:id,name'])
-            ->findOrFail($id);
+        // Create cache key with tenant, user, and meeting ID isolation
+        $cacheKey = "meeting_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache meeting detail for 15 minutes (900 seconds)
+        $meeting = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            $meeting = Meeting::forTenant($tenantId)
+                ->with(['contact:id,first_name,last_name,email', 'user:id,name'])
+                ->findOrFail($id);
 
-        // Add additional data
-        $meeting->meeting_link = $meeting->getMeetingLink();
-        $meeting->meeting_id = $meeting->getMeetingId();
-        $meeting->duration_formatted = $meeting->getDurationFormatted();
-        $meeting->summary = $meeting->getSummary();
-        $meeting->is_upcoming = $meeting->isUpcoming();
-        $meeting->is_in_progress = $meeting->isInProgress();
-        $meeting->is_completed = $meeting->isCompleted();
+            // Add additional data
+            $meeting->meeting_link = $meeting->getMeetingLink();
+            $meeting->meeting_id = $meeting->getMeetingId();
+            $meeting->duration_formatted = $meeting->getDurationFormatted();
+            $meeting->summary = $meeting->getSummary();
+            $meeting->is_upcoming = $meeting->isUpcoming();
+            $meeting->is_in_progress = $meeting->isInProgress();
+            $meeting->is_completed = $meeting->isCompleted();
+            
+            return $meeting;
+        });
 
         return response()->json([
             'data' => new MeetingResource($meeting),
@@ -276,6 +305,10 @@ class MeetingsController extends Controller
             // Dispatch notification job for meeting update
             SendMeetingNotificationJob::dispatch($meeting->id, 'updated');
 
+            // Clear cache after updating meeting
+            $this->clearMeetingsCache($tenantId, $user->id);
+            Cache::forget("meeting_show_{$tenantId}_{$user->id}_{$id}");
+
             return response()->json([
                 'data' => new MeetingResource($meeting->fresh(['contact', 'user'])),
                 'message' => 'Meeting updated successfully'
@@ -303,7 +336,14 @@ class MeetingsController extends Controller
             // Dispatch notification job for meeting cancellation before deletion
             SendMeetingNotificationJob::dispatch($meeting->id, 'cancelled');
             
+            $userId = $user->id;
+            $meetingId = $meeting->id;
+            
             $meeting->delete();
+
+            // Clear cache after deleting meeting
+            $this->clearMeetingsCache($tenantId, $userId);
+            Cache::forget("meeting_show_{$tenantId}_{$userId}_{$meetingId}");
 
             return response()->json([
                 'message' => 'Meeting deleted successfully'
@@ -335,6 +375,10 @@ class MeetingsController extends Controller
                 $validated['notes'] ?? null
             );
 
+            // Clear cache after updating meeting status
+            $this->clearMeetingsCache($tenantId, $user->id);
+            Cache::forget("meeting_show_{$tenantId}_{$user->id}_{$id}");
+
             return response()->json([
                 'data' => new MeetingResource($meeting->fresh(['contact', 'user'])),
                 'message' => 'Meeting status updated successfully'
@@ -355,26 +399,33 @@ class MeetingsController extends Controller
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
+        $userId = $user->id;
 
         $startDate = $request->get('start_date', now()->subDays(30)->toDateString());
         $endDate = $request->get('end_date', now()->toDateString());
 
-        $meetings = Meeting::forTenant($tenantId)
-            ->whereBetween('scheduled_at', [$startDate, $endDate])
-            ->get();
+        // Create cache key for meeting analytics
+        $cacheKey = "meetings_analytics_{$tenantId}_{$userId}_" . md5(serialize(['start_date' => $startDate, 'end_date' => $endDate]));
+        
+        // Cache meeting analytics for 5 minutes (300 seconds)
+        $analytics = Cache::remember($cacheKey, 300, function () use ($tenantId, $startDate, $endDate) {
+            $meetings = Meeting::forTenant($tenantId)
+                ->whereBetween('scheduled_at', [$startDate, $endDate])
+                ->get();
 
-        $analytics = [
-            'total_meetings' => $meetings->count(),
-            'completed' => $meetings->where('status', 'completed')->count(),
-            'cancelled' => $meetings->where('status', 'cancelled')->count(),
-            'no_show' => $meetings->where('status', 'no_show')->count(),
-            'scheduled' => $meetings->where('status', 'scheduled')->count(),
-            'completion_rate' => $meetings->count() > 0 ? 
-                round(($meetings->where('status', 'completed')->count() / $meetings->count()) * 100, 2) : 0,
-            'average_duration' => $meetings->avg('duration_minutes'),
-            'by_provider' => $meetings->groupBy('integration_provider')->map->count(),
-            'by_status' => $meetings->groupBy('status')->map->count(),
-        ];
+            return [
+                'total_meetings' => $meetings->count(),
+                'completed' => $meetings->where('status', 'completed')->count(),
+                'cancelled' => $meetings->where('status', 'cancelled')->count(),
+                'no_show' => $meetings->where('status', 'no_show')->count(),
+                'scheduled' => $meetings->where('status', 'scheduled')->count(),
+                'completion_rate' => $meetings->count() > 0 ? 
+                    round(($meetings->where('status', 'completed')->count() / $meetings->count()) * 100, 2) : 0,
+                'average_duration' => $meetings->avg('duration_minutes'),
+                'by_provider' => $meetings->groupBy('integration_provider')->map->count(),
+                'by_status' => $meetings->groupBy('status')->map->count(),
+            ];
+        });
 
         return response()->json([
             'data' => $analytics,
@@ -389,13 +440,61 @@ class MeetingsController extends Controller
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
+        $userId = $user->id;
         $limit = $request->get('limit', 10);
 
-        $meetings = $this->meetingService->getUpcomingMeetings($user->id, $tenantId, $limit);
+        // Create cache key for upcoming meetings
+        $cacheKey = "meetings_upcoming_{$tenantId}_{$userId}_{$limit}";
+        
+        // Cache upcoming meetings for 5 minutes (300 seconds) - optimized for performance
+        $meetings = Cache::remember($cacheKey, 300, function () use ($user, $tenantId, $limit) {
+            return $this->meetingService->getUpcomingMeetings($user->id, $tenantId, $limit);
+        });
 
         return response()->json([
             'data' => $meetings,
             'message' => 'Upcoming meetings retrieved successfully'
         ]);
+    }
+
+    /**
+     * Clear meetings cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearMeetingsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for meetings list
+            $commonParams = [
+                '',
+                md5(serialize(['status' => 'scheduled', 'per_page' => 15])),
+                md5(serialize(['upcoming' => true, 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("meetings_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            // Clear analytics and upcoming meetings cache
+            Cache::forget("meetings_analytics_{$tenantId}_{$userId}_" . md5(serialize(['start_date' => now()->subDays(30)->toDateString(), 'end_date' => now()->toDateString()])));
+            Cache::forget("meetings_upcoming_{$tenantId}_{$userId}_10");
+
+            Log::info('Meetings cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) + 2
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear meetings cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

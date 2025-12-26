@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log as FrameworkLog;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
@@ -70,7 +71,14 @@ class CampaignsController extends Controller
         $query->orderBy($column, $direction);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $campaigns = $query->with(['recipients'])->paginate($perPage);
+        
+        // Create cache key for this specific query with tenant and user isolation
+        $cacheKey = "campaigns_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache campaigns list for 5 minutes (300 seconds)
+        $campaigns = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['recipients'])->paginate($perPage);
+        });
 
         return response()->json([
             'data' => CampaignResource::collection($campaigns->items()),
@@ -124,6 +132,9 @@ class CampaignsController extends Controller
 
         // Increment template usage count
         $template->increment('usage_count');
+
+        // Clear cache after creating campaign
+        $this->clearCampaignsCache($tenantId, $request->user()->id);
 
         return response()->json([
             'message' => 'Campaign created from template successfully',
@@ -224,6 +235,9 @@ class CampaignsController extends Controller
                 'created_by' => $request->user()->id,
             ]);
 
+            // Clear cache after creating template
+            $this->clearCampaignsCache($tenantId, $request->user()->id);
+
             return response()->json([
                 'message' => 'Template saved successfully',
                 'data' => [
@@ -286,6 +300,9 @@ class CampaignsController extends Controller
             }
         }
 
+        // Clear cache after creating campaign
+        $this->clearCampaignsCache($tenantId, $request->user()->id);
+
         return response()->json([
             'data' => new CampaignResource($campaign->load(['recipients'])),
         ], 201);
@@ -304,7 +321,15 @@ class CampaignsController extends Controller
                 $tenantId = 1; // default tenant
             }
         }
-        $campaign = Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant, user, and campaign ID isolation
+        $cacheKey = "campaign_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache campaign detail for 15 minutes (900 seconds)
+        $campaign = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            return Campaign::where('tenant_id', $tenantId)->findOrFail($id);
+        });
 
         $this->authorize('view', $campaign);
 
@@ -385,6 +410,10 @@ class CampaignsController extends Controller
             }
         }
 
+        // Clear cache after updating campaign
+        $this->clearCampaignsCache($tenantId, $request->user()->id);
+        Cache::forget("campaign_show_{$tenantId}_{$request->user()->id}_{$id}");
+
         return response()->json([
             'data' => new CampaignResource($campaign->load(['recipients'])),
         ]);
@@ -414,7 +443,12 @@ class CampaignsController extends Controller
             ], 422);
         }
 
+        $userId = $request->user()->id;
         $campaign->delete();
+
+        // Clear cache after deleting campaign
+        $this->clearCampaignsCache($tenantId, $userId);
+        Cache::forget("campaign_show_{$tenantId}_{$userId}_{$id}");
 
         return response()->json(['message' => 'Campaign deleted successfully']);
     }
@@ -491,6 +525,10 @@ class CampaignsController extends Controller
                 FrameworkLog::info('Campaign queued for async processing', ['campaign_id' => $campaign->id, 'queue' => $queue]);
             }
         }
+
+        // Clear cache after sending/scheduling campaign
+        $this->clearCampaignsCache($campaign->tenant_id, $request->user()->id);
+        Cache::forget("campaign_show_{$campaign->tenant_id}_{$request->user()->id}_{$id}");
 
         return response()->json([
             'data' => new CampaignResource($campaign->load(['recipients'])),
@@ -761,6 +799,10 @@ class CampaignsController extends Controller
 
         $campaign->update(['status' => 'paused']);
 
+        // Clear cache after pausing campaign
+        $this->clearCampaignsCache($tenantId, $request->user()->id);
+        Cache::forget("campaign_show_{$tenantId}_{$request->user()->id}_{$id}");
+
         return response()->json([
             'data' => new CampaignResource($campaign->load(['recipients'])),
             'message' => 'Campaign paused successfully',
@@ -789,6 +831,10 @@ class CampaignsController extends Controller
         }
 
         $campaign->update(['status' => 'active']);
+
+        // Clear cache after resuming campaign
+        $this->clearCampaignsCache($tenantId, $request->user()->id);
+        Cache::forget("campaign_show_{$tenantId}_{$request->user()->id}_{$id}");
 
         return response()->json([
             'data' => new CampaignResource($campaign->load(['recipients'])),
@@ -913,12 +959,19 @@ class CampaignsController extends Controller
             }
         }
 
-        // Get templates from campaign_templates table (not campaigns table)
-        $templates = \App\Models\CampaignTemplate::where('tenant_id', $tenantId)
-            ->where('is_active', true)
-            ->select(['id', 'name', 'description', 'subject', 'content', 'type', 'created_at', 'usage_count'])
-            ->orderBy('created_at', 'desc')
-            ->paginate(min((int) $request->query('per_page', 15), 100));
+        $userId = $request->user()->id;
+        
+        // Create cache key for templates with tenant and user isolation
+        $cacheKey = "campaigns_templates_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache templates list for 5 minutes (300 seconds)
+        $templates = Cache::remember($cacheKey, 300, function () use ($tenantId, $request) {
+            return \App\Models\CampaignTemplate::where('tenant_id', $tenantId)
+                ->where('is_active', true)
+                ->select(['id', 'name', 'description', 'subject', 'content', 'type', 'created_at', 'usage_count'])
+                ->orderBy('created_at', 'desc')
+                ->paginate(min((int) $request->query('per_page', 15), 100));
+        });
 
         return response()->json([
             'data' => $templates->items(),
@@ -955,6 +1008,9 @@ class CampaignsController extends Controller
         $newCampaign->save();
 
         // Do not copy recipients for duplicated campaigns (start fresh)
+
+        // Clear cache after duplicating campaign
+        $this->clearCampaignsCache($tenantId, $request->user()->id);
 
         return response()->json([
             'data' => new CampaignResource($newCampaign->load(['recipients'])),
@@ -996,6 +1052,10 @@ class CampaignsController extends Controller
             ]);
 
             DB::commit();
+
+            // Clear cache after creating ad campaign
+            $this->clearCampaignsCache($tenantId, $user->id);
+            Cache::forget("campaign_show_{$tenantId}_{$user->id}_{$campaignId}");
 
             return response()->json([
                 'data' => new CampaignResource($campaign),
@@ -1116,5 +1176,45 @@ class CampaignsController extends Controller
             'ctr' => $ctr,
             'cpc' => $cpc,
         ];
+    }
+
+    /**
+     * Clear campaigns cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearCampaignsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for campaigns list
+            $commonParams = [
+                '',
+                md5(serialize(['sort' => '-created_at', 'page' => 1, 'per_page' => 15])),
+                md5(serialize(['sort' => '-updated_at', 'page' => 1, 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("campaigns_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            // Clear templates cache
+            Cache::forget("campaigns_templates_{$tenantId}_{$userId}_" . md5(serialize([])));
+
+            Log::info('Campaigns cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) + 1
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear campaigns cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

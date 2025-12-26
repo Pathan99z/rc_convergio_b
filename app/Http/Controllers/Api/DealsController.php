@@ -98,26 +98,10 @@ class DealsController extends Controller
         // Create cache key for this specific query
         $cacheKey = "deals_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
         
-        // Debug: Log the query and results
-        Log::info('Deals API Debug', [
-            'tenant_id' => $tenantId,
-            'user_id' => $userId,
-            'all_query_params' => $request->all(),
-            'query_sql' => $query->toSql(),
-            'query_bindings' => $query->getBindings(),
-            'total_deals_before_pagination' => $query->count(),
-        ]);
-        
-        $deals = Cache::remember($cacheKey, 30, function () use ($query, $perPage) {
+        // Cache deals list for 5 minutes (300 seconds) - increased from 30 seconds for better performance
+        $deals = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
             return $query->with(['pipeline', 'stage', 'owner', 'contact', 'company'])->paginate($perPage);
         });
-        
-        Log::info('Deals API Results', [
-            'total_deals' => $deals->total(),
-            'current_page' => $deals->currentPage(),
-            'per_page' => $deals->perPage(),
-            'deals_count' => count($deals->items()),
-        ]);
 
         return response()->json([
             'data' => DealResource::collection($deals->items()),

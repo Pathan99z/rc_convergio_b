@@ -15,6 +15,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class QuoteController extends Controller
 {
@@ -94,7 +96,14 @@ class QuoteController extends Controller
 
         // Paginate
         $perPage = $request->query('per_page', 15);
-        $quotes = $query->paginate($perPage);
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "quotes_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache quotes list for 5 minutes (300 seconds)
+        $quotes = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->paginate($perPage);
+        });
 
         return QuoteResource::collection($quotes);
     }
@@ -112,6 +121,9 @@ class QuoteController extends Controller
 
         $quote = $this->quoteService->createQuote($data, $tenantId, $createdBy);
 
+        // Clear cache after creating quote
+        $this->clearQuotesCache($tenantId, $createdBy);
+
         return new QuoteResource($quote);
     }
 
@@ -121,25 +133,37 @@ class QuoteController extends Controller
     public function show(Request $request, Quote $quote): QuoteResource
     {
         $this->authorize('view', $quote);
-        $quote->load(['deal.company', 'deal.contact', 'deal.stage', 'deal.pipeline', 'items', 'creator']);
         
-        // Get linked documents for this quote
         $user = $request->user();
         $tenantId = $user ? ($user->tenant_id ?? $user->id) : 1;
+        $userId = $user ? $user->id : 1;
         
-        // Get linked documents for this quote using the new relationship approach
-        $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
-            ->where('related_type', 'App\\Models\\Quote')
-            ->where('related_id', $quote->id)
-            ->pluck('document_id');
+        // Create cache key with tenant, user, and quote ID isolation
+        $cacheKey = "quote_show_{$tenantId}_{$userId}_{$quote->id}";
+        
+        // Cache quote detail for 15 minutes (900 seconds)
+        $cachedData = Cache::remember($cacheKey, 900, function () use ($quote, $tenantId) {
+            $quote->load(['deal.company', 'deal.contact', 'deal.stage', 'deal.pipeline', 'items', 'creator']);
             
-        $documents = \App\Models\Document::where('tenant_id', $tenantId)
-            ->whereIn('id', $documentIds)
-            ->whereNull('deleted_at')
-            ->get();
+            // Get linked documents for this quote using the new relationship approach
+            $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
+                ->where('related_type', 'App\\Models\\Quote')
+                ->where('related_id', $quote->id)
+                ->pluck('document_id');
+                
+            $documents = \App\Models\Document::where('tenant_id', $tenantId)
+                ->whereIn('id', $documentIds)
+                ->whereNull('deleted_at')
+                ->get();
+            
+            return [
+                'quote' => $quote,
+                'documents' => $documents
+            ];
+        });
 
-        $resource = new QuoteResource($quote);
-        $resource->additional(['documents' => $documents]);
+        $resource = new QuoteResource($cachedData['quote']);
+        $resource->additional(['documents' => $cachedData['documents']]);
         
         return $resource;
     }
@@ -155,6 +179,10 @@ class QuoteController extends Controller
 
         $quote = $this->quoteService->updateQuote($quote, $data, $tenantId);
 
+        // Clear cache after updating quote
+        $this->clearQuotesCache($tenantId, $request->user()->id);
+        Cache::forget("quote_show_{$tenantId}_{$request->user()->id}_{$quote->id}");
+
         return new QuoteResource($quote);
     }
 
@@ -164,7 +192,16 @@ class QuoteController extends Controller
     public function destroy(Quote $quote): JsonResponse
     {
         $this->authorize('delete', $quote);
+        
+        $tenantId = $quote->tenant_id;
+        $userId = auth()->id();
+        $quoteId = $quote->id;
+        
         $quote->delete();
+
+        // Clear cache after deleting quote
+        $this->clearQuotesCache($tenantId, $userId);
+        Cache::forget("quote_show_{$tenantId}_{$userId}_{$quoteId}");
 
         return response()->json(['message' => 'Quote deleted successfully']);
     }
@@ -389,6 +426,43 @@ class QuoteController extends Controller
             return response()->json([
                 'message' => 'Failed to generate PDF: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Clear quotes cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearQuotesCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for quotes list
+            $commonParams = [
+                '',
+                md5(serialize(['sortBy' => 'created_at', 'sortOrder' => 'desc', 'per_page' => 15])),
+                md5(serialize(['sortBy' => 'updated_at', 'sortOrder' => 'desc', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("quotes_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('Quotes cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear quotes cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
         }
     }
 }

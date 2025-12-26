@@ -19,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 
 class EventsController extends Controller
@@ -37,13 +38,6 @@ class EventsController extends Controller
 
         $user = Auth::user();
         $tenantId = $user->tenant_id;
-
-        // Log for debugging tenant isolation
-        Log::info('Events index request', [
-            'tenant_id' => $tenantId,
-            'user_id' => $user->id,
-            'filters' => $request->query()
-        ]);
 
         $query = Event::where('tenant_id', $tenantId)
             ->with(['attendees' => function ($query) {
@@ -79,7 +73,15 @@ class EventsController extends Controller
             'per_page' => $request->get('per_page', 15),
         ];
 
-        $events = $this->eventService->getEventsForTenant($tenantId, $filters);
+        $userId = $user->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "events_list_{$tenantId}_{$userId}_" . md5(serialize($filters));
+        
+        // Cache events list for 5 minutes (300 seconds)
+        $events = Cache::remember($cacheKey, 300, function () use ($tenantId, $filters) {
+            return $this->eventService->getEventsForTenant($tenantId, $filters);
+        });
 
         return response()->json([
             'data' => EventResource::collection($events->items()),
@@ -182,6 +184,9 @@ class EventsController extends Controller
 
             DB::commit();
 
+            // Clear cache after creating event
+            $this->clearEventsCache($tenantId, $user->id);
+
             return response()->json([
                 'data' => new EventResource($event),
                 'message' => 'Event created successfully'
@@ -204,15 +209,25 @@ class EventsController extends Controller
         $user = Auth::user();
         $tenantId = $user->tenant_id;
 
-        $event = Event::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->with(['attendees.contact:id,first_name,last_name,email'])
-            ->firstOrFail();
+        $userId = $user->id;
+        
+        // Create cache key with tenant, user, and event ID isolation
+        $cacheKey = "event_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache event detail for 15 minutes (900 seconds)
+        $event = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            $event = Event::where('id', $id)
+                ->where('tenant_id', $tenantId)
+                ->with(['attendees.contact:id,first_name,last_name,email'])
+                ->firstOrFail();
+            
+            // Add RSVP statistics
+            $event->rsvp_stats = $event->getRsvpStats();
+            
+            return $event;
+        });
 
         $this->authorize('view', $event);
-
-        // Add RSVP statistics
-        $event->rsvp_stats = $event->getRsvpStats();
 
         return response()->json([
             'data' => $event,
@@ -244,6 +259,10 @@ class EventsController extends Controller
         try {
             $event->update($validated);
 
+            // Clear cache after updating event
+            $this->clearEventsCache($tenantId, $user->id);
+            Cache::forget("event_show_{$tenantId}_{$user->id}_{$id}");
+
             return response()->json([
                 'data' => $event->load(['attendees.contact:id,first_name,last_name,email']),
                 'message' => 'Event updated successfully'
@@ -272,7 +291,14 @@ class EventsController extends Controller
         $this->authorize('delete', $event);
 
         try {
+            $userId = $user->id;
+            $eventId = $event->id;
+            
             $event->delete();
+
+            // Clear cache after deleting event
+            $this->clearEventsCache($tenantId, $userId);
+            Cache::forget("event_show_{$tenantId}_{$userId}_{$eventId}");
 
             return response()->json([
                 'message' => 'Event deleted successfully'
@@ -333,6 +359,9 @@ class EventsController extends Controller
             }
 
             DB::commit();
+
+            // Clear cache after adding attendee
+            Cache::forget("event_show_{$tenantId}_{$user->id}_{$eventId}");
 
             return response()->json([
                 'data' => $attendee->load('contact:id,first_name,last_name,email'),
@@ -594,8 +623,15 @@ class EventsController extends Controller
 
         $user = Auth::user();
         $tenantId = $user->tenant_id;
+        $userId = $user->id;
 
-        $analytics = $this->eventService->getEventsAnalytics($tenantId);
+        // Create cache key for events analytics
+        $cacheKey = "events_analytics_{$tenantId}_{$userId}";
+        
+        // Cache events analytics for 5 minutes (300 seconds)
+        $analytics = Cache::remember($cacheKey, 300, function () use ($tenantId) {
+            return $this->eventService->getEventsAnalytics($tenantId);
+        });
 
         return response()->json([
             'data' => $analytics,
@@ -618,7 +654,15 @@ class EventsController extends Controller
 
         $this->authorize('view', $event);
 
-        $analytics = $this->eventService->getEventAnalytics($event);
+        $userId = $user->id;
+        
+        // Create cache key for event analytics
+        $cacheKey = "event_analytics_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache event analytics for 5 minutes (300 seconds)
+        $analytics = Cache::remember($cacheKey, 300, function () use ($event) {
+            return $this->eventService->getEventAnalytics($event);
+        });
 
         return response()->json([
             'data' => $analytics,
@@ -650,6 +694,46 @@ class EventsController extends Controller
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
             'Cache-Control' => 'no-cache, must-revalidate',
         ]);
+    }
+
+    /**
+     * Clear events cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearEventsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for events list
+            $commonParams = [
+                '',
+                md5(serialize(['status' => 'upcoming', 'per_page' => 15])),
+                md5(serialize(['status' => 'active', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("events_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            // Clear analytics cache
+            Cache::forget("events_analytics_{$tenantId}_{$userId}");
+
+            Log::info('Events cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) + 1
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear events cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }
 

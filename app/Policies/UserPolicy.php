@@ -23,13 +23,7 @@ class UserPolicy
      */
     public function view(User $user, User $model): bool
     {
-        // Super admin can view any user
-        if ($user->isSuperAdmin()) {
-            return true;
-        }
-        
-        // Users can view their own profile, admins can view any profile in their tenant
-        return $user->id === $model->id || ($user->hasRole('admin') && $user->tenant_id === $model->tenant_id);
+        return $this->canAccessUser($user, $model);
     }
 
     /**
@@ -46,13 +40,7 @@ class UserPolicy
      */
     public function update(User $user, User $model): bool
     {
-        // Super admin can update any user
-        if ($user->isSuperAdmin()) {
-            return true;
-        }
-        
-        // Users can update their own profile, admins can update any profile in their tenant
-        return $user->id === $model->id || ($user->hasRole('admin') && $user->tenant_id === $model->tenant_id);
+        return $this->canAccessUser($user, $model);
     }
 
     /**
@@ -60,13 +48,7 @@ class UserPolicy
      */
     public function delete(User $user, User $model): bool
     {
-        // Super admin can delete any user except themselves
-        if ($user->isSuperAdmin()) {
-            return $user->id !== $model->id;
-        }
-        
-        // Tenant admins can delete users in their tenant, and users cannot delete themselves
-        return $user->hasRole('admin') && $user->tenant_id === $model->tenant_id && $user->id !== $model->id;
+        return $this->canDeleteUser($user, $model);
     }
 
     /**
@@ -88,12 +70,46 @@ class UserPolicy
      */
     public function forceDelete(User $user, User $model): bool
     {
-        // Super admin can permanently delete any user except themselves
+        return $this->canDeleteUser($user, $model);
+    }
+
+    /**
+     * Check if user can access (view/update) another user.
+     * Super admin can access any user, otherwise users can access their own profile
+     * or admins can access any profile in their tenant.
+     *
+     * @param User $user
+     * @param User $model
+     * @return bool
+     */
+    private function canAccessUser(User $user, User $model): bool
+    {
+        // Super admin can access any user
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        
+        // Users can access their own profile, admins can access any profile in their tenant
+        return $user->id === $model->id || ($user->hasRole('admin') && $user->tenant_id === $model->tenant_id);
+    }
+
+    /**
+     * Check if user can delete (soft delete or force delete) another user.
+     * Super admin can delete any user except themselves, otherwise tenant admins
+     * can delete users in their tenant except themselves.
+     *
+     * @param User $user
+     * @param User $model
+     * @return bool
+     */
+    private function canDeleteUser(User $user, User $model): bool
+    {
+        // Super admin can delete any user except themselves
         if ($user->isSuperAdmin()) {
             return $user->id !== $model->id;
         }
         
-        // Tenant admins can permanently delete users in their tenant, and users cannot delete themselves
+        // Tenant admins can delete users in their tenant, and users cannot delete themselves
         return $user->hasRole('admin') && $user->tenant_id === $model->tenant_id && $user->id !== $model->id;
     }
 }

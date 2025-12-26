@@ -12,6 +12,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class JourneysController extends Controller
@@ -31,32 +33,42 @@ class JourneysController extends Controller
         $user = Auth::user();
         $tenantId = $user->tenant_id;
 
-        $query = Journey::where('tenant_id', $tenantId)
-            ->with(['steps' => function ($query) {
-                $query->orderBy('order_no');
-            }]);
+        $userId = $user->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "journeys_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache journeys list for 5 minutes (300 seconds)
+        $journeys = Cache::remember($cacheKey, 300, function () use ($tenantId, $request) {
+            $query = Journey::where('tenant_id', $tenantId)
+                ->with(['steps' => function ($query) {
+                    $query->orderBy('order_no');
+                }]);
 
-        // Filter by status if provided
-        if ($request->has('status')) {
-            $query->where('status', $request->get('status'));
-        }
+            // Filter by status if provided
+            if ($request->has('status')) {
+                $query->where('status', $request->get('status'));
+            }
 
-        // Filter by active status if provided
-        if ($request->has('is_active')) {
-            $query->where('is_active', $request->boolean('is_active'));
-        }
+            // Filter by active status if provided
+            if ($request->has('is_active')) {
+                $query->where('is_active', $request->boolean('is_active'));
+            }
 
-        $journeys = $query->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+            $journeys = $query->orderBy('created_at', 'desc')
+                ->paginate($request->get('per_page', 15));
 
-        // Add step descriptions to each journey
-        $journeys->getCollection()->transform(function ($journey) {
-            $journey->steps->transform(function ($step) {
-                $step->description = $step->getDescription();
-                return $step;
+            // Add step descriptions to each journey
+            $journeys->getCollection()->transform(function ($journey) {
+                $journey->steps->transform(function ($step) {
+                    $step->description = $step->getDescription();
+                    return $step;
+                });
+                $journey->stats = $journey->getStats();
+                return $journey;
             });
-            $journey->stats = $journey->getStats();
-            return $journey;
+            
+            return $journeys;
         });
 
         return response()->json([
@@ -143,6 +155,9 @@ class JourneysController extends Controller
                 return $step;
             });
 
+            // Clear cache after creating journey
+            $this->clearJourneysCache($tenantId, $user->id);
+
             return response()->json([
                 'data' => $journey,
                 'message' => 'Journey created successfully'
@@ -164,21 +179,30 @@ class JourneysController extends Controller
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id;
+        $userId = $user->id;
 
-        $journey = Journey::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->with(['steps' => function ($query) {
-                $query->orderBy('order_no');
-            }])
-            ->firstOrFail();
+        // Create cache key with tenant, user, and journey ID isolation
+        $cacheKey = "journey_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache journey detail for 15 minutes (900 seconds)
+        $journey = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            $journey = Journey::where('id', $id)
+                ->where('tenant_id', $tenantId)
+                ->with(['steps' => function ($query) {
+                    $query->orderBy('order_no');
+                }])
+                ->firstOrFail();
 
-        // Add step descriptions
-        $journey->steps->transform(function ($step) {
-            $step->description = $step->getDescription();
-            return $step;
+            // Add step descriptions
+            $journey->steps->transform(function ($step) {
+                $step->description = $step->getDescription();
+                return $step;
+            });
+
+            $journey->stats = $journey->getStats();
+            
+            return $journey;
         });
-
-        $journey->stats = $journey->getStats();
 
         return response()->json([
             'data' => $journey,
@@ -223,6 +247,10 @@ class JourneysController extends Controller
                 return $step;
             });
 
+            // Clear cache after updating journey
+            $this->clearJourneysCache($tenantId, $user->id);
+            Cache::forget("journey_show_{$tenantId}_{$user->id}_{$id}");
+
             return response()->json([
                 'data' => $journey,
                 'message' => 'Journey updated successfully'
@@ -249,7 +277,14 @@ class JourneysController extends Controller
             ->firstOrFail();
 
         try {
+            $userId = $user->id;
+            $journeyId = $journey->id;
+            
             $journey->delete();
+
+            // Clear cache after deleting journey
+            $this->clearJourneysCache($tenantId, $userId);
+            Cache::forget("journey_show_{$tenantId}_{$userId}_{$journeyId}");
 
             return response()->json([
                 'message' => 'Journey deleted successfully'
@@ -283,6 +318,9 @@ class JourneysController extends Controller
 
         try {
             $execution = $this->journeyEngine->startJourney($journey, $contact);
+
+            // Clear cache after starting journey execution
+            Cache::forget("journey_executions_{$tenantId}_{$user->id}_{$journeyId}_" . md5(serialize([])));
 
             return response()->json([
                 'data' => [
@@ -318,23 +356,33 @@ class JourneysController extends Controller
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
 
-        $query = JourneyExecution::where('journey_id', $journeyId)
-            ->where('tenant_id', $tenantId)
-            ->with(['contact:id,first_name,last_name,email', 'currentStep:id,step_type,order_no']);
+        $userId = $user->id;
+        
+        // Create cache key for journey executions
+        $cacheKey = "journey_executions_{$tenantId}_{$userId}_{$journeyId}_" . md5(serialize($request->all()));
+        
+        // Cache journey executions for 5 minutes (300 seconds)
+        $executions = Cache::remember($cacheKey, 300, function () use ($journeyId, $tenantId, $request) {
+            $query = JourneyExecution::where('journey_id', $journeyId)
+                ->where('tenant_id', $tenantId)
+                ->with(['contact:id,first_name,last_name,email', 'currentStep:id,step_type,order_no']);
 
-        // Filter by status if provided
-        if ($request->has('status')) {
-            $query->where('status', $request->get('status'));
-        }
+            // Filter by status if provided
+            if ($request->has('status')) {
+                $query->where('status', $request->get('status'));
+            }
 
-        $executions = $query->orderBy('started_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+            $executions = $query->orderBy('started_at', 'desc')
+                ->paginate($request->get('per_page', 15));
 
-        // Add execution details
-        $executions->getCollection()->transform(function ($execution) {
-            $execution->progress_percentage = $execution->getProgressPercentage();
-            $execution->duration_minutes = $execution->getDuration();
-            return $execution;
+            // Add execution details
+            $executions->getCollection()->transform(function ($execution) {
+                $execution->progress_percentage = $execution->getProgressPercentage();
+                $execution->duration_minutes = $execution->getDuration();
+                return $execution;
+            });
+            
+            return $executions;
         });
 
         return response()->json([
@@ -822,5 +870,42 @@ class JourneysController extends Controller
         ];
 
         return $colors[$type] ?? 'gray';
+    }
+
+    /**
+     * Clear journeys cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearJourneysCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for journeys list
+            $commonParams = [
+                '',
+                md5(serialize(['status' => 'active', 'per_page' => 15])),
+                md5(serialize(['is_active' => true, 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("journeys_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('Journeys cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear journeys cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

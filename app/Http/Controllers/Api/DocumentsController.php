@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DocumentsController extends Controller
@@ -66,8 +68,15 @@ class DocumentsController extends Controller
         $query->orderBy($sortBy, $sortOrder);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $documents = $query->with(['owner', 'creator', 'team', 'related'])->paginate($perPage);
-
+        $userId = $user->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "documents_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache documents list for 5 minutes (300 seconds)
+        $documents = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['owner', 'creator', 'team', 'related'])->paginate($perPage);
+        });
 
         return response()->json([
             'data' => $documents->items(),
@@ -110,6 +119,9 @@ class DocumentsController extends Controller
 
         $document = $this->documentService->uploadDocument($file, $metadata);
 
+        // Clear cache after creating document
+        $this->clearDocumentsCache($tenantId, $request->user()->id);
+
         return response()->json([
             'data' => $document->load(['owner', 'creator', 'team', 'related']),
             'message' => 'Document uploaded successfully',
@@ -128,7 +140,15 @@ class DocumentsController extends Controller
         
         $user = $request->user();
         $tenantId = $user->tenant_id ?? $user->id;
-        $document = Document::where('tenant_id', $tenantId)->findOrFail((int) $id);
+        $userId = $user->id;
+        
+        // Create cache key with tenant, user, and document ID isolation
+        $cacheKey = "document_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache document detail for 15 minutes (900 seconds)
+        $document = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            return Document::where('tenant_id', $tenantId)->findOrFail((int) $id);
+        });
 
         $this->authorize('view', $document);
 
@@ -173,6 +193,10 @@ class DocumentsController extends Controller
         $data = $request->only(['title', 'description', 'visibility', 'related_type', 'related_id', 'metadata', 'owner_id']);
         $document = $this->documentService->updateDocument($document, $data);
 
+        // Clear cache after updating document
+        $this->clearDocumentsCache($tenantId, $request->user()->id);
+        Cache::forget("document_show_{$tenantId}_{$request->user()->id}_{$id}");
+
         return response()->json([
             'data' => $document->load(['owner', 'creator', 'team', 'related']),
             'message' => 'Document updated successfully',
@@ -195,7 +219,14 @@ class DocumentsController extends Controller
 
         $this->authorize('delete', $document);
 
+        $userId = $user->id;
+        $documentId = $document->id;
+
         $this->documentService->deleteDocument($document);
+
+        // Clear cache after deleting document
+        $this->clearDocumentsCache($tenantId, $userId);
+        Cache::forget("document_show_{$tenantId}_{$userId}_{$documentId}");
 
         return response()->json([
             'message' => 'Document deleted successfully',
@@ -238,9 +269,16 @@ class DocumentsController extends Controller
 
         $user = $request->user();
         $tenantId = $user->tenant_id ?? $user->id;
+        $userId = $user->id;
         $teamId = $request->get('team_id');
 
-        $analytics = $this->documentService->getAnalytics($tenantId, $teamId);
+        // Create cache key for document analytics
+        $cacheKey = "documents_analytics_{$tenantId}_{$userId}_" . ($teamId ? "team_{$teamId}" : 'all');
+        
+        // Cache document analytics for 5 minutes (300 seconds)
+        $analytics = Cache::remember($cacheKey, 300, function () use ($tenantId, $teamId) {
+            return $this->documentService->getAnalytics($tenantId, $teamId);
+        });
 
         return response()->json([
             'data' => $analytics,
@@ -352,10 +390,53 @@ class DocumentsController extends Controller
             ->with('related')
             ->first();
 
+        // Clear cache after linking document
+        Cache::forget("document_show_{$tenantId}_{$request->user()->id}_{$id}");
+
         return response()->json([
             'data' => $document,
             'linked_to' => $newRelationship ? $newRelationship->related : null,
             'message' => 'Document linked successfully',
         ]);
+    }
+
+    /**
+     * Clear documents cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearDocumentsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for documents list
+            $commonParams = [
+                '',
+                md5(serialize(['sort_by' => 'created_at', 'sort_order' => 'desc', 'per_page' => 15])),
+                md5(serialize(['sort_by' => 'updated_at', 'sort_order' => 'desc', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("documents_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            // Clear analytics cache
+            Cache::forget("documents_analytics_{$tenantId}_{$userId}_all");
+
+            Log::info('Documents cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) + 1
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear documents cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

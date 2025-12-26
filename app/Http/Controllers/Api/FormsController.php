@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class FormsController extends Controller
 {
@@ -40,7 +41,15 @@ class FormsController extends Controller
             'sortOrder' => $request->get('sortOrder', 'desc'),
         ];
 
-        $forms = $this->formService->getForms($filters, $request->get('per_page', 15));
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "forms_list_{$tenantId}_{$userId}_" . md5(serialize($filters + ['per_page' => $request->get('per_page', 15)]));
+        
+        // Cache forms list for 5 minutes (300 seconds)
+        $forms = Cache::remember($cacheKey, 300, function () use ($filters, $request) {
+            return $this->formService->getForms($filters, $request->get('per_page', 15));
+        });
 
         return FormResource::collection($forms);
     }
@@ -59,6 +68,9 @@ class FormsController extends Controller
 
         $form = $this->formService->createForm($data);
 
+        // Clear cache after creating form
+        $this->clearFormsCache($tenantId, $request->user()->id);
+
         return new FormResource($form);
     }
 
@@ -69,7 +81,16 @@ class FormsController extends Controller
     {
         $this->authorize('view', $form);
 
-        $form = $this->formService->getFormWithSubmissions($form);
+        $tenantId = $form->tenant_id;
+        $userId = auth()->id();
+        
+        // Create cache key with tenant, user, and form ID isolation
+        $cacheKey = "form_show_{$tenantId}_{$userId}_{$form->id}";
+        
+        // Cache form detail for 15 minutes (900 seconds)
+        $form = Cache::remember($cacheKey, 900, function () use ($form) {
+            return $this->formService->getFormWithSubmissions($form);
+        });
 
         return new FormResource($form);
     }
@@ -84,6 +105,10 @@ class FormsController extends Controller
         $data = $request->validated();
         $this->formService->updateForm($form, $data);
 
+        // Clear cache after updating form
+        $this->clearFormsCache($form->tenant_id, auth()->id());
+        Cache::forget("form_show_{$form->tenant_id}_{$request->user()->id}_{$form->id}");
+
         $form->refresh();
         return new FormResource($form);
     }
@@ -95,7 +120,15 @@ class FormsController extends Controller
     {
         $this->authorize('delete', $form);
 
+        $tenantId = $form->tenant_id;
+        $userId = auth()->id();
+        $formId = $form->id;
+
         $this->formService->deleteForm($form);
+
+        // Clear cache after deleting form
+        $this->clearFormsCache($tenantId, $userId);
+        Cache::forget("form_show_{$tenantId}_{$userId}_{$formId}");
 
         return response()->json(['message' => 'Form deleted successfully']);
     }
@@ -107,7 +140,16 @@ class FormsController extends Controller
     {
         $this->authorize('view', $form);
 
-        $submissions = $this->formService->getFormSubmissions($form, $request->get('per_page', 15));
+        $tenantId = $form->tenant_id;
+        $userId = auth()->id();
+        
+        // Create cache key for form submissions
+        $cacheKey = "form_submissions_{$tenantId}_{$userId}_{$form->id}_" . md5(serialize(['per_page' => $request->get('per_page', 15)]));
+        
+        // Cache form submissions for 5 minutes (300 seconds)
+        $submissions = Cache::remember($cacheKey, 300, function () use ($form, $request) {
+            return $this->formService->getFormSubmissions($form, $request->get('per_page', 15));
+        });
 
         return FormSubmissionResource::collection($submissions);
     }
@@ -333,5 +375,42 @@ class FormsController extends Controller
             'success' => true,
             'exists' => $exists
         ]);
+    }
+
+    /**
+     * Clear forms cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearFormsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for forms list
+            $commonParams = [
+                '',
+                md5(serialize(['sortBy' => 'created_at', 'sortOrder' => 'desc', 'per_page' => 15])),
+                md5(serialize(['sortBy' => 'updated_at', 'sortOrder' => 'desc', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("forms_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('Forms cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear forms cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

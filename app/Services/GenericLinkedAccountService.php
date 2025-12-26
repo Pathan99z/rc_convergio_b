@@ -75,74 +75,9 @@ class GenericLinkedAccountService
                 ->where('email', $convergioUser->email)
                 ->first();
 
-            if ($existingConsoleUser) {
-                if (!empty($existingConsoleUser->company_cd)) {
-                    $this->ensureConsoleCompanyExists($existingConsoleUser->company_cd, $convergioUser);
-                }
-                
-                DB::connection('console')
-                    ->table('users')
-                    ->where('user_id', $existingConsoleUser->user_id)
-                    ->update([
-                        'user_group_cd' => '002',
-                        'user_level' => '2',
-                        'flagactive' => $convergioUser->status === 'active' ? 'Y' : 'N',
-                        'last_updated_date' => now()->format('Y-m-d'),
-                        'last_updated_time' => now()->format('H:i:s'),
-                    ]);
-                
-                $this->createOrUpdateLink(
-                    $convergioUser->id,
-                    $existingConsoleUser->user_id,
-                    LinkedAccountConstants::PRODUCT_CONSOLE,
-                    $integrationType,
-                    $existingConsoleUser->user_uid ?? '',
-                    $existingConsoleUser->username ?? ''
-                );
-                
-                return $existingConsoleUser->user_id;
-            }
-
-            $username = $this->generateConsoleUsername($convergioUser->email);
-            $randomPassword = md5(Str::random(32));
-
-            $consoleUserData = [
-                'fullname' => $convergioUser->name,
-                'username' => $username,
-                'password' => $randomPassword,
-                'email' => $convergioUser->email,
-                'company_cd' => $companyCd,
-                'user_group_cd' => '002',
-                'user_level' => '2',
-                'user_uid' => (string) $convergioUser->id,
-                'user_created_by' => (string) $convergioUser->id,
-                'user_created_date' => $convergioUser->created_at->format('Y-m-d'),
-                'flagactive' => $convergioUser->status === 'active' ? 'Y' : 'N',
-                'user_terms_flag' => 0,
-                'last_updated_date' => now()->format('Y-m-d'),
-                'last_updated_time' => now()->format('H:i:s'),
-            ];
-
-            DB::connection('console')->table('users')->insert($consoleUserData);
-            
-            $consoleUserId = DB::connection('console')->getPdo()->lastInsertId();
-
-            $this->createOrUpdateLink(
-                $convergioUser->id,
-                $consoleUserId,
-                LinkedAccountConstants::PRODUCT_CONSOLE,
-                $integrationType,
-                (string) $convergioUser->id,
-                $username
-            );
-
-            Log::info('Admin user synced to Console', [
-                'convergio_user_id' => $convergioUser->id,
-                'console_user_id' => $consoleUserId,
-                'integration_type' => $integrationType,
-            ]);
-
-            return $consoleUserId;
+            return $existingConsoleUser
+                ? $this->updateExistingConsoleUser($convergioUser, $existingConsoleUser, $integrationType)
+                : $this->createNewConsoleUser($convergioUser, $companyCd, $integrationType);
 
         } catch (\Exception $e) {
             Log::error('Failed to sync user to Console', [
@@ -151,6 +86,98 @@ class GenericLinkedAccountService
             ]);
             return null;
         }
+    }
+
+    /**
+     * Update existing Console user
+     *
+     * @param User $convergioUser
+     * @param object $existingConsoleUser
+     * @param int $integrationType
+     * @return int
+     */
+    private function updateExistingConsoleUser(
+        User $convergioUser,
+        object $existingConsoleUser,
+        int $integrationType
+    ): int {
+        if (!empty($existingConsoleUser->company_cd)) {
+            $this->ensureConsoleCompanyExists($existingConsoleUser->company_cd, $convergioUser);
+        }
+        
+        DB::connection('console')
+            ->table('users')
+            ->where('user_id', $existingConsoleUser->user_id)
+            ->update([
+                'user_group_cd' => '002',
+                'user_level' => '2',
+                'flagactive' => $convergioUser->status === 'active' ? 'Y' : 'N',
+                'last_updated_date' => now()->format('Y-m-d'),
+                'last_updated_time' => now()->format('H:i:s'),
+            ]);
+        
+        $this->createOrUpdateLink(
+            $convergioUser->id,
+            $existingConsoleUser->user_id,
+            LinkedAccountConstants::PRODUCT_CONSOLE,
+            $integrationType,
+            $existingConsoleUser->user_uid ?? '',
+            $existingConsoleUser->username ?? ''
+        );
+        
+        return $existingConsoleUser->user_id;
+    }
+
+    /**
+     * Create new Console user
+     *
+     * @param User $convergioUser
+     * @param string $companyCd
+     * @param int $integrationType
+     * @return int
+     */
+    private function createNewConsoleUser(User $convergioUser, string $companyCd, int $integrationType): int
+    {
+        $username = $this->generateConsoleUsername($convergioUser->email);
+        $randomPassword = md5(Str::random(32));
+
+        $consoleUserData = [
+            'fullname' => $convergioUser->name,
+            'username' => $username,
+            'password' => $randomPassword,
+            'email' => $convergioUser->email,
+            'company_cd' => $companyCd,
+            'user_group_cd' => '002',
+            'user_level' => '2',
+            'user_uid' => (string) $convergioUser->id,
+            'user_created_by' => (string) $convergioUser->id,
+            'user_created_date' => $convergioUser->created_at->format('Y-m-d'),
+            'flagactive' => $convergioUser->status === 'active' ? 'Y' : 'N',
+            'user_terms_flag' => 0,
+            'last_updated_date' => now()->format('Y-m-d'),
+            'last_updated_time' => now()->format('H:i:s'),
+        ];
+
+        DB::connection('console')->table('users')->insert($consoleUserData);
+        
+        $consoleUserId = DB::connection('console')->getPdo()->lastInsertId();
+
+        $this->createOrUpdateLink(
+            $convergioUser->id,
+            $consoleUserId,
+            LinkedAccountConstants::PRODUCT_CONSOLE,
+            $integrationType,
+            (string) $convergioUser->id,
+            $username
+        );
+
+        Log::info('Admin user synced to Console', [
+            'convergio_user_id' => $convergioUser->id,
+            'console_user_id' => $consoleUserId,
+            'integration_type' => $integrationType,
+        ]);
+
+        return $consoleUserId;
     }
 
     /**

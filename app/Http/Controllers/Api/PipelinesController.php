@@ -11,6 +11,7 @@ use App\Models\Pipeline;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class PipelinesController extends Controller
 {
@@ -32,7 +33,15 @@ class PipelinesController extends Controller
         $query->orderBy($column, $direction);
 
         $perPage = min((int) $request->query('per_page', 15), 100);
-        $pipelines = $query->with(['stages'])->paginate($perPage);
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "pipelines_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache pipelines list for 5 minutes (300 seconds)
+        $pipelines = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['stages'])->paginate($perPage);
+        });
 
         return response()->json([
             'data' => PipelineResource::collection($pipelines->items()),
@@ -70,6 +79,9 @@ class PipelinesController extends Controller
 
         $pipeline = Pipeline::create($data);
 
+        // Clear cache after creating pipeline
+        $this->clearPipelinesCache($tenantId, $request->user()->id);
+
         return response()->json([
             'data' => new PipelineResource($pipeline->load(['stages'])),
         ], 201);
@@ -81,6 +93,16 @@ class PipelinesController extends Controller
         $pipeline = Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
 
         $this->authorize('view', $pipeline);
+
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant, user, and pipeline ID isolation
+        $cacheKey = "pipeline_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache pipeline detail for 15 minutes (900 seconds)
+        $pipeline = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            return Pipeline::where('tenant_id', $tenantId)->findOrFail($id);
+        });
 
         return response()->json([
             'data' => new PipelineResource($pipeline->load(['stages'])),
@@ -96,6 +118,10 @@ class PipelinesController extends Controller
 
         $pipeline->update($request->validated());
 
+        // Clear cache after updating pipeline
+        $this->clearPipelinesCache($tenantId, $request->user()->id);
+        Cache::forget("pipeline_show_{$tenantId}_{$request->user()->id}_{$id}");
+
         return response()->json([
             'data' => new PipelineResource($pipeline->load(['stages'])),
         ]);
@@ -108,7 +134,14 @@ class PipelinesController extends Controller
 
         $this->authorize('delete', $pipeline);
 
+        $userId = $request->user()->id;
+        $pipelineId = $pipeline->id;
+
         $pipeline->delete();
+
+        // Clear cache after deleting pipeline
+        $this->clearPipelinesCache($tenantId, $userId);
+        Cache::forget("pipeline_show_{$tenantId}_{$userId}_{$pipelineId}");
 
         return response()->json(['message' => 'Pipeline deleted successfully']);
     }
@@ -120,7 +153,15 @@ class PipelinesController extends Controller
 
         $this->authorize('view', $pipeline);
 
-        $stages = $pipeline->stages()->orderBy('sort_order')->get();
+        $userId = $request->user()->id;
+        
+        // Create cache key for pipeline stages
+        $cacheKey = "pipeline_stages_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache pipeline stages for 5 minutes (300 seconds)
+        $stages = Cache::remember($cacheKey, 300, function () use ($pipeline) {
+            return $pipeline->stages()->orderBy('sort_order')->get();
+        });
 
         return response()->json([
             'data' => StageResource::collection($stages),
@@ -174,5 +215,42 @@ class PipelinesController extends Controller
         ];
 
         return response()->json($kanbanData);
+    }
+
+    /**
+     * Clear pipelines cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearPipelinesCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for pipelines list
+            $commonParams = [
+                '',
+                md5(serialize(['sort' => 'sort_order', 'per_page' => 15])),
+                md5(serialize(['is_active' => true, 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("pipelines_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('Pipelines cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear pipelines cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

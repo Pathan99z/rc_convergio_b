@@ -8,6 +8,8 @@ use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class AnalyticsController extends Controller
@@ -50,8 +52,16 @@ class AnalyticsController extends Controller
             'period' => $validated['period'] ?? 'month',
         ];
 
+        $userId = $user->id;
+        
+        // Create cache key with tenant, user, period, and modules
+        $cacheKey = "analytics_dashboard_{$tenantId}_{$userId}_{$filters['period']}_" . md5(serialize($validated['modules'] ?? []));
+        
         try {
-            $analytics = $this->analyticsService->getDashboardAnalytics($tenantId, $filters['period']);
+            // Cache dashboard analytics for 5 minutes (300 seconds)
+            $analytics = Cache::remember($cacheKey, 300, function () use ($tenantId, $filters) {
+                return $this->analyticsService->getDashboardAnalytics($tenantId, $filters['period']);
+            });
 
             // Filter modules if requested
             if (isset($validated['modules'])) {
@@ -99,8 +109,16 @@ class AnalyticsController extends Controller
             'period' => $validated['period'] ?? 'month',
         ];
 
+        $userId = $user->id;
+        
+        // Create cache key with tenant, user, module, and period
+        $cacheKey = "analytics_module_{$tenantId}_{$userId}_{$module}_{$filters['period']}";
+        
         try {
-            $analytics = $this->analyticsService->getModuleAnalytics($tenantId, $module, $filters);
+            // Cache module analytics for 5 minutes (300 seconds)
+            $analytics = Cache::remember($cacheKey, 300, function () use ($tenantId, $module, $filters) {
+                return $this->analyticsService->getModuleAnalytics($tenantId, $module, $filters);
+            });
 
             return response()->json([
                 'data' => $analytics,

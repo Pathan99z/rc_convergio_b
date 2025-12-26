@@ -45,7 +45,16 @@ class CompaniesController extends Controller
 
         $perPage = min($request->get('pageSize', 15), 100); // Max 100 per page
 
-        $companies = $this->companyService->getCompanies($filters, $perPage);
+        $tenantId = $filters['tenant_id'];
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "companies_list_{$tenantId}_{$userId}_" . md5(serialize($filters + ['per_page' => $perPage]));
+        
+        // Cache companies list for 5 minutes (300 seconds)
+        $companies = Cache::remember($cacheKey, 300, function () use ($filters, $perPage) {
+            return $this->companyService->getCompanies($filters, $perPage);
+        });
 
         return response()->json([
             'success' => true,
@@ -118,6 +127,9 @@ class CompaniesController extends Controller
         // Load the company with contacts for the response
         $company->load(['owner:id,name,email', 'contacts']);
 
+        // Clear cache after creating company
+        $this->clearCompaniesCache($data['tenant_id'], $request->user()->id);
+
         return response()->json([
             'success' => true,
             'data' => new CompanyResource($company),
@@ -139,27 +151,38 @@ class CompaniesController extends Controller
         
         $this->authorize('view', $company);
 
-        $company->load(['owner:id,name,email', 'contacts']);
-
-        // Get linked documents for this company
         $user = $request->user();
         $tenantId = $user ? ($user->tenant_id ?? $user->id) : 1;
+        $userId = $user ? $user->id : 1;
         
-        // Get linked documents for this company using the new relationship approach
-        $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
-            ->where('related_type', 'App\\Models\\Company')
-            ->where('related_id', $id)
-            ->pluck('document_id');
+        // Create cache key with tenant, user, and company ID isolation
+        $cacheKey = "company_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache company detail for 15 minutes (900 seconds)
+        $cachedData = Cache::remember($cacheKey, 900, function () use ($company, $tenantId, $id) {
+            $company->load(['owner:id,name,email', 'contacts']);
+
+            // Get linked documents for this company using the new relationship approach
+            $documentIds = \App\Models\DocumentRelationship::where('tenant_id', $tenantId)
+                ->where('related_type', 'App\\Models\\Company')
+                ->where('related_id', $id)
+                ->pluck('document_id');
+                
+            $documents = \App\Models\Document::where('tenant_id', $tenantId)
+                ->whereIn('id', $documentIds)
+                ->whereNull('deleted_at')
+                ->get();
             
-        $documents = \App\Models\Document::where('tenant_id', $tenantId)
-            ->whereIn('id', $documentIds)
-            ->whereNull('deleted_at')
-            ->get();
+            return [
+                'company' => $company,
+                'documents' => $documents
+            ];
+        });
 
         return response()->json([
             'success' => true,
-            'data' => new CompanyResource($company),
-            'documents' => $documents
+            'data' => new CompanyResource($cachedData['company']),
+            'documents' => $cachedData['documents']
         ]);
     }
 
@@ -179,6 +202,10 @@ class CompaniesController extends Controller
         $data = $request->validated();
         
         $this->companyService->updateCompany($company, $data);
+
+        // Clear cache after updating company
+        $this->clearCompaniesCache($company->tenant_id, $request->user()->id);
+        Cache::forget("company_show_{$company->tenant_id}_{$request->user()->id}_{$id}");
 
         return response()->json([
             'success' => true,
@@ -200,7 +227,15 @@ class CompaniesController extends Controller
         $company = Company::findOrFail((int) $id);
         $this->authorize('delete', $company);
 
+        $tenantId = $company->tenant_id;
+        $userId = auth()->id();
+        $companyId = $company->id;
+
         $this->companyService->deleteCompany($company);
+
+        // Clear cache after deleting company
+        $this->clearCompaniesCache($tenantId, $userId);
+        Cache::forget("company_show_{$tenantId}_{$userId}_{$companyId}");
 
         return response()->json([
             'success' => true,
@@ -216,9 +251,16 @@ class CompaniesController extends Controller
         $this->authorize('viewAny', Company::class);
 
         $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
+        $userId = $request->user()->id;
         $perPage = min($request->get('pageSize', 15), 100);
 
-        $companies = $this->companyService->getDeletedCompanies($tenantId, $perPage);
+        // Create cache key for deleted companies
+        $cacheKey = "companies_deleted_{$tenantId}_{$userId}_" . md5(serialize(['per_page' => $perPage]));
+        
+        // Cache deleted companies for 5 minutes (300 seconds)
+        $companies = Cache::remember($cacheKey, 300, function () use ($tenantId, $perPage) {
+            return $this->companyService->getDeletedCompanies($tenantId, $perPage);
+        });
 
         return response()->json([
             'success' => true,
@@ -257,6 +299,9 @@ class CompaniesController extends Controller
             ], 404);
         }
 
+        // Clear cache after restoring company
+        $this->clearCompaniesCache($tenantId, $request->user()->id);
+
         return response()->json([
             'success' => true,
             'message' => 'Company restored successfully'
@@ -283,6 +328,9 @@ class CompaniesController extends Controller
 
         $contactIds = $request->input('contact_ids');
         $this->companyService->attachContacts($company, $contactIds);
+
+        // Clear cache after attaching contacts
+        Cache::forget("company_show_{$company->tenant_id}_{$request->user()->id}_{$id}");
 
         return response()->json([
             'success' => true,
@@ -311,6 +359,9 @@ class CompaniesController extends Controller
                 'message' => 'Contact not found or not associated with this company'
             ], 404);
         }
+
+        // Clear cache after detaching contact
+        Cache::forget("company_show_{$company->tenant_id}_{$request->user()->id}_{$id}");
 
         return response()->json([
             'success' => true,
@@ -394,6 +445,9 @@ class CompaniesController extends Controller
         $tenantId = optional($request->user())->tenant_id ?? $request->user()->id;
 
         $result = $this->companyService->bulkCreate($companiesData, $tenantId);
+
+        // Clear cache after bulk creating companies
+        $this->clearCompaniesCache($tenantId, $request->user()->id);
 
         return response()->json([
             'success' => true,
@@ -479,6 +533,9 @@ class CompaniesController extends Controller
                     'mode' => 'sync'
                 ]);
 
+                // Clear cache after importing companies
+                $this->clearCompaniesCache($tenantId, $userId);
+
                 return response()->json([
                     'success' => true,
                     'data' => [
@@ -556,6 +613,9 @@ class CompaniesController extends Controller
                         'mode' => 'sync_fallback'
                     ]);
 
+                    // Clear cache after importing companies
+                    $this->clearCompaniesCache($tenantId, $userId);
+
                     return response()->json([
                         'success' => true,
                         'data' => [
@@ -603,7 +663,16 @@ class CompaniesController extends Controller
         $company = Company::findOrFail((int) $id);
         $this->authorize('view', $company);
 
-        $contacts = $company->contacts()->with(['owner:id,name,email'])->get();
+        $tenantId = $company->tenant_id;
+        $userId = auth()->id();
+        
+        // Create cache key for company contacts
+        $cacheKey = "company_contacts_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache company contacts for 5 minutes (300 seconds)
+        $contacts = Cache::remember($cacheKey, 300, function () use ($company) {
+            return $company->contacts()->with(['owner:id,name,email'])->get();
+        });
 
         return response()->json([
             'success' => true,
@@ -651,8 +720,17 @@ class CompaniesController extends Controller
         
         // Pagination
         $perPage = min($request->get('limit', 10), 100);
-        $deals = $query->with(['pipeline', 'stage', 'owner', 'contact'])
-                      ->paginate($perPage);
+        
+        $tenantId = $company->tenant_id;
+        $userId = auth()->id();
+        
+        // Create cache key for company deals
+        $cacheKey = "company_deals_{$tenantId}_{$userId}_{$id}_" . md5(serialize($request->all()));
+        
+        // Cache company deals for 5 minutes (300 seconds)
+        $deals = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['pipeline', 'stage', 'owner', 'contact'])->paginate($perPage);
+        });
 
         return response()->json([
             'success' => true,
@@ -668,5 +746,43 @@ class CompaniesController extends Controller
         ]);
     }
 
+    /**
+     * Clear companies cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearCompaniesCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for companies list
+            $commonParams = [
+                '',
+                md5(serialize(['sortBy' => 'created_at', 'sortOrder' => 'desc', 'per_page' => 15])),
+                md5(serialize(['sortBy' => 'updated_at', 'sortOrder' => 'desc', 'per_page' => 15])),
+            ];
 
+            foreach ($commonParams as $params) {
+                Cache::forget("companies_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            // Clear deleted companies cache
+            Cache::forget("companies_deleted_{$tenantId}_{$userId}_" . md5(serialize(['per_page' => 15])));
+
+            Log::info('Companies cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) + 1
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear companies cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
 }

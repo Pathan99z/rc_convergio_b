@@ -36,7 +36,7 @@ class CampaignsController extends Controller
         
         $cacheKey = "campaigns:metrics:user:{$userId}:tenant:{$tenantId}:range:{$range}";
 
-        $data = $this->cache->remember($cacheKey, 60, function () use ($range, $tenantId, $request) {
+        $data = $this->cache->remember($cacheKey, 300, function () use ($range, $tenantId, $request) {
             if (! $this->db->connection()->getSchemaBuilder()->hasTable('campaigns')) {
                 return [
                     'total_campaigns' => 0,
@@ -121,7 +121,7 @@ class CampaignsController extends Controller
         
         $cacheKey = "campaigns:trends:user:{$userId}:tenant:{$tenantId}:range:{$range}:interval:{$interval}";
 
-        $data = $this->cache->remember($cacheKey, 60, function () use ($range, $interval, $tenantId, $request) {
+        $data = $this->cache->remember($cacheKey, 300, function () use ($range, $interval, $tenantId, $request) {
             if (! $this->db->connection()->getSchemaBuilder()->hasTable('campaign_recipients')) {
                 return [];
             }

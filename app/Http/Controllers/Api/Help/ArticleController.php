@@ -7,14 +7,12 @@ use App\Http\Requests\Help\StoreArticleRequest;
 use App\Http\Requests\Help\UpdateArticleRequest;
 use App\Http\Resources\Help\ArticleResource;
 use App\Models\Help\Article;
-use App\Models\Help\ArticleAttachment;
 use App\Services\Help\ArticleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
 
 class ArticleController extends Controller
 {
@@ -36,9 +34,16 @@ class ArticleController extends Controller
 
         // Pagination
         $perPage = min($request->get('per_page', 15), 50);
-        $articles = $query->with(['category'])
-            ->orderBy('published_at', 'desc')
-            ->paginate($perPage);
+        
+        // Create cache key for public articles (no user ID needed for public)
+        $cacheKey = "help_articles_public_{$tenantId}_" . md5(serialize($request->all()));
+        
+        // Cache public articles for 5 minutes (300 seconds)
+        $articles = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['category'])
+                ->orderBy('published_at', 'desc')
+                ->paginate($perPage);
+        });
 
         return ArticleResource::collection($articles);
     }
@@ -81,9 +86,17 @@ class ArticleController extends Controller
 
         // Pagination
         $perPage = min($request->get('per_page', 15), 100);
-        $articles = $query->with(['category', 'creator', 'updater'])
-            ->orderBy('updated_at', 'desc')
-            ->paginate($perPage);
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "help_articles_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache articles list for 5 minutes (300 seconds)
+        $articles = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['category', 'creator', 'updater'])
+                ->orderBy('updated_at', 'desc')
+                ->paginate($perPage);
+        });
 
         return ArticleResource::collection($articles);
     }
@@ -98,6 +111,9 @@ class ArticleController extends Controller
         $createdBy = $request->user()->id;
 
         $article = $this->articleService->createArticle($data, $tenantId, $createdBy);
+
+        // Clear cache after creating article
+        $this->clearHelpArticlesCache($tenantId, $createdBy);
 
         return response()->json([
             'success' => true,
@@ -117,6 +133,23 @@ class ArticleController extends Controller
         $article = Article::where('id', $id)
             ->where('tenant_id', $tenantId)
             ->firstOrFail();
+
+        // Check authorization manually to avoid policy parameter issues
+        if (!$request->user()->can('view', $article)) {
+            abort(403, 'This action is unauthorized.');
+        }
+
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant, user, and article ID isolation
+        $cacheKey = "help_article_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache article detail for 15 minutes (900 seconds)
+        $article = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            return Article::where('id', $id)
+                ->where('tenant_id', $tenantId)
+                ->firstOrFail();
+        });
 
         // Check authorization manually to avoid policy parameter issues
         if (!$request->user()->can('view', $article)) {
@@ -146,6 +179,10 @@ class ArticleController extends Controller
 
         $updated = $this->articleService->updateArticle($article, $data, $request->user()->id);
 
+        // Clear cache after updating article
+        $this->clearHelpArticlesCache($tenantId, $request->user()->id);
+        Cache::forget("help_article_show_{$tenantId}_{$request->user()->id}_{$id}");
+
         return response()->json([
             'success' => true,
             'data' => new ArticleResource($article->fresh()->load(['category', 'creator', 'updater'])),
@@ -170,7 +207,14 @@ class ArticleController extends Controller
             abort(403, 'This action is unauthorized.');
         }
 
+        $userId = $request->user()->id;
+        $articleId = $article->id;
+
         $article->delete();
+
+        // Clear cache after deleting article
+        $this->clearHelpArticlesCache($tenantId, $userId);
+        Cache::forget("help_article_show_{$tenantId}_{$userId}_{$articleId}");
 
         return response()->json([
             'success' => true,
@@ -261,380 +305,6 @@ class ArticleController extends Controller
         return $filters;
     }
 
-    /**
-     * Get version history for an article.
-     */
-    public function getVersionHistory(Request $request, int $id): JsonResponse
-    {
-        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
-        $article = Article::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
-
-        if (!$request->user()->can('view', $article)) {
-            abort(403, 'This action is unauthorized.');
-        }
-
-        try {
-            $versioningService = app(\App\Services\Help\ArticleVersioningService::class);
-            $versions = $versioningService->getVersionHistory($article->id, $tenantId);
-
-            return response()->json([
-                'success' => true,
-                'article_id' => $article->id,
-                'versions' => $versions->map(function ($version) {
-                    return [
-                        'version_number' => $version->version_number,
-                        'title' => $version->title,
-                        'status' => $version->status,
-                        'change_reason' => $version->change_reason,
-                        'created_at' => $version->created_at->toISOString(),
-                        'created_by' => $version->creator?->name,
-                    ];
-                }),
-                'total_versions' => $versions->count(),
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to get article version history', [
-                'article_id' => $article->id,
-                'tenant_id' => $tenantId,
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to get version history.',
-            ], 500);
-        }
-    }
-
-    /**
-     * Restore article to a specific version.
-     */
-    public function restoreToVersion(Request $request, int $id): JsonResponse
-    {
-        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
-        $article = Article::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
-
-        if (!$request->user()->can('update', $article)) {
-            abort(403, 'This action is unauthorized.');
-        }
-
-        $request->validate([
-            'version_number' => 'required|integer|min:1',
-        ]);
-
-        try {
-            $versioningService = app(\App\Services\Help\ArticleVersioningService::class);
-            $versioningService->restoreToVersion($article, $request->get('version_number'));
-
-            return response()->json([
-                'success' => true,
-                'message' => "Article restored to version {$request->get('version_number')}.",
-                'article_id' => $article->id,
-                'version_number' => $request->get('version_number'),
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to restore article to version', [
-                'article_id' => $article->id,
-                'tenant_id' => $tenantId,
-                'version_number' => $request->get('version_number'),
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to restore article to version.',
-            ], 500);
-        }
-    }
-
-    /**
-     * Compare two versions of an article.
-     */
-    public function compareVersions(Request $request, int $id): JsonResponse
-    {
-        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
-        $article = Article::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
-
-        if (!$request->user()->can('view', $article)) {
-            abort(403, 'This action is unauthorized.');
-        }
-
-        $request->validate([
-            'version1' => 'required|integer|min:1',
-            'version2' => 'required|integer|min:1',
-        ]);
-
-        try {
-            $versioningService = app(\App\Services\Help\ArticleVersioningService::class);
-            $comparison = $versioningService->compareVersions(
-                $article->id,
-                $request->get('version1'),
-                $request->get('version2'),
-                $tenantId
-            );
-
-            return response()->json([
-                'success' => true,
-                'article_id' => $article->id,
-                'comparison' => $comparison,
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to compare article versions', [
-                'article_id' => $article->id,
-                'tenant_id' => $tenantId,
-                'version1' => $request->get('version1'),
-                'version2' => $request->get('version2'),
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to compare versions.',
-            ], 500);
-        }
-    }
-
-    /**
-     * Send notification for an article.
-     */
-    public function sendNotification(Request $request, int $id): JsonResponse
-    {
-        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
-        $article = Article::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
-
-        if (!$request->user()->can('update', $article)) {
-            abort(403, 'This action is unauthorized.');
-        }
-
-        $request->validate([
-            'action' => 'required|in:published,updated,archived',
-            'user_ids' => 'nullable|array',
-            'user_ids.*' => 'integer|exists:users,id',
-        ]);
-
-        try {
-            $notificationService = app(\App\Services\Help\ArticleNotificationService::class);
-            
-            if ($request->has('user_ids') && !empty($request->get('user_ids'))) {
-                // Send to specific users
-                $notificationService->notifySpecificUsers(
-                    $article, 
-                    $request->get('user_ids'), 
-                    $request->get('action')
-                );
-                $message = 'Notification sent to ' . count($request->get('user_ids')) . ' specific users.';
-            } else {
-                // Send to all eligible users
-                switch ($request->get('action')) {
-                    case 'published':
-                        $notificationService->notifyArticlePublished($article);
-                        break;
-                    case 'updated':
-                        $notificationService->notifyArticleUpdated($article);
-                        break;
-                    case 'archived':
-                        $notificationService->notifyArticleArchived($article);
-                        break;
-                }
-                $message = 'Notification sent to all eligible users.';
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => $message,
-                'action' => $request->get('action'),
-                'article_id' => $article->id,
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to send article notification', [
-                'article_id' => $article->id,
-                'tenant_id' => $tenantId,
-                'action' => $request->get('action'),
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to send notification.',
-            ], 500);
-        }
-    }
-
-    /**
-     * Upload attachment for an article.
-     */
-    public function uploadAttachment(Request $request, int $id): JsonResponse
-    {
-        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
-        $article = Article::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
-
-        if (!$request->user()->can('update', $article)) {
-            abort(403, 'This action is unauthorized.');
-        }
-
-        $request->validate([
-            'file' => 'required|file|max:10240|mimes:pdf,doc,docx,txt,jpg,jpeg,png,gif,zip,rar',
-        ]);
-
-        try {
-            $file = $request->file('file');
-            $originalName = $file->getClientOriginalName();
-            $extension = $file->getClientOriginalExtension();
-            $filename = Str::slug(pathinfo($originalName, PATHINFO_FILENAME)) . '_' . time() . '.' . $extension;
-            
-            // Store file in tenant-specific directory
-            $path = $file->storeAs("help_attachments/{$tenantId}", $filename, 'public');
-            
-            // Create attachment record
-            $attachment = ArticleAttachment::create([
-                'tenant_id' => $tenantId,
-                'article_id' => $article->id,
-                'disk' => 'public',
-                'path' => $path,
-                'filename' => $originalName,
-                'mime_type' => $file->getMimeType(),
-                'size' => $file->getSize(),
-            ]);
-
-            Log::info('Article attachment uploaded', [
-                'attachment_id' => $attachment->id,
-                'article_id' => $article->id,
-                'tenant_id' => $tenantId,
-                'filename' => $originalName,
-                'size' => $file->getSize(),
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Attachment uploaded successfully.',
-                'attachment' => [
-                    'id' => $attachment->id,
-                    'filename' => $attachment->filename,
-                    'size' => $attachment->size,
-                    'mime_type' => $attachment->mime_type,
-                    'url' => Storage::url($attachment->path),
-                    'created_at' => $attachment->created_at->toISOString(),
-                ],
-            ], 201);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to upload article attachment', [
-                'article_id' => $article->id,
-                'tenant_id' => $tenantId,
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to upload attachment.',
-            ], 500);
-        }
-    }
-
-    /**
-     * Get attachments for an article.
-     */
-    public function getAttachments(Request $request, int $id): JsonResponse
-    {
-        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
-        $article = Article::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
-
-        if (!$request->user()->can('view', $article)) {
-            abort(403, 'This action is unauthorized.');
-        }
-
-        $attachments = ArticleAttachment::where('article_id', $article->id)
-            ->where('tenant_id', $tenantId)
-            ->orderBy('created_at', 'desc')
-            ->get()
-            ->map(function ($attachment) {
-                return [
-                    'id' => $attachment->id,
-                    'filename' => $attachment->filename,
-                    'size' => $attachment->size,
-                    'mime_type' => $attachment->mime_type,
-                    'url' => Storage::url($attachment->path),
-                    'created_at' => $attachment->created_at->toISOString(),
-                ];
-            });
-
-        return response()->json([
-            'success' => true,
-            'attachments' => $attachments,
-            'count' => $attachments->count(),
-        ]);
-    }
-
-    /**
-     * Delete an attachment.
-     */
-    public function deleteAttachment(Request $request, int $id, int $attachmentId): JsonResponse
-    {
-        $tenantId = $request->user()->tenant_id ?? $request->user()->id;
-        $article = Article::where('id', $id)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
-
-        if (!$request->user()->can('update', $article)) {
-            abort(403, 'This action is unauthorized.');
-        }
-
-        $attachment = ArticleAttachment::where('id', $attachmentId)
-            ->where('article_id', $article->id)
-            ->where('tenant_id', $tenantId)
-            ->firstOrFail();
-
-        try {
-            // Delete file from storage
-            if (Storage::disk($attachment->disk)->exists($attachment->path)) {
-                Storage::disk($attachment->disk)->delete($attachment->path);
-            }
-
-            // Delete attachment record
-            $attachment->delete();
-
-            Log::info('Article attachment deleted', [
-                'attachment_id' => $attachmentId,
-                'article_id' => $article->id,
-                'tenant_id' => $tenantId,
-                'filename' => $attachment->filename,
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Attachment deleted successfully.',
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to delete article attachment', [
-                'attachment_id' => $attachmentId,
-                'article_id' => $article->id,
-                'tenant_id' => $tenantId,
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete attachment.',
-            ], 500);
-        }
-    }
 
     /**
      * Apply advanced filters to article query.
@@ -728,4 +398,41 @@ class ArticleController extends Controller
         abort(400, 'Tenant ID is required for public access');
     }
 
+    /**
+     * Clear help articles cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearHelpArticlesCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for articles list
+            $commonParams = [
+                '',
+                md5(serialize(['per_page' => 15])),
+                md5(serialize(['per_page' => 50])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("help_articles_list_{$tenantId}_{$userId}_{$params}");
+                Cache::forget("help_articles_public_{$tenantId}_{$params}");
+            }
+
+            Log::info('Help articles cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) * 2
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear help articles cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
 }

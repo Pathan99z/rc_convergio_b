@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class TemplateController extends Controller
 {
@@ -43,7 +44,16 @@ class TemplateController extends Controller
             }
 
             $perPage = min($request->get('per_page', 20), 100);
-            $templates = $query->paginate($perPage);
+            $userId = Auth::id();
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            
+            // Create cache key with tenant and user isolation
+            $cacheKey = "cms_templates_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+            
+            // Cache templates list for 5 minutes (300 seconds)
+            $templates = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+                return $query->paginate($perPage);
+            });
 
             return response()->json([
                 'data' => TemplateResource::collection($templates->items()),
@@ -80,6 +90,9 @@ class TemplateController extends Controller
 
             $template = Template::create($validatedData);
 
+            // Clear cache after creating template
+            $this->clearCmsTemplatesCache(Auth::user()->tenant_id ?? Auth::id(), Auth::id());
+
             return response()->json([
                 'message' => 'Template created successfully',
                 'data' => new TemplateResource($template->load(['creator']))
@@ -105,7 +118,16 @@ class TemplateController extends Controller
     public function show(int $id): JsonResponse
     {
         try {
-            $template = Template::with(['creator', 'pages'])->findOrFail($id);
+            $userId = Auth::id();
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            
+            // Create cache key with tenant, user, and template ID isolation
+            $cacheKey = "cms_template_show_{$tenantId}_{$userId}_{$id}";
+            
+            // Cache template detail for 15 minutes (900 seconds)
+            $template = Cache::remember($cacheKey, 900, function () use ($id) {
+                return Template::with(['creator', 'pages'])->findOrFail($id);
+            });
 
             return response()->json([
                 'data' => new TemplateResource($template)
@@ -138,6 +160,12 @@ class TemplateController extends Controller
             $validatedData['updated_by'] = Auth::id();
 
             $template->update($validatedData);
+
+            // Clear cache after updating template
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            $userId = Auth::id();
+            $this->clearCmsTemplatesCache($tenantId, $userId);
+            Cache::forget("cms_template_show_{$tenantId}_{$userId}_{$id}");
 
             return response()->json([
                 'message' => 'Template updated successfully',
@@ -183,7 +211,14 @@ class TemplateController extends Controller
                 ], 403);
             }
 
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            $userId = Auth::id();
+            
             $template->delete();
+
+            // Clear cache after deleting template
+            $this->clearCmsTemplatesCache($tenantId, $userId);
+            Cache::forget("cms_template_show_{$tenantId}_{$userId}_{$id}");
 
             return response()->json([
                 'message' => 'Template deleted successfully'
@@ -217,6 +252,43 @@ class TemplateController extends Controller
                 ['value' => 'popup', 'label' => 'Popup/Modal'],
             ]
         ]);
+    }
+
+    /**
+     * Clear CMS templates cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearCmsTemplatesCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for templates list
+            $commonParams = [
+                '',
+                md5(serialize(['active_only' => true, 'per_page' => 20])),
+                md5(serialize(['sort_by' => 'updated_at', 'sort_order' => 'desc', 'per_page' => 20])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("cms_templates_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('CMS templates cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear CMS templates cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }
 

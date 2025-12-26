@@ -9,6 +9,8 @@ use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class CommerceOrderController extends Controller
 {
@@ -60,9 +62,17 @@ class CommerceOrderController extends Controller
 
         // Pagination
         $perPage = $request->query('per_page', 15);
-        $orders = $query->with(['items', 'deal', 'quote', 'contact', 'owner'])
-            ->orderBy('created_at', 'desc')
-            ->paginate($perPage);
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "commerce_orders_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache orders list for 5 minutes (300 seconds)
+        $orders = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+            return $query->with(['items', 'deal', 'quote', 'contact', 'owner'])
+                ->orderBy('created_at', 'desc')
+                ->paginate($perPage);
+        });
 
         return response()->json([
             'success' => true,
@@ -96,9 +106,17 @@ class CommerceOrderController extends Controller
             }
         }
 
-        $order = CommerceOrder::where('tenant_id', $tenantId)
-            ->with(['items.product', 'deal', 'quote', 'contact', 'owner', 'team'])
-            ->findOrFail($id);
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant, user, and order ID isolation
+        $cacheKey = "commerce_order_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache order detail for 15 minutes (900 seconds)
+        $order = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            return CommerceOrder::where('tenant_id', $tenantId)
+                ->with(['items.product', 'deal', 'quote', 'contact', 'owner', 'team'])
+                ->findOrFail($id);
+        });
 
         return response()->json([
             'success' => true,
@@ -157,6 +175,9 @@ class CommerceOrderController extends Controller
 
         $order = $this->orderService->createOrder($data);
 
+        // Clear cache after creating order
+        $this->clearCommerceOrdersCache($tenantId, $request->user()->id);
+
         return response()->json([
             'success' => true,
             'message' => 'Order created successfully',
@@ -200,6 +221,10 @@ class CommerceOrderController extends Controller
         $data = $request->validated();
         $order = $this->orderService->updateOrderStatus($order, $data['status'] ?? $order->status, $data);
 
+        // Clear cache after updating order
+        $this->clearCommerceOrdersCache($tenantId, $request->user()->id);
+        Cache::forget("commerce_order_show_{$tenantId}_{$request->user()->id}_{$id}");
+
         return response()->json([
             'success' => true,
             'message' => 'Order updated successfully',
@@ -229,14 +254,22 @@ class CommerceOrderController extends Controller
         // Apply team filtering if team access is enabled
         $this->teamAccessService->applyTeamFilter($query);
 
-        $stats = [
-            'total_orders' => $query->count(),
-            'pending_orders' => $query->clone()->withStatus('pending')->count(),
-            'paid_orders' => $query->clone()->withStatus('paid')->count(),
-            'failed_orders' => $query->clone()->withStatus('failed')->count(),
-            'refunded_orders' => $query->clone()->withStatus('refunded')->count(),
-            'total_revenue' => $query->clone()->withStatus('paid')->sum('total_amount'),
-        ];
+        $userId = $request->user()->id;
+        
+        // Create cache key for order stats
+        $cacheKey = "commerce_orders_stats_{$tenantId}_{$userId}";
+        
+        // Cache order stats for 5 minutes (300 seconds)
+        $stats = Cache::remember($cacheKey, 300, function () use ($query) {
+            return [
+                'total_orders' => $query->count(),
+                'pending_orders' => $query->clone()->withStatus('pending')->count(),
+                'paid_orders' => $query->clone()->withStatus('paid')->count(),
+                'failed_orders' => $query->clone()->withStatus('failed')->count(),
+                'refunded_orders' => $query->clone()->withStatus('refunded')->count(),
+                'total_revenue' => $query->clone()->withStatus('paid')->sum('total_amount'),
+            ];
+        });
 
         return response()->json([
             'success' => true,
@@ -275,11 +308,58 @@ class CommerceOrderController extends Controller
             ], 422);
         }
 
+        $userId = $request->user()->id;
+        $orderId = $order->id;
+
         $this->orderService->deleteOrder($order);
+
+        // Clear cache after deleting order
+        $this->clearCommerceOrdersCache($tenantId, $userId);
+        Cache::forget("commerce_order_show_{$tenantId}_{$userId}_{$orderId}");
 
         return response()->json([
             'success' => true,
             'message' => 'Order deleted successfully',
         ]);
+    }
+
+    /**
+     * Clear commerce orders cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearCommerceOrdersCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for orders list
+            $commonParams = [
+                '',
+                md5(serialize(['status' => 'pending', 'per_page' => 15])),
+                md5(serialize(['status' => 'paid', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("commerce_orders_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            // Clear stats cache
+            Cache::forget("commerce_orders_stats_{$tenantId}_{$userId}");
+
+            Log::info('Commerce orders cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) + 1
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear commerce orders cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

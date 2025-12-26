@@ -13,6 +13,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class ListsController extends Controller
 {
@@ -25,8 +27,11 @@ class ListsController extends Controller
      */
     public function index(Request $request): AnonymousResourceCollection
     {
+        $tenantId = $request->user()->id; // Use authenticated user as tenant
+        $userId = $request->user()->id;
+        
         $filters = [
-            'tenant_id' => $request->user()->id, // Use authenticated user as tenant
+            'tenant_id' => $tenantId,
             'q' => $request->get('q'),
             'name' => $request->get('name'),
             'type' => $request->get('type'),
@@ -35,7 +40,13 @@ class ListsController extends Controller
             'sortOrder' => $request->get('sortOrder', 'desc'),
         ];
 
-        $lists = $this->listService->getLists($filters, $request->get('per_page', 15));
+        // Create cache key with tenant and user isolation
+        $cacheKey = "lists_list_{$tenantId}_{$userId}_" . md5(serialize($filters + ['per_page' => $request->get('per_page', 15)]));
+        
+        // Cache lists for 5 minutes (300 seconds)
+        $lists = Cache::remember($cacheKey, 300, function () use ($filters, $request) {
+            return $this->listService->getLists($filters, $request->get('per_page', 15));
+        });
 
         return ListResource::collection($lists);
     }
@@ -63,6 +74,9 @@ class ListsController extends Controller
             $list->loadCount('contacts');
         }
 
+        // Clear cache after creating list
+        $this->clearListsCache($data['tenant_id'], $request->user()->id);
+
         return new ListResource($list);
     }
 
@@ -73,14 +87,25 @@ class ListsController extends Controller
     {
         $this->authorize('view', $list);
 
-        $list->load(['creator:id,name,email']);
+        $tenantId = $list->tenant_id;
+        $userId = auth()->id();
+        
+        // Create cache key with tenant, user, and list ID isolation
+        $cacheKey = "list_show_{$tenantId}_{$userId}_{$list->id}";
+        
+        // Cache list detail for 15 minutes (900 seconds)
+        $list = Cache::remember($cacheKey, 900, function () use ($list) {
+            $list->load(['creator:id,name,email']);
 
-        // For dynamic segments, calculate count based on rules
-        if ($list->type === 'dynamic') {
-            $list->contacts_count = $list->getContacts()->count();
-        } else {
-            $list->loadCount('contacts');
-        }
+            // For dynamic segments, calculate count based on rules
+            if ($list->type === 'dynamic') {
+                $list->contacts_count = $list->getContacts()->count();
+            } else {
+                $list->loadCount('contacts');
+            }
+            
+            return $list;
+        });
 
         return new ListResource($list);
     }
@@ -109,6 +134,10 @@ class ListsController extends Controller
             $list->loadCount('contacts');
         }
         
+        // Clear cache after updating list
+        $this->clearListsCache($list->tenant_id, $request->user()->id);
+        Cache::forget("list_show_{$list->tenant_id}_{$request->user()->id}_{$list->id}");
+
         return new ListResource($list);
     }
 
@@ -119,7 +148,15 @@ class ListsController extends Controller
     {
         $this->authorize('delete', $list);
 
+        $tenantId = $list->tenant_id;
+        $userId = auth()->id();
+        $listId = $list->id;
+
         $this->listService->deleteList($list);
+
+        // Clear cache after deleting list
+        $this->clearListsCache($tenantId, $userId);
+        Cache::forget("list_show_{$tenantId}_{$userId}_{$listId}");
 
         return response()->json(['message' => 'List deleted successfully']);
     }
@@ -131,7 +168,16 @@ class ListsController extends Controller
     {
         $this->authorize('view', $list);
 
-        $members = $this->listService->getListMembers($list, $request->get('per_page', 15));
+        $tenantId = $list->tenant_id;
+        $userId = auth()->id();
+        
+        // Create cache key for list members
+        $cacheKey = "list_members_{$tenantId}_{$userId}_{$list->id}_" . md5(serialize(['per_page' => $request->get('per_page', 15)]));
+        
+        // Cache list members for 5 minutes (300 seconds)
+        $members = Cache::remember($cacheKey, 300, function () use ($list, $request) {
+            return $this->listService->getListMembers($list, $request->get('per_page', 15));
+        });
 
         return ContactResource::collection($members);
     }
@@ -197,5 +243,42 @@ class ListsController extends Controller
         $exists = $query->exists();
 
         return response()->json(['exists' => $exists]);
+    }
+
+    /**
+     * Clear lists cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearListsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for lists
+            $commonParams = [
+                '',
+                md5(serialize(['sortBy' => 'created_at', 'sortOrder' => 'desc', 'per_page' => 15])),
+                md5(serialize(['sortBy' => 'updated_at', 'sortOrder' => 'desc', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("lists_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('Lists cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear lists cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

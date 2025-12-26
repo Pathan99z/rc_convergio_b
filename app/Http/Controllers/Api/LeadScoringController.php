@@ -10,6 +10,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class LeadScoringController extends Controller
@@ -37,21 +39,31 @@ class LeadScoringController extends Controller
         
         $tenantId = $user->tenant_id;
 
-        $query = LeadScoringRule::where('tenant_id', $tenantId);
+        $userId = $user->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "lead_scoring_rules_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache lead scoring rules for 5 minutes (300 seconds)
+        $rules = Cache::remember($cacheKey, 300, function () use ($tenantId, $request) {
+            $query = LeadScoringRule::where('tenant_id', $tenantId);
 
-        // Filter by active status if provided
-        if ($request->has('is_active')) {
-            $query->where('is_active', $request->boolean('is_active'));
-        }
+            // Filter by active status if provided
+            if ($request->has('is_active')) {
+                $query->where('is_active', $request->boolean('is_active'));
+            }
 
-        $rules = $query->orderBy('priority', 'desc')
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->get('per_page', 15));
+            $rules = $query->orderBy('priority', 'desc')
+                ->orderBy('created_at', 'desc')
+                ->paginate($request->get('per_page', 15));
 
-        // Add condition descriptions to each rule
-        $rules->getCollection()->transform(function ($rule) {
-            $rule->condition_description = $rule->getConditionDescription();
-            return $rule;
+            // Add condition descriptions to each rule
+            $rules->getCollection()->transform(function ($rule) {
+                $rule->condition_description = $rule->getConditionDescription();
+                return $rule;
+            });
+            
+            return $rules;
         });
 
         return response()->json([
@@ -131,6 +143,9 @@ class LeadScoringController extends Controller
 
             $rule->condition_description = $rule->getConditionDescription();
 
+            // Clear cache after creating rule
+            $this->clearLeadScoringCache($tenantId, $user->id);
+
             return response()->json([
                 'data' => $rule,
                 'message' => 'Lead scoring rule created successfully'
@@ -198,6 +213,9 @@ class LeadScoringController extends Controller
 
             $rule->condition_description = $rule->getConditionDescription();
 
+            // Clear cache after updating rule
+            $this->clearLeadScoringCache($tenantId, $user->id);
+
             return response()->json([
                 'data' => $rule,
                 'message' => 'Lead scoring rule updated successfully'
@@ -225,7 +243,12 @@ class LeadScoringController extends Controller
             ->firstOrFail();
 
         try {
+            $userId = $user->id;
+            
             $rule->delete();
+
+            // Clear cache after deleting rule
+            $this->clearLeadScoringCache($tenantId, $userId);
 
             return response()->json([
                 'message' => 'Lead scoring rule deleted successfully'
@@ -279,8 +302,16 @@ class LeadScoringController extends Controller
         
         $tenantId = $user->tenant_id;
 
+        $userId = $user->id;
+        
+        // Create cache key for lead scoring stats
+        $cacheKey = "lead_scoring_stats_{$tenantId}_{$userId}";
+        
         try {
-            $stats = $this->leadScoringService->getScoringStats($tenantId);
+            // Cache lead scoring stats for 5 minutes (300 seconds)
+            $stats = Cache::remember($cacheKey, 300, function () use ($tenantId) {
+                return $this->leadScoringService->getScoringStats($tenantId);
+            });
 
             return response()->json([
                 'data' => $stats,
@@ -303,9 +334,17 @@ class LeadScoringController extends Controller
         $user = Auth::user();
         $tenantId = $user->tenant_id;
 
+        $userId = $user->id;
+        $limit = $request->get('limit', 10);
+        
+        // Create cache key for top scoring contacts
+        $cacheKey = "lead_scoring_top_{$tenantId}_{$userId}_{$limit}";
+        
         try {
-            $limit = $request->get('limit', 10);
-            $contacts = $this->leadScoringService->getTopScoringContacts($tenantId, $limit);
+            // Cache top scoring contacts for 5 minutes (300 seconds)
+            $contacts = Cache::remember($cacheKey, 300, function () use ($tenantId, $limit) {
+                return $this->leadScoringService->getTopScoringContacts($tenantId, $limit);
+            });
 
             return response()->json([
                 'data' => $contacts,
@@ -340,5 +379,46 @@ class LeadScoringController extends Controller
             'data' => LeadScoringRule::getAvailableOperators(),
             'message' => 'Available operators retrieved successfully'
         ]);
+    }
+
+    /**
+     * Clear lead scoring cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearLeadScoringCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for lead scoring rules
+            $commonParams = [
+                '',
+                md5(serialize(['is_active' => true, 'per_page' => 15])),
+                md5(serialize(['is_active' => false, 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("lead_scoring_rules_{$tenantId}_{$userId}_{$params}");
+            }
+
+            // Clear stats and top contacts cache
+            Cache::forget("lead_scoring_stats_{$tenantId}_{$userId}");
+            Cache::forget("lead_scoring_top_{$tenantId}_{$userId}_10");
+
+            Log::info('Lead scoring cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams) + 2
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear lead scoring cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

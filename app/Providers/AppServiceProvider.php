@@ -16,6 +16,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Register Predis autoloader early to ensure Predis\Client is available
+        // This ensures Predis classes are loaded even if Composer autoloader doesn't pick them up
+        if (file_exists(base_path('vendor/predis/predis/autoload.php'))) {
+            require_once base_path('vendor/predis/predis/autoload.php');
+        }
+        
         // Configure view cache path early to fix permission issues on servers
         // This must be done in register() before any views are compiled
         $this->configureViewCachePath();

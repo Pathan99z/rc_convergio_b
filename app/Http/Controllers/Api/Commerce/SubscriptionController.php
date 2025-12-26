@@ -8,6 +8,8 @@ use App\Services\Commerce\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class SubscriptionController extends Controller
 {
@@ -25,16 +27,24 @@ class SubscriptionController extends Controller
     {
         $tenantId = $request->user()->tenant_id;
         
-        $subscriptions = Subscription::where('tenant_id', $tenantId)
-            ->with(['plan', 'user', 'invoices'])
-            ->when($request->has('status'), function ($query) use ($request) {
-                return $query->where('status', $request->input('status'));
-            })
-            ->when($request->has('plan_id'), function ($query) use ($request) {
-                return $query->where('plan_id', $request->input('plan_id'));
-            })
-            ->orderBy('created_at', 'desc')
-            ->paginate($request->input('per_page', 15));
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "commerce_subscriptions_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+        
+        // Cache subscriptions list for 5 minutes (300 seconds)
+        $subscriptions = Cache::remember($cacheKey, 300, function () use ($tenantId, $request) {
+            return Subscription::where('tenant_id', $tenantId)
+                ->with(['plan', 'user', 'invoices'])
+                ->when($request->has('status'), function ($query) use ($request) {
+                    return $query->where('status', $request->input('status'));
+                })
+                ->when($request->has('plan_id'), function ($query) use ($request) {
+                    return $query->where('plan_id', $request->input('plan_id'));
+                })
+                ->orderBy('created_at', 'desc')
+                ->paginate($request->input('per_page', 15));
+        });
 
         return response()->json([
             'success' => true,
@@ -49,9 +59,17 @@ class SubscriptionController extends Controller
     {
         $tenantId = $request->user()->tenant_id;
         
-        $subscription = Subscription::where('tenant_id', $tenantId)
-            ->with(['plan', 'user', 'invoices'])
-            ->findOrFail($id);
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant, user, and subscription ID isolation
+        $cacheKey = "commerce_subscription_show_{$tenantId}_{$userId}_{$id}";
+        
+        // Cache subscription detail for 15 minutes (900 seconds)
+        $subscription = Cache::remember($cacheKey, 900, function () use ($tenantId, $id) {
+            return Subscription::where('tenant_id', $tenantId)
+                ->with(['plan', 'user', 'invoices'])
+                ->findOrFail($id);
+        });
 
         return response()->json([
             'success' => true,
@@ -79,6 +97,11 @@ class SubscriptionController extends Controller
         try {
             $atPeriodEnd = $request->input('at_period_end', true);
             $subscription = $this->subscriptionService->cancelSubscriptionLocal($id, $atPeriodEnd);
+
+            // Clear cache after cancelling subscription
+            $tenantId = $request->user()->tenant_id;
+            $this->clearCommerceSubscriptionsCache($tenantId, $request->user()->id);
+            Cache::forget("commerce_subscription_show_{$tenantId}_{$request->user()->id}_{$id}");
 
             return response()->json([
                 'success' => true,
@@ -116,6 +139,11 @@ class SubscriptionController extends Controller
             $prorationBehavior = $request->input('proration_behavior', 'create_prorations');
             
             $subscription = $this->subscriptionService->changePlan($id, $newPlanId, $prorationBehavior);
+
+            // Clear cache after changing plan
+            $tenantId = $request->user()->tenant_id;
+            $this->clearCommerceSubscriptionsCache($tenantId, $request->user()->id);
+            Cache::forget("commerce_subscription_show_{$tenantId}_{$request->user()->id}_{$id}");
 
             return response()->json([
                 'success' => true,
@@ -217,29 +245,33 @@ class SubscriptionController extends Controller
         
         // Get subscription events with pagination
         $perPage = $request->input('per_page', 20);
-        $events = $subscription->events()
-            ->orderBy('created_at', 'desc')
-            ->paginate($perPage);
+        $userId = $request->user()->id;
+        
+        // Create cache key for subscription activity
+        $cacheKey = "commerce_subscription_activity_{$tenantId}_{$userId}_{$id}_" . md5(serialize(['per_page' => $perPage]));
+        
+        // Cache subscription activity for 5 minutes (300 seconds)
+        $cachedData = Cache::remember($cacheKey, 300, function () use ($subscription, $perPage) {
+            $events = $subscription->events()
+                ->orderBy('created_at', 'desc')
+                ->paginate($perPage);
 
-        // Transform events for better frontend consumption
-        $transformedEvents = $events->getCollection()->map(function ($event) {
+            // Transform events for better frontend consumption
+            $transformedEvents = $events->getCollection()->map(function ($event) {
+                return [
+                    'id' => $event->id,
+                    'event_type' => $event->event_type,
+                    'description' => $this->getEventDescription($event->event_type),
+                    'timestamp' => $event->created_at,
+                    'processed_at' => $event->processed_at,
+                    'is_processed' => $event->isProcessed(),
+                    'payload' => $event->payload,
+                    'stripe_event_id' => $event->stripe_event_id,
+                ];
+            });
+            
             return [
-                'id' => $event->id,
-                'event_type' => $event->event_type,
-                'description' => $this->getEventDescription($event->event_type),
-                'timestamp' => $event->created_at,
-                'processed_at' => $event->processed_at,
-                'is_processed' => $event->isProcessed(),
-                'payload' => $event->payload,
-                'stripe_event_id' => $event->stripe_event_id,
-            ];
-        });
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Subscription activity retrieved successfully',
-            'data' => [
-                'subscription_id' => $id,
+                'subscription_id' => $subscription->id,
                 'subscription_status' => $subscription->status,
                 'activity' => $transformedEvents,
                 'pagination' => [
@@ -250,7 +282,13 @@ class SubscriptionController extends Controller
                     'from' => $events->firstItem(),
                     'to' => $events->lastItem(),
                 ]
-            ]
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Subscription activity retrieved successfully',
+            'data' => $cachedData
         ]);
     }
 
@@ -275,5 +313,42 @@ class SubscriptionController extends Controller
         ];
 
         return $descriptions[$eventType] ?? ucwords(str_replace(['.', '_'], [' ', ' '], $eventType));
+    }
+
+    /**
+     * Clear commerce subscriptions cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearCommerceSubscriptionsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for subscriptions list
+            $commonParams = [
+                '',
+                md5(serialize(['status' => 'active', 'per_page' => 15])),
+                md5(serialize(['status' => 'cancelled', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("commerce_subscriptions_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('Commerce subscriptions cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear commerce subscriptions cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

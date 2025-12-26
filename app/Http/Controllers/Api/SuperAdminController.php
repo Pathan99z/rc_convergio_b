@@ -16,6 +16,9 @@ class SuperAdminController extends Controller
 {
     protected SuperAdminService $superAdminService;
 
+    // Define constant for validation failed message
+    private const VALIDATION_FAILED_MESSAGE = 'Validation failed';
+
     public function __construct(SuperAdminService $superAdminService)
     {
         $this->superAdminService = $superAdminService;
@@ -109,7 +112,7 @@ class SuperAdminController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Validation failed',
+                'message' => self::VALIDATION_FAILED_MESSAGE,
                 'errors' => $validator->errors(),
             ], 422);
         }
@@ -147,7 +150,7 @@ class SuperAdminController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Validation failed',
+                'message' => self::VALIDATION_FAILED_MESSAGE,
                 'errors' => $validator->errors(),
             ], 422);
         }
@@ -242,7 +245,7 @@ class SuperAdminController extends Controller
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Validation failed',
+                'message' => self::VALIDATION_FAILED_MESSAGE,
                 'errors' => $validator->errors(),
             ], 422);
         }
@@ -281,37 +284,14 @@ class SuperAdminController extends Controller
             'role' => 'nullable|string|exists:roles,name',
         ]);
         
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-        
-        $data = $validator->validated();
-        
-        // Prevent super admin from removing their own super_admin role
-        if (isset($data['role']) && $id === auth()->id()) {
-            $currentUser = auth()->user();
-            if ($currentUser && $currentUser->isSuperAdmin() && $data['role'] !== 'super_admin') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'You cannot remove your own super_admin role',
-                ], 403);
-            }
-        }
-        
-        // Prevent super admin from deactivating themselves
-        if (isset($data['status']) && $data['status'] === 'inactive' && $id === auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You cannot deactivate your own account',
-            ], 403);
+        // Combined validation: form validation + self-protection rules
+        $validationError = $this->validateUserUpdate($validator, $id);
+        if ($validationError) {
+            return $validationError;
         }
 
         try {
-            $user = $this->superAdminService->updateUser($id, $data);
+            $user = $this->superAdminService->updateUser($id, $validator->validated());
 
             return response()->json([
                 'success' => true,
@@ -325,6 +305,60 @@ class SuperAdminController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Validate user update request (form validation + self-protection rules).
+     * Returns JsonResponse if validation fails, null if validation passes.
+     *
+     * @param \Illuminate\Contracts\Validation\Validator $validator
+     * @param int $userId
+     * @return JsonResponse|null
+     */
+    private function validateUserUpdate($validator, int $userId): ?JsonResponse
+    {
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => self::VALIDATION_FAILED_MESSAGE,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $data = $validator->validated();
+        return $this->validateSelfProtectionRules($userId, $data);
+    }
+
+    /**
+     * Validate self-protection rules for user updates.
+     * Returns JsonResponse if validation fails, null if validation passes.
+     *
+     * @param int $userId
+     * @param array $data
+     * @return JsonResponse|null
+     */
+    private function validateSelfProtectionRules(int $userId, array $data): ?JsonResponse
+    {
+        // Prevent super admin from removing their own super_admin role
+        if (isset($data['role']) && $userId === auth()->id()) {
+            $currentUser = auth()->user();
+            if ($currentUser && $currentUser->isSuperAdmin() && $data['role'] !== 'super_admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You cannot remove your own super_admin role',
+                ], 403);
+            }
+        }
+        
+        // Prevent super admin from deactivating themselves
+        if (isset($data['status']) && $data['status'] === 'inactive' && $userId === auth()->id()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You cannot deactivate your own account',
+            ], 403);
+        }
+
+        return null;
     }
 
     /**

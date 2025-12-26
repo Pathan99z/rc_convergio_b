@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class PageController extends Controller
 {
@@ -52,7 +53,16 @@ class PageController extends Controller
             }
 
             $perPage = min($request->get('per_page', 15), 100);
-            $pages = $query->paginate($perPage);
+            $userId = Auth::id();
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            
+            // Create cache key with tenant and user isolation
+            $cacheKey = "cms_pages_list_{$tenantId}_{$userId}_" . md5(serialize($request->all()));
+            
+            // Cache pages list for 5 minutes (300 seconds)
+            $pages = Cache::remember($cacheKey, 300, function () use ($query, $perPage) {
+                return $query->paginate($perPage);
+            });
 
             return response()->json([
                 'data' => PageResource::collection($pages->items()),
@@ -97,6 +107,9 @@ class PageController extends Controller
                 event(new PagePublished($page));
             }
 
+            // Clear cache after creating page
+            $this->clearCmsPagesCache(Auth::user()->tenant_id ?? Auth::id(), Auth::id());
+
             return response()->json([
                 'message' => 'Page created successfully',
                 'data' => new PageResource($page->load(['template', 'domain', 'language', 'creator']))
@@ -122,8 +135,17 @@ class PageController extends Controller
     public function show(int $id): JsonResponse
     {
         try {
-            $page = Page::with(['template', 'domain', 'language', 'creator', 'personalizationRules', 'seoLogs'])
-                        ->findOrFail($id);
+            $userId = Auth::id();
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            
+            // Create cache key with tenant, user, and page ID isolation
+            $cacheKey = "cms_page_show_{$tenantId}_{$userId}_{$id}";
+            
+            // Cache page detail for 15 minutes (900 seconds)
+            $page = Cache::remember($cacheKey, 900, function () use ($id) {
+                return Page::with(['template', 'domain', 'language', 'creator', 'personalizationRules', 'seoLogs'])
+                    ->findOrFail($id);
+            });
 
             return response()->json([
                 'data' => new PageResource($page)
@@ -159,6 +181,14 @@ class PageController extends Controller
                 event(new PageUnpublished($page));
             }
 
+            // Initialize variables before use
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            $userId = Auth::id();
+
+            // Clear cache after updating page
+            $this->clearCmsPagesCache($tenantId, $userId);
+            Cache::forget("cms_page_show_{$tenantId}_{$userId}_{$id}");
+
             return response()->json([
                 'message' => 'Page updated successfully',
                 'data' => new PageResource($page->fresh(['template', 'domain', 'language', 'creator']))
@@ -190,7 +220,14 @@ class PageController extends Controller
                 event(new PageUnpublished($page));
             }
             
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            $userId = Auth::id();
+            
             $page->delete();
+
+            // Clear cache after deleting page
+            $this->clearCmsPagesCache($tenantId, $userId);
+            Cache::forget("cms_page_show_{$tenantId}_{$userId}_{$id}");
 
             return response()->json([
                 'message' => 'Page deleted successfully'
@@ -227,6 +264,12 @@ class PageController extends Controller
             $this->runSeoAnalysis($page);
             event(new PagePublished($page));
 
+            // Clear cache after publishing page
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            $userId = Auth::id();
+            $this->clearCmsPagesCache($tenantId, $userId);
+            Cache::forget("cms_page_show_{$tenantId}_{$userId}_{$id}");
+
             return response()->json([
                 'message' => 'Page published successfully',
                 'data' => new PageResource($page->fresh(['template', 'domain', 'language']))
@@ -261,6 +304,12 @@ class PageController extends Controller
 
             event(new PageUnpublished($page));
 
+            // Clear cache after unpublishing page
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            $userId = Auth::id();
+            $this->clearCmsPagesCache($tenantId, $userId);
+            Cache::forget("cms_page_show_{$tenantId}_{$userId}_{$id}");
+
             return response()->json([
                 'message' => 'Page unpublished successfully',
                 'data' => new PageResource($page->fresh(['template', 'domain', 'language']))
@@ -283,7 +332,7 @@ class PageController extends Controller
     /**
      * Preview a page.
      */
-    public function preview(int $id): JsonResponse
+    public function preview(Request $request, int $id): JsonResponse
     {
         try {
             $page = Page::with(['template', 'domain', 'language', 'personalizationRules'])
@@ -326,6 +375,11 @@ class PageController extends Controller
             $newPage->created_by = Auth::id();
             $newPage->updated_by = Auth::id();
             $newPage->save();
+
+            // Clear cache after duplicating page
+            $tenantId = Auth::user()->tenant_id ?? Auth::id();
+            $userId = Auth::id();
+            $this->clearCmsPagesCache($tenantId, $userId);
 
             return response()->json([
                 'message' => 'Page duplicated successfully',
@@ -389,6 +443,43 @@ class PageController extends Controller
             return 'tablet';
         }
         return 'desktop';
+    }
+
+    /**
+     * Clear CMS pages cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearCmsPagesCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for pages list
+            $commonParams = [
+                '',
+                md5(serialize(['status' => 'published', 'per_page' => 15])),
+                md5(serialize(['sort_by' => 'updated_at', 'sort_order' => 'desc', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("cms_pages_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('CMS pages cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear CMS pages cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }
 

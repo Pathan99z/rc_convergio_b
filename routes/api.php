@@ -1130,17 +1130,17 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::delete('articles/{id}', [\App\Http\Controllers\Api\Help\ArticleController::class, 'destroy']);
         
         // Article attachments
-        Route::post('articles/{id}/attachments', [\App\Http\Controllers\Api\Help\ArticleController::class, 'uploadAttachment']);
-        Route::get('articles/{id}/attachments', [\App\Http\Controllers\Api\Help\ArticleController::class, 'getAttachments']);
-        Route::delete('articles/{id}/attachments/{attachmentId}', [\App\Http\Controllers\Api\Help\ArticleController::class, 'deleteAttachment']);
+        Route::post('articles/{id}/attachments', [\App\Http\Controllers\Api\Help\ArticleAttachmentController::class, 'uploadAttachment']);
+        Route::get('articles/{id}/attachments', [\App\Http\Controllers\Api\Help\ArticleAttachmentController::class, 'getAttachments']);
+        Route::delete('articles/{id}/attachments/{attachmentId}', [\App\Http\Controllers\Api\Help\ArticleAttachmentController::class, 'deleteAttachment']);
         
         // Article notifications
-        Route::post('articles/{id}/notify', [\App\Http\Controllers\Api\Help\ArticleController::class, 'sendNotification']);
+        Route::post('articles/{id}/notify', [\App\Http\Controllers\Api\Help\ArticleNotificationController::class, 'sendNotification']);
         
         // Article versioning
-        Route::get('articles/{id}/versions', [\App\Http\Controllers\Api\Help\ArticleController::class, 'getVersionHistory']);
-        Route::post('articles/{id}/restore-version', [\App\Http\Controllers\Api\Help\ArticleController::class, 'restoreToVersion']);
-        Route::get('articles/{id}/compare-versions', [\App\Http\Controllers\Api\Help\ArticleController::class, 'compareVersions']);
+        Route::get('articles/{id}/versions', [\App\Http\Controllers\Api\Help\ArticleVersionController::class, 'getVersionHistory']);
+        Route::post('articles/{id}/restore-version', [\App\Http\Controllers\Api\Help\ArticleVersionController::class, 'restoreToVersion']);
+        Route::get('articles/{id}/compare-versions', [\App\Http\Controllers\Api\Help\ArticleVersionController::class, 'compareVersions']);
         
         // Advanced search endpoint (for authenticated users)
         Route::get('search/advanced', [\App\Http\Controllers\Api\Help\ArticleController::class, 'advancedSearch']);

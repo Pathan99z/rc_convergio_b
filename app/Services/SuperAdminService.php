@@ -3,6 +3,9 @@
 namespace App\Services;
 
 use App\Constants\LinkedAccountConstants;
+use App\Exceptions\InvalidTenantException;
+use App\Exceptions\RoleNotFoundException;
+use App\Exceptions\TenantNotFoundException;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -191,7 +194,7 @@ class SuperAdminService
 
         // Ensure this is a tenant owner
         if ($tenant->tenant_id !== $tenant->id && $tenant->tenant_id !== 0) {
-            throw new \Exception('User is not a tenant owner');
+            throw new InvalidTenantException('User is not a tenant owner');
         }
 
         DB::beginTransaction();
@@ -251,7 +254,7 @@ class SuperAdminService
         // Validate that tenant_id is a valid tenant owner
         $tenant = User::find($tenantId);
         if (!$tenant || ($tenant->tenant_id !== $tenant->id && $tenant->tenant_id !== 0)) {
-            throw new \Exception('Invalid tenant_id: User is not a tenant owner');
+            throw new InvalidTenantException('Invalid tenant_id: User is not a tenant owner');
         }
 
         DB::beginTransaction();
@@ -317,62 +320,20 @@ class SuperAdminService
 
         DB::beginTransaction();
         try {
-            $updateData = [];
-            
-            if (isset($data['name'])) {
-                $updateData['name'] = trim($data['name']);
-            }
-            
-            if (isset($data['email'])) {
-                $updateData['email'] = strtolower(trim($data['email']));
-            }
-            
-            if (isset($data['status'])) {
-                $updateData['status'] = $data['status'];
-            }
-            
-            // Only update password if provided and not empty
-            if (isset($data['password']) && !empty(trim($data['password']))) {
-                $updateData['password'] = $data['password']; // Will be hashed by User model
-            }
-            
-            if (isset($data['tenant_id'])) {
-                // Validate tenant_id exists and is a valid tenant owner
-                $newTenant = User::find($data['tenant_id']);
-                if (!$newTenant) {
-                    throw new \Exception('Invalid tenant_id: Tenant not found');
-                }
-                // Ensure it's a tenant owner
-                if ($newTenant->tenant_id !== $newTenant->id && $newTenant->tenant_id !== 0) {
-                    throw new \Exception('Invalid tenant_id: User is not a tenant owner');
-                }
-                $updateData['tenant_id'] = $data['tenant_id'];
-            }
+            $updateData = $this->prepareUserUpdateData($data);
 
             $wasAdmin = $user->hasRole('admin') || $user->hasRole('super_admin');
 
             $user->update($updateData);
 
             if (isset($data['role'])) {
-                $role = \Spatie\Permission\Models\Role::where('name', $data['role'])->first();
-                if (!$role) {
-                    throw new \Exception('Invalid role: Role not found');
-                }
-                $user->syncRoles([$data['role']]);
+                $this->updateUserRole($user, $data['role']);
             }
 
             DB::commit();
 
             $user = $user->fresh()->load('roles');
-            $isAdmin = $user->hasRole('admin') || $user->hasRole('super_admin');
-
-            if ($isAdmin && (!$wasAdmin || isset($data['role']))) {
-                $this->linkedAccountService->syncUserToProduct(
-                    $user,
-                    LinkedAccountConstants::PRODUCT_CONSOLE,
-                    LinkedAccountConstants::TYPE_SSO_ONLY
-                );
-            }
+            $this->syncLinkedAccountIfNeeded($user, $wasAdmin, $data);
 
             Log::info('Super Admin updated user', [
                 'super_admin_id' => auth()->id(),
@@ -396,6 +357,100 @@ class SuperAdminService
                 'user_id' => $userId,
             ]);
             throw $e;
+        }
+    }
+
+    /**
+     * Prepare user update data from input array
+     *
+     * @param array $data
+     * @return array
+     * @throws TenantNotFoundException
+     * @throws InvalidTenantException
+     */
+    private function prepareUserUpdateData(array $data): array
+    {
+        $updateData = [];
+        
+        if (isset($data['name'])) {
+            $updateData['name'] = trim($data['name']);
+        }
+        
+        if (isset($data['email'])) {
+            $updateData['email'] = strtolower(trim($data['email']));
+        }
+        
+        if (isset($data['status'])) {
+            $updateData['status'] = $data['status'];
+        }
+        
+        // Only update password if provided and not empty
+        if (isset($data['password']) && !empty(trim($data['password']))) {
+            $updateData['password'] = $data['password']; // Will be hashed by User model
+        }
+        
+        if (isset($data['tenant_id'])) {
+            $this->validateTenantId($data['tenant_id']);
+            $updateData['tenant_id'] = $data['tenant_id'];
+        }
+
+        return $updateData;
+    }
+
+    /**
+     * Validate tenant ID exists and is a valid tenant owner
+     *
+     * @param int $tenantId
+     * @return void
+     * @throws TenantNotFoundException
+     * @throws InvalidTenantException
+     */
+    private function validateTenantId(int $tenantId): void
+    {
+        $newTenant = User::find($tenantId);
+        if (!$newTenant) {
+            throw new TenantNotFoundException('Invalid tenant_id: Tenant not found');
+        }
+        // Ensure it's a tenant owner
+        if ($newTenant->tenant_id !== $newTenant->id && $newTenant->tenant_id !== 0) {
+            throw new InvalidTenantException('Invalid tenant_id: User is not a tenant owner');
+        }
+    }
+
+    /**
+     * Update user role
+     *
+     * @param User $user
+     * @param string $roleName
+     * @return void
+     * @throws RoleNotFoundException
+     */
+    private function updateUserRole(User $user, string $roleName): void
+    {
+        $role = \Spatie\Permission\Models\Role::where('name', $roleName)->first();
+        if (!$role) {
+            throw new RoleNotFoundException('Invalid role: Role not found');
+        }
+        $user->syncRoles([$roleName]);
+    }
+
+    /**
+     * Sync linked account if user is admin
+     *
+     * @param User $user
+     * @param bool $wasAdmin
+     * @param array $data
+     * @return void
+     */
+    private function syncLinkedAccountIfNeeded(User $user, bool $wasAdmin, array $data): void
+    {
+        $isAdmin = $user->hasRole('admin') || $user->hasRole('super_admin');
+        if ($isAdmin && (!$wasAdmin || isset($data['role']))) {
+            $this->linkedAccountService->syncUserToProduct(
+                $user,
+                LinkedAccountConstants::PRODUCT_CONSOLE,
+                LinkedAccountConstants::TYPE_SSO_ONLY
+            );
         }
     }
 }

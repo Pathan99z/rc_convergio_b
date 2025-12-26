@@ -20,6 +20,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 
 class TicketController extends Controller
@@ -54,7 +55,15 @@ class TicketController extends Controller
             'sortOrder' => $request->get('sortOrder', 'desc'),
         ];
 
-        $tickets = $this->ticketService->getTickets($filters, $request->get('per_page', 15));
+        $userId = $request->user()->id;
+        
+        // Create cache key with tenant and user isolation
+        $cacheKey = "service_tickets_list_{$tenantId}_{$userId}_" . md5(serialize($filters + ['per_page' => $request->get('per_page', 15)]));
+        
+        // Cache tickets list for 5 minutes (300 seconds)
+        $tickets = Cache::remember($cacheKey, 300, function () use ($filters, $request) {
+            return $this->ticketService->getTickets($filters, $request->get('per_page', 15));
+        });
 
         return TicketResource::collection($tickets);
     }
@@ -71,6 +80,9 @@ class TicketController extends Controller
 
         $data = $request->validated();
         $ticket = $this->ticketService->createTicket($data, $tenantId, $createdBy);
+
+        // Clear cache after creating ticket
+        $this->clearServiceTicketsCache($tenantId, $createdBy);
 
         // Get article suggestions based on ticket content
         $suggestions = $this->getArticleSuggestions($request, $data['subject'] ?? null, $data['description'] ?? null);
@@ -105,13 +117,24 @@ class TicketController extends Controller
     {
         $this->authorize('view', $ticket);
 
-        return new TicketResource($ticket->load([
-            'contact',
-            'company',
-            'assignee',
-            'team',
-            'messages.author'
-        ]));
+        $tenantId = $ticket->tenant_id;
+        $userId = auth()->id();
+        
+        // Create cache key with tenant, user, and ticket ID isolation
+        $cacheKey = "service_ticket_show_{$tenantId}_{$userId}_{$ticket->id}";
+        
+        // Cache ticket detail for 15 minutes (900 seconds)
+        $ticket = Cache::remember($cacheKey, 900, function () use ($ticket) {
+            return $ticket->load([
+                'contact',
+                'company',
+                'assignee',
+                'team',
+                'messages.author'
+            ]);
+        });
+
+        return new TicketResource($ticket);
     }
 
     /**
@@ -124,6 +147,10 @@ class TicketController extends Controller
         $data = $request->validated();
         $this->ticketService->updateTicket($ticket, $data);
 
+        // Clear cache after updating ticket
+        $this->clearServiceTicketsCache($ticket->tenant_id, auth()->id());
+        Cache::forget("service_ticket_show_{$ticket->tenant_id}_{$request->user()->id}_{$ticket->id}");
+
         return new TicketResource($ticket->fresh()->load(['contact', 'company', 'assignee', 'team']));
     }
 
@@ -134,7 +161,15 @@ class TicketController extends Controller
     {
         $this->authorize('delete', $ticket);
 
+        $tenantId = $ticket->tenant_id;
+        $userId = auth()->id();
+        $ticketId = $ticket->id;
+
         $ticket->delete();
+
+        // Clear cache after deleting ticket
+        $this->clearServiceTicketsCache($tenantId, $userId);
+        Cache::forget("service_ticket_show_{$tenantId}_{$userId}_{$ticketId}");
 
         return response()->json([
             'message' => 'Ticket deleted successfully.',
@@ -158,6 +193,10 @@ class TicketController extends Controller
             $request->get('assignee_id'),
             $request->get('team_id')
         );
+
+        // Clear cache after assigning ticket
+        $this->clearServiceTicketsCache($ticket->tenant_id, auth()->id());
+        Cache::forget("service_ticket_show_{$ticket->tenant_id}_{$request->user()->id}_{$ticket->id}");
 
         return response()->json([
             'message' => 'Ticket assigned successfully.',
@@ -194,6 +233,10 @@ class TicketController extends Controller
             }
         }
 
+        // Clear cache after updating ticket status
+        $this->clearServiceTicketsCache($ticket->tenant_id, auth()->id());
+        Cache::forget("service_ticket_show_{$ticket->tenant_id}_{$request->user()->id}_{$ticket->id}");
+
         return response()->json([
             'message' => 'Ticket status updated successfully.',
             'ticket' => new TicketResource($ticket->fresh()->load(['contact', 'company', 'assignee', 'team'])),
@@ -223,6 +266,10 @@ class TicketController extends Controller
             ]);
         }
 
+        // Clear cache after closing ticket
+        $this->clearServiceTicketsCache($ticket->tenant_id, auth()->id());
+        Cache::forget("service_ticket_show_{$ticket->tenant_id}_{$request->user()->id}_{$ticket->id}");
+
         return response()->json([
             'message' => 'Ticket closed successfully.',
             'ticket' => new TicketResource($ticket->fresh()),
@@ -237,7 +284,15 @@ class TicketController extends Controller
         $this->authorize('viewAny', Ticket::class);
 
         $tenantId = $request->user()->tenant_id ?? $request->user()->id; // Use user's tenant_id or fallback to user's ID
-        $stats = $this->ticketService->getTicketStats($tenantId);
+        $userId = $request->user()->id;
+        
+        // Create cache key for ticket stats
+        $cacheKey = "service_tickets_stats_{$tenantId}_{$userId}";
+        
+        // Cache ticket stats for 5 minutes (300 seconds)
+        $stats = Cache::remember($cacheKey, 300, function () use ($tenantId) {
+            return $this->ticketService->getTicketStats($tenantId);
+        });
 
         return new TicketStatsResource($stats);
     }
@@ -299,6 +354,11 @@ class TicketController extends Controller
         ];
 
         $ticket = $this->ticketService->createTicket($ticketData, $tenantId);
+
+        // Clear cache after creating public ticket (if user is authenticated)
+        if ($request->user()) {
+            $this->clearServiceTicketsCache($tenantId, $request->user()->id);
+        }
 
         // Get article suggestions based on ticket content
         $suggestions = $this->getArticleSuggestions($request, $data['subject'] ?? null, $data['description'] ?? null);
@@ -631,6 +691,43 @@ class TicketController extends Controller
                 'success' => false,
                 'message' => 'Failed to retrieve survey status'
             ], 500);
+        }
+    }
+
+    /**
+     * Clear service tickets cache for a specific tenant and user.
+     * This method prevents code duplication and ensures consistent cache invalidation.
+     *
+     * @param int $tenantId
+     * @param int $userId
+     * @return void
+     */
+    private function clearServiceTicketsCache(int $tenantId, int $userId): void
+    {
+        try {
+            // Clear common cache patterns for tickets list
+            $commonParams = [
+                '',
+                md5(serialize(['status' => 'open', 'per_page' => 15])),
+                md5(serialize(['status' => 'closed', 'per_page' => 15])),
+            ];
+
+            foreach ($commonParams as $params) {
+                Cache::forget("service_tickets_list_{$tenantId}_{$userId}_{$params}");
+            }
+
+            Log::info('Service tickets cache cleared', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'cleared_keys' => count($commonParams)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to clear service tickets cache', [
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'error' => $e->getMessage()
+            ]);
         }
     }
 }
