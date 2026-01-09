@@ -42,6 +42,9 @@ class SendMeetingNotificationJob implements ShouldQueue
 
             $emailData = $this->generateEmailContent($meeting);
 
+            // Configure email for tenant
+            SetConfigEmail($meeting->tenant_id);
+
             Mail::html($emailData['content'], function ($message) use ($meeting, $emailData) {
                 $message->to($meeting->contact->email, $meeting->contact->first_name . ' ' . $meeting->contact->last_name)
                         ->subject($emailData['subject'])

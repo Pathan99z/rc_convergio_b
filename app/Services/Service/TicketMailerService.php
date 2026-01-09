@@ -224,6 +224,19 @@ class TicketMailerService
     private function sendMail(string $email, string $template, array $data): void
     {
         try {
+            // Get tenant_id from ticket or context
+            $tenantId = null;
+            if (isset($data['ticket']) && $data['ticket'] instanceof \App\Models\Service\Ticket) {
+                $tenantId = $data['ticket']->tenant_id;
+            } elseif (auth()->check()) {
+                $tenantId = auth()->user()->tenant_id ?? auth()->id();
+            }
+
+            // Configure email for tenant
+            if ($tenantId !== null) {
+                SetConfigEmail($tenantId);
+            }
+
             // Check if queue is available
             if (config('queue.default') !== 'sync') {
                 Mail::queue($template, $data, function ($message) use ($email, $data) {

@@ -16,6 +16,9 @@ class ArticleNotificationService
     public function notifyArticlePublished(Article $article): void
     {
         try {
+            // Configure email for tenant
+            SetConfigEmail($article->tenant_id);
+
             $recipients = $this->getNotificationRecipients($article->tenant_id);
             
             foreach ($recipients as $recipient) {
@@ -45,6 +48,9 @@ class ArticleNotificationService
     public function notifyArticleUpdated(Article $article): void
     {
         try {
+            // Configure email for tenant
+            SetConfigEmail($article->tenant_id);
+
             $recipients = $this->getNotificationRecipients($article->tenant_id);
             
             foreach ($recipients as $recipient) {
@@ -74,6 +80,9 @@ class ArticleNotificationService
     public function notifyArticleArchived(Article $article): void
     {
         try {
+            // Configure email for tenant
+            SetConfigEmail($article->tenant_id);
+
             $recipients = $this->getNotificationRecipients($article->tenant_id);
             
             foreach ($recipients as $recipient) {

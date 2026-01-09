@@ -484,6 +484,9 @@ class EventService
         $eventDetailsHtml = $this->generateEventDetailsHtml($event, $message, $contact->id);
         $processedContent .= $eventDetailsHtml;
 
+        // Configure email for tenant
+        SetConfigEmail($event->tenant_id);
+
         // Log the email (in production, use your existing email service)
         Log::info('Event invitation email sent using template', [
             'event_id' => $event->id,
@@ -519,6 +522,9 @@ class EventService
 
         // Generate simple email content
         $emailContent = $this->generateSimpleEventInvitationEmail($event, $contact, $subject, $message);
+        
+        // Configure email for tenant
+        SetConfigEmail($event->tenant_id);
         
         // Send email using Laravel Mail facade
         \Illuminate\Support\Facades\Mail::html($emailContent, function ($message) use ($contact, $subject) {

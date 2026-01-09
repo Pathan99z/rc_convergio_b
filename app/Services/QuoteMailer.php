@@ -17,6 +17,9 @@ class QuoteMailer
         try {
             $quote->load(['deal.company', 'items', 'creator']);
 
+            // Configure email for tenant
+            SetConfigEmail($quote->tenant_id);
+
             Mail::to($contact->email)
                 ->send(new \App\Mail\QuoteMail($quote, $contact, $customMessage));
 
@@ -47,6 +50,9 @@ class QuoteMailer
         try {
             $quote->load(['deal.company', 'creator']);
 
+            // Configure email for tenant
+            SetConfigEmail($quote->tenant_id);
+
             // Send to quote creator
             Mail::to($quote->creator->email)
                 ->send(new \App\Mail\QuoteAcceptedMail($quote));
@@ -76,6 +82,9 @@ class QuoteMailer
         try {
             $quote->load(['deal.company', 'creator']);
 
+            // Configure email for tenant
+            SetConfigEmail($quote->tenant_id);
+
             // Send to quote creator
             Mail::to($quote->creator->email)
                 ->send(new \App\Mail\QuoteRejectedMail($quote));
@@ -104,6 +113,9 @@ class QuoteMailer
     {
         try {
             $quote->load(['deal.company', 'items', 'creator']);
+
+            // Configure email for tenant
+            SetConfigEmail($quote->tenant_id);
 
             Mail::to($contact->email)
                 ->send(new \App\Mail\QuoteExpirationReminderMail($quote, $contact));

@@ -32,9 +32,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Load currency helper function automatically (no composer dump-autoload needed)
+        // Load helper functions automatically (no composer dump-autoload needed)
         if (file_exists(app_path('Helpers/CurrencyHelper.php'))) {
             require_once app_path('Helpers/CurrencyHelper.php');
+        }
+        if (file_exists(app_path('Helpers/EmailHelper.php'))) {
+            require_once app_path('Helpers/EmailHelper.php');
         }
 
         RateLimiter::for('login', function (Request $request): Limit {

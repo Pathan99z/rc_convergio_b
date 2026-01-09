@@ -97,6 +97,15 @@ Route::post('service/email/webhook/gmail', [\App\Http\Controllers\Api\Service\Em
 Route::get('service/email/webhook/test', [\App\Http\Controllers\Api\Service\EmailWebhookController::class, 'test']);
 Route::get('service/email/webhook/verify', [\App\Http\Controllers\Api\Service\EmailWebhookController::class, 'verify']);
 
+// Email Settings Routes (Tenant-specific email configuration)
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/email-settings', [\App\Http\Controllers\Api\SettingsController::class, 'getEmailSettings']);
+    Route::post('/email-settings', [\App\Http\Controllers\Api\SettingsController::class, 'storeEmailSettings']);
+    Route::post('/email-settings/test', [\App\Http\Controllers\Api\SettingsController::class, 'sendTestMail']);
+    Route::post('/email-settings/getfields', [\App\Http\Controllers\Api\SettingsController::class, 'getEmailFields']);
+    Route::get('/email-settings/providers', [\App\Http\Controllers\Api\SettingsController::class, 'getEmailProviders']);
+});
+
 Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     // Aggregated dashboard
     Route::get('dashboard', [DashboardController::class, 'index']);
@@ -200,6 +209,20 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     Route::get('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'show'])->whereNumber('product');
     Route::put('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'update'])->whereNumber('product');
     Route::delete('products/{product}', [\App\Http\Controllers\Api\ProductController::class, 'destroy'])->whereNumber('product');
+
+    // Collaterals resource
+    Route::get('collaterals', [\App\Http\Controllers\Api\CollateralController::class, 'index']);
+    Route::post('collaterals', [\App\Http\Controllers\Api\CollateralController::class, 'store']);
+    Route::get('collaterals/types', [\App\Http\Controllers\Api\CollateralController::class, 'types']);
+    // Specific routes must come before generic {collateral} route
+    Route::get('collaterals/{id}/download', [\App\Http\Controllers\Api\CollateralController::class, 'download'])->whereNumber('id');
+    Route::get('collaterals/{id}/preview', [\App\Http\Controllers\Api\CollateralController::class, 'preview'])->whereNumber('id');
+    Route::get('collaterals/{collateral}', [\App\Http\Controllers\Api\CollateralController::class, 'show'])->whereNumber('collateral');
+    Route::put('collaterals/{collateral}', [\App\Http\Controllers\Api\CollateralController::class, 'update'])->whereNumber('collateral');
+    Route::delete('collaterals/{collateral}', [\App\Http\Controllers\Api\CollateralController::class, 'destroy'])->whereNumber('collateral');
+    Route::get('products/{product}/collaterals', [\App\Http\Controllers\Api\CollateralController::class, 'getByProduct'])->whereNumber('product');
+    Route::post('collaterals/send', [\App\Http\Controllers\Api\CollateralController::class, 'send']);
+    Route::get('contacts/{contact}/collaterals-sent', [\App\Http\Controllers\Api\CollateralController::class, 'getSentForContact'])->whereNumber('contact');
 
     // Quote Templates resource
     Route::get('quote-templates', [\App\Http\Controllers\Api\QuoteTemplateController::class, 'index']);
@@ -961,6 +984,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::post('/settings', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'update']);
         Route::post('/settings/test-connection', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'testConnection']);
         Route::post('/settings/send-test-email', [\App\Http\Controllers\Api\Commerce\CommerceSettingController::class, 'sendTestEmail']);
+
 
         // Analytics
         Route::get('/analytics', [\App\Http\Controllers\Api\Commerce\CommerceAnalyticsController::class, 'index']);

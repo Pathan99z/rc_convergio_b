@@ -61,6 +61,14 @@ class Product extends Model
     }
 
     /**
+     * Get the collaterals for this product.
+     */
+    public function collaterals(): HasMany
+    {
+        return $this->hasMany(Collateral::class);
+    }
+
+    /**
      * Scope a query to only include active products.
      */
     public function scopeActive($query)

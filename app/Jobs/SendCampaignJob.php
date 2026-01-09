@@ -121,6 +121,9 @@ class SendCampaignJob implements ShouldQueue
     private function sendEmail(CampaignRecipient $recipient): void
     {
         try {
+            // Configure email for tenant
+            SetConfigEmail($this->campaign->tenant_id);
+
             // Send email using Laravel Mail
             Mail::raw($this->campaign->content, function ($message) use ($recipient) {
                 $message->to($recipient->email, $recipient->name)

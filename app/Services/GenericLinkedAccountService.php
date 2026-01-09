@@ -109,8 +109,8 @@ class GenericLinkedAccountService
             ->table('users')
             ->where('user_id', $existingConsoleUser->user_id)
             ->update([
-                'user_group_cd' => '002',
-                'user_level' => '2',
+                'user_group_cd' => '008', // Codemass User (was '002' - Reliance Admin)
+                'user_level' => '4',      // User Level 4 (was '2')
                 'flagactive' => $convergioUser->status === 'active' ? 'Y' : 'N',
                 'last_updated_date' => now()->format('Y-m-d'),
                 'last_updated_time' => now()->format('H:i:s'),
@@ -147,8 +147,8 @@ class GenericLinkedAccountService
             'password' => $randomPassword,
             'email' => $convergioUser->email,
             'company_cd' => $companyCd,
-            'user_group_cd' => '002',
-            'user_level' => '2',
+            'user_group_cd' => '008', // Codemass User (was '002' - Reliance Admin)
+            'user_level' => '4',      // User Level 4 (was '2')
             'user_uid' => (string) $convergioUser->id,
             'user_created_by' => (string) $convergioUser->id,
             'user_created_date' => $convergioUser->created_at->format('Y-m-d'),
@@ -171,9 +171,11 @@ class GenericLinkedAccountService
             $username
         );
 
-        Log::info('Admin user synced to Console', [
+        Log::info('Admin user synced to Console as Codemass User', [
             'convergio_user_id' => $convergioUser->id,
             'console_user_id' => $consoleUserId,
+            'user_group_cd' => '008',
+            'user_level' => '4',
             'integration_type' => $integrationType,
         ]);
 

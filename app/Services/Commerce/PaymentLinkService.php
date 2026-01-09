@@ -409,6 +409,9 @@ class PaymentLinkService
             $quote = $paymentLink->quote;
             $customerName = $customerName ?? $quote->contact->name ?? 'Valued Customer';
 
+            // Configure email for tenant
+            SetConfigEmail($paymentLink->tenant_id);
+
             // Send the email
             Mail::to($customerEmail)->send(new PaymentLinkMail(
                 $paymentLink,

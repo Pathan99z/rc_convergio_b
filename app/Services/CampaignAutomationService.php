@@ -284,6 +284,9 @@ class CampaignAutomationService
                 $subject = $campaign->subject;
             }
             
+            // Configure email for tenant
+            SetConfigEmail($campaign->tenant_id);
+            
             // Send email immediately using Laravel Mail
             Mail::html($emailContent, function ($message) use ($subject, $contact) {
                 $message->to($contact->email, $contact->first_name . ' ' . $contact->last_name)

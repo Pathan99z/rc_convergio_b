@@ -43,6 +43,9 @@ class SendCampaignEmails implements ShouldQueue
         $bounced = 0;
         Log::info('Campaign send start', ['campaign_id' => $campaign->id, 'tenant_id' => $campaign->tenant_id]);
 
+        // Configure email for tenant (once per campaign)
+        SetConfigEmail($campaign->tenant_id);
+
         // Check if this is CSV mode
         $settings = $campaign->settings ?? [];
         $recipientMode = $settings['recipient_mode'] ?? null;
