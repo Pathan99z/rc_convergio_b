@@ -140,7 +140,8 @@ class OutlookIntegrationService
             return $this->generateMockOutlookData($data);
         }
 
-        $outlookToken = \App\Models\OutlookOAuthToken::getValidTokenForUser($user->id);
+        $tenantId = $user->tenant_id;
+        $outlookToken = \App\Models\OutlookOAuthToken::getValidTokenForUser($user->id, $tenantId);
         if (!$outlookToken) {
             Log::warning('User not authenticated with Outlook, using mock data', [
                 'user_id' => $user->id,
@@ -295,13 +296,18 @@ class OutlookIntegrationService
         $user = \Illuminate\Support\Facades\Auth::user();
         if (!$user) return;
 
+        $tenantId = $user->tenant_id;
         \App\Models\OutlookOAuthToken::updateOrCreate(
-            ['user_id' => $user->id],
+            [
+                'user_id' => $user->id,
+                'tenant_id' => $tenantId,
+            ],
             [
                 'access_token' => $tokenData['access_token'],
                 'refresh_token' => $tokenData['refresh_token'] ?? null,
                 'expires_at' => now()->addSeconds($tokenData['expires_in'] ?? 3600),
                 'scope' => $tokenData['scope'] ?? null,
+                'email' => $tokenData['email'] ?? null,
             ]
         );
     }

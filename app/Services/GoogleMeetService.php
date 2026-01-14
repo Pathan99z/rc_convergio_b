@@ -14,9 +14,9 @@ class GoogleMeetService
 
     public function __construct()
     {
-        $this->clientId = config('services.google.client_id');
-        $this->clientSecret = config('services.google.client_secret');
-        $this->redirectUri = config('services.google.redirect_uri') ?: 'http://localhost:8000/api/meetings/oauth/google/callback';
+        $this->clientId = config('services.google.client_id') ?? '';
+        $this->clientSecret = config('services.google.client_secret') ?? '';
+        $this->redirectUri = config('services.google.redirect_uri') ?: 'http://localhost:8000/api/auth/google/callback';
     }
 
     /**
@@ -64,18 +64,23 @@ class GoogleMeetService
             return $this->generateRealisticGoogleMeetData($data);
         }
 
-        $googleToken = \App\Models\GoogleOAuthToken::getValidTokenForUser($user->id);
+        $tenantId = $user->tenant_id;
+        $googleToken = \App\Models\GoogleOAuthToken::getValidTokenForUser($user->id, $tenantId);
         if (!$googleToken) {
             Log::warning('User not authenticated with Google, checking for expired token', [
                 'user_id' => $user->id,
+                'tenant_id' => $tenantId,
                 'title' => $data['title'] ?? 'Meeting'
             ]);
             
             // Check for expired token that can be refreshed
-            $storedToken = \App\Models\GoogleOAuthToken::where('user_id', $user->id)->first();
+            $storedToken = \App\Models\GoogleOAuthToken::where('user_id', $user->id)
+                ->where('tenant_id', $tenantId)
+                ->first();
             if ($storedToken && !empty($storedToken->access_token) && !empty($storedToken->refresh_token)) {
                 Log::info('Attempting to refresh expired Google OAuth token', [
-                    'user_id' => $user->id
+                    'user_id' => $user->id,
+                    'tenant_id' => $tenantId
                 ]);
                 
                 $newAccessToken = $this->refreshAccessToken($storedToken->refresh_token);
@@ -186,8 +191,11 @@ class GoogleMeetService
 
     /**
      * Get OAuth authorization URL.
+     * 
+     * @param \App\Models\User|null $user Optional user to include in state parameter
+     * @return string
      */
-    public function getAuthorizationUrl(): string
+    public function getAuthorizationUrl($user = null): string
     {
         $params = [
             'client_id' => $this->clientId,
@@ -197,6 +205,20 @@ class GoogleMeetService
             'access_type' => 'offline',
             'prompt' => 'consent',
         ];
+
+        // Add state parameter with user info if user is provided
+        if ($user) {
+            $state = base64_encode(json_encode([
+                'user_id' => $user->id,
+                'tenant_id' => $user->tenant_id,
+                'nonce' => bin2hex(random_bytes(16)),
+                'timestamp' => time()
+            ]));
+            $params['state'] = $state;
+            
+            // Store state in session for validation (optional but recommended)
+            session(['google_meet_oauth_state' => $state]);
+        }
 
         return 'https://accounts.google.com/o/oauth2/auth?' . http_build_query($params);
     }
@@ -286,10 +308,8 @@ class GoogleMeetService
             'guestsCanSeeOtherGuests' => true,
         ];
 
-        $requestData = [
-            'conferenceDataVersion' => 1,
-            ...$eventData
-        ];
+        // conferenceDataVersion must be in URL query parameter, not in request body
+        $requestData = $eventData;
 
         // Log request for debugging (can be removed in production)
         Log::info('Sending request to Google Calendar API', [
@@ -297,13 +317,24 @@ class GoogleMeetService
             'access_token_length' => strlen($accessToken)
         ]);
 
+        // IMPORTANT: conferenceDataVersion must be in URL query parameter for Google to return conference data
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $accessToken,
             'Content-Type' => 'application/json',
-        ])->post('https://www.googleapis.com/calendar/v3/calendars/primary/events', $requestData);
+        ])->post('https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1', $requestData);
 
         if ($response->successful()) {
             $event = $response->json();
+            
+            // Log initial response for debugging
+            Log::info('Google Calendar API Response', [
+                'event_id' => $event['id'] ?? 'N/A',
+                'has_hangoutLink' => isset($event['hangoutLink']),
+                'hangoutLink' => $event['hangoutLink'] ?? null,
+                'has_conferenceData' => isset($event['conferenceData']),
+                'conferenceData' => $event['conferenceData'] ?? null,
+                'response_keys' => array_keys($event)
+            ]);
             
             // Extract Google Meet link from the event
             $meetUrl = $event['hangoutLink'] ?? null;
@@ -325,9 +356,10 @@ class GoogleMeetService
                 // Wait a few seconds for Google to generate the Meet link
                 sleep(3);
                 
+                // IMPORTANT: Include conferenceDataVersion=1 to get conference data in response
                 $eventResponse = Http::withHeaders([
                     'Authorization' => 'Bearer ' . $accessToken,
-                ])->get('https://www.googleapis.com/calendar/v3/calendars/primary/events/' . $event['id']);
+                ])->get('https://www.googleapis.com/calendar/v3/calendars/primary/events/' . $event['id'] . '?conferenceDataVersion=1');
                 
                 if ($eventResponse->successful()) {
                     $updatedEvent = $eventResponse->json();
@@ -345,7 +377,15 @@ class GoogleMeetService
                         'event_id' => $event['id'],
                         'meet_url' => $meetUrl,
                         'has_conference_data' => isset($updatedEvent['conferenceData']),
-                        'conference_data' => $updatedEvent['conferenceData'] ?? null
+                        'conference_data' => $updatedEvent['conferenceData'] ?? null,
+                        'has_hangoutLink' => isset($updatedEvent['hangoutLink']),
+                        'hangoutLink' => $updatedEvent['hangoutLink'] ?? null
+                    ]);
+                } else {
+                    Log::warning('Failed to fetch event again for Meet link', [
+                        'event_id' => $event['id'],
+                        'status' => $eventResponse->status(),
+                        'response' => $eventResponse->body()
                     ]);
                 }
             }

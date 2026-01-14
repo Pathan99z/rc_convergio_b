@@ -10,11 +10,15 @@ class GoogleOAuthToken extends Model
 {
     use HasFactory;
 
+    protected $table = 'google_oauth_tokens';
+
     protected $fillable = [
         'user_id',
+        'tenant_id',
         'access_token',
         'refresh_token',
         'expires_at',
+        'email',
     ];
 
     protected $casts = [
@@ -30,6 +34,14 @@ class GoogleOAuthToken extends Model
     }
 
     /**
+     * Get the tenant that owns the token.
+     */
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'tenant_id');
+    }
+
+    /**
      * Check if the token is expired.
      */
     public function isExpired(): bool
@@ -38,15 +50,24 @@ class GoogleOAuthToken extends Model
     }
 
     /**
-     * Get a valid access token for the user.
+     * Get a valid access token for the user and tenant.
      */
-    public static function getValidTokenForUser(int $userId): ?self
+    public static function getValidTokenForUser(int $userId, int $tenantId): ?self
     {
         return static::where('user_id', $userId)
+            ->where('tenant_id', $tenantId)
             ->where(function ($query) {
                 $query->whereNull('expires_at')
                     ->orWhere('expires_at', '>', now());
             })
             ->first();
+    }
+
+    /**
+     * Scope a query to only include tokens for a specific tenant.
+     */
+    public function scopeForTenant($query, int $tenantId)
+    {
+        return $query->where('tenant_id', $tenantId);
     }
 }

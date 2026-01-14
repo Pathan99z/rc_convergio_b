@@ -4,18 +4,23 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Carbon\Carbon;
 
 class TeamsOAuthToken extends Model
 {
     use HasFactory;
 
+    protected $table = 'teams_oauth_tokens';
+
     protected $fillable = [
         'user_id',
+        'tenant_id',
         'access_token',
         'refresh_token',
         'expires_at',
         'scope',
+        'email',
     ];
 
     protected $casts = [
@@ -23,11 +28,28 @@ class TeamsOAuthToken extends Model
     ];
 
     /**
-     * Get a valid token for a user.
+     * Get the user that owns the token.
      */
-    public static function getValidTokenForUser(int $userId): ?self
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the tenant that owns the token.
+     */
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'tenant_id');
+    }
+
+    /**
+     * Get a valid token for a user and tenant.
+     */
+    public static function getValidTokenForUser(int $userId, int $tenantId): ?self
     {
         return self::where('user_id', $userId)
+            ->where('tenant_id', $tenantId)
             ->where('expires_at', '>', now())
             ->whereNotNull('access_token')
             ->first();
@@ -42,10 +64,10 @@ class TeamsOAuthToken extends Model
     }
 
     /**
-     * Get the user that owns the token.
+     * Scope a query to only include tokens for a specific tenant.
      */
-    public function user()
+    public function scopeForTenant($query, int $tenantId)
     {
-        return $this->belongsTo(User::class);
+        return $query->where('tenant_id', $tenantId);
     }
 }

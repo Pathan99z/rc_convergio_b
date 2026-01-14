@@ -82,3 +82,5 @@ class CollateralMail extends Mailable
     }
 }
 
+
+

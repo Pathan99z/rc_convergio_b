@@ -579,7 +579,11 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     Route::get('meetings/statuses', [\App\Http\Controllers\Api\MeetingsController::class, 'getStatuses']);
     Route::get('meetings/providers', [\App\Http\Controllers\Api\MeetingsController::class, 'getProviders']);
 
-        // Google OAuth for Meetings (moved outside auth middleware)
+    // Google OAuth for Meetings - Initial Redirect (requires auth)
+    Route::get('meetings/oauth/google', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'redirect']);
+    Route::get('meetings/oauth/google/status', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'status']);
+    Route::post('meetings/oauth/google/test', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'testMeet']);
+    Route::post('meetings/oauth/google/force-real', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'forceRealMeet']);
 
     // Analytics Dashboard
     Route::get('analytics/dashboard', [\App\Http\Controllers\Api\AnalyticsController::class, 'dashboard']);
@@ -884,13 +888,8 @@ Route::get('oauth/facebook/callback', [FacebookOAuthController::class, 'callback
 // Google OAuth Callback (no auth required)
 Route::get('oauth/google/callback', [GoogleOAuthController::class, 'callback']);
 
-// Meeting OAuth Callback (no auth required)
+// Meeting OAuth Callback (no auth required - Google redirects here)
 Route::get('meetings/oauth/google/callback', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'callback']);
-
-// Meeting OAuth Routes (no auth required for redirect)
-Route::get('meetings/oauth/google', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'redirect']);
-Route::post('meetings/oauth/google/test', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'testMeet']);
-Route::post('meetings/oauth/google/force-real', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'forceRealMeet']);
 
 // Teams OAuth routes
 Route::get('meetings/oauth/teams', [TeamsOAuthController::class, 'redirect']);
