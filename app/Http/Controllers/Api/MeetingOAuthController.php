@@ -290,4 +290,66 @@ class MeetingOAuthController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Disconnect Google Calendar account.
+     * 
+     * Deletes the OAuth token for the authenticated user and tenant.
+     * After disconnecting, user can reconnect using the same OAuth flow.
+     * 
+     * @return JsonResponse
+     */
+    public function disconnect(): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                ], 401);
+            }
+
+            $tenantId = $user->tenant_id ?? $user->id;
+            
+            // Find and delete Google OAuth token
+            $token = \App\Models\GoogleOAuthToken::where('user_id', $user->id)
+                ->where('tenant_id', $tenantId)
+                ->first();
+
+            if (!$token) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Google Calendar not connected'
+                ], 404);
+            }
+
+            $email = $token->email;
+            $token->delete();
+            
+            Log::info('Google Calendar account disconnected', [
+                'user_id' => $user->id,
+                'tenant_id' => $tenantId,
+                'email' => $email
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Google Calendar disconnected successfully',
+                'email' => $email
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to disconnect Google Calendar account', [
+                'error' => $e->getMessage(),
+                'user_id' => Auth::id()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to disconnect Google Calendar account',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

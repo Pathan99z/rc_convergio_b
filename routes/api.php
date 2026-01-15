@@ -578,12 +578,24 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     Route::post('meetings/sync/outlook', [\App\Http\Controllers\Api\MeetingsController::class, 'syncOutlook']);
     Route::get('meetings/statuses', [\App\Http\Controllers\Api\MeetingsController::class, 'getStatuses']);
     Route::get('meetings/providers', [\App\Http\Controllers\Api\MeetingsController::class, 'getProviders']);
+    Route::get('meetings/outlook/calendar', [\App\Http\Controllers\Api\MeetingsController::class, 'getOutlookCalendar']);
 
     // Google OAuth for Meetings - Initial Redirect (requires auth)
     Route::get('meetings/oauth/google', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'redirect']);
     Route::get('meetings/oauth/google/status', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'status']);
+    Route::delete('meetings/oauth/google', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'disconnect']);
     Route::post('meetings/oauth/google/test', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'testMeet']);
     Route::post('meetings/oauth/google/force-real', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'forceRealMeet']);
+
+    // Outlook OAuth for Meetings - Initial Redirect (requires auth)
+    Route::get('meetings/oauth/outlook', [\App\Http\Controllers\Api\OutlookOAuthController::class, 'redirect']);
+    Route::get('meetings/oauth/outlook/status', [\App\Http\Controllers\Api\OutlookOAuthController::class, 'status']);
+    Route::delete('meetings/oauth/outlook', [\App\Http\Controllers\Api\OutlookOAuthController::class, 'disconnect']);
+
+    // Teams OAuth for Meetings - Initial Redirect (requires auth)
+    Route::get('meetings/oauth/teams', [\App\Http\Controllers\Api\TeamsOAuthController::class, 'redirect']);
+    Route::get('meetings/oauth/teams/status', [\App\Http\Controllers\Api\TeamsOAuthController::class, 'status']);
+    Route::delete('meetings/oauth/teams', [\App\Http\Controllers\Api\TeamsOAuthController::class, 'disconnect']);
 
     // Analytics Dashboard
     Route::get('analytics/dashboard', [\App\Http\Controllers\Api\AnalyticsController::class, 'dashboard']);
@@ -888,16 +900,10 @@ Route::get('oauth/facebook/callback', [FacebookOAuthController::class, 'callback
 // Google OAuth Callback (no auth required)
 Route::get('oauth/google/callback', [GoogleOAuthController::class, 'callback']);
 
-// Meeting OAuth Callback (no auth required - Google redirects here)
+// Meeting OAuth Callbacks (no auth required - OAuth providers redirect here)
 Route::get('meetings/oauth/google/callback', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'callback']);
-
-// Teams OAuth routes
-Route::get('meetings/oauth/teams', [TeamsOAuthController::class, 'redirect']);
-Route::get('meetings/oauth/teams/callback', [TeamsOAuthController::class, 'callback']);
-
-// Outlook OAuth routes
-Route::get('meetings/oauth/outlook', [OutlookOAuthController::class, 'redirect']);
-Route::get('meetings/oauth/outlook/callback', [OutlookOAuthController::class, 'callback']);
+Route::get('meetings/oauth/outlook/callback', [\App\Http\Controllers\Api\OutlookOAuthController::class, 'callback']);
+Route::get('meetings/oauth/teams/callback', [\App\Http\Controllers\Api\TeamsOAuthController::class, 'callback']);
 
 // Public Quote Routes (No Authentication Required)
 Route::prefix('public/quotes')->group(function () {

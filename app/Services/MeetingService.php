@@ -39,6 +39,15 @@ class MeetingService
         try {
             DB::beginTransaction();
 
+            // Load contact data if contact_id is provided
+            if (isset($data['contact_id']) && $data['contact_id']) {
+                $contact = \App\Models\Contact::find($data['contact_id']);
+                if ($contact) {
+                    $data['contact_email'] = $contact->email;
+                    $data['contact_name'] = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
+                }
+            }
+
             // Generate meeting integration data based on provider
             $integrationData = $this->generateMeetingIntegrationData($data['integration_provider'] ?? 'manual', $data);
 
@@ -724,15 +733,21 @@ class MeetingService
      */
     private function generateOutlookMeetingData(array $data): array
     {
+        // If service not injected, create it manually
         if (!$this->outlookService) {
-            Log::warning('Outlook service not available, using mock data', [
-                'title' => $data['title'] ?? 'Meeting'
-            ]);
-            return $this->generateMockOutlookData($data);
+            $this->outlookService = app(OutlookIntegrationService::class);
         }
 
         try {
             $result = $this->outlookService->createMeeting($data);
+            
+            // If auth is required, return the result so frontend can handle OAuth redirect
+            if (isset($result['auth_required']) && $result['auth_required']) {
+                Log::info('Outlook authentication required', [
+                    'title' => $data['title'] ?? 'Meeting'
+                ]);
+                return $result;
+            }
             
             // If Outlook integration failed, throw an exception to prevent creating invalid meetings
             if (!$result['success']) {
@@ -741,10 +756,23 @@ class MeetingService
             
             return $result;
         } catch (\Exception $e) {
-            Log::error('Outlook meeting creation failed', [
+            Log::error('Outlook meeting creation failed with exception', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'title' => $data['title'] ?? 'Meeting'
             ]);
+            
+            // If it's an auth_required error, return it instead of throwing
+            if (str_contains($e->getMessage(), 'auth_required') || str_contains($e->getMessage(), 'not connected')) {
+                return [
+                    'success' => false,
+                    'auth_required' => true,
+                    'message' => $e->getMessage(),
+                    'type' => 'outlook_event',
+                    'created_at' => now()->toISOString(),
+                ];
+            }
+            
             throw $e;
         }
     }

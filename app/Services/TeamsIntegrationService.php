@@ -35,13 +35,14 @@ class TeamsIntegrationService
      */
     public function isConfigured(): bool
     {
-        return !empty($this->clientId) && !empty($this->clientSecret) && !empty($this->tenantId);
+        // tenantId is optional now (we use /common/ endpoint)
+        return !empty($this->clientId) && !empty($this->clientSecret);
     }
 
     /**
      * Get authorization URL for Teams OAuth.
      */
-    public function getAuthorizationUrl(): string
+    public function getAuthorizationUrl($user = null): string
     {
         $scopes = [
             'https://graph.microsoft.com/Calendars.ReadWrite',
@@ -49,24 +50,41 @@ class TeamsIntegrationService
             'offline_access'
         ];
 
+        // Generate state with user_id and tenant_id (like Google)
+        $state = csrf_token();
+        if ($user) {
+            $stateData = [
+                'user_id' => $user->id,
+                'tenant_id' => $user->tenant_id ?? $user->id,
+                'nonce' => bin2hex(random_bytes(16)),
+                'timestamp' => time()
+            ];
+            $state = base64_encode(json_encode($stateData));
+            
+            // Store in session for validation (optional)
+            session(['teams_oauth_state' => $state]);
+        }
+
         $params = [
             'client_id' => $this->clientId,
             'response_type' => 'code',
             'redirect_uri' => $this->redirectUri,
             'scope' => implode(' ', $scopes),
-            'state' => csrf_token(),
+            'state' => $state,
         ];
 
-        return 'https://login.microsoftonline.com/' . $this->tenantId . '/oauth2/v2.0/authorize?' . http_build_query($params);
+        // Use /common/ instead of /{tenantId}/ to support both personal and work accounts
+        return 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?' . http_build_query($params);
     }
 
     /**
      * Exchange authorization code for access token.
      */
-    public function exchangeCodeForToken(string $code): array
+    public function exchangeCodeForToken(string $code, int $userId = null, int $tenantId = null): array
     {
         try {
-            $response = Http::post('https://login.microsoftonline.com/' . $this->tenantId . '/oauth2/v2.0/token', [
+            // Use /common/ instead of /{tenantId}/ to support both personal and work accounts
+            $response = Http::asForm()->post('https://login.microsoftonline.com/common/oauth2/v2.0/token', [
                 'client_id' => $this->clientId,
                 'client_secret' => $this->clientSecret,
                 'code' => $code,
@@ -77,14 +95,23 @@ class TeamsIntegrationService
             if ($response->successful()) {
                 $tokenData = $response->json();
                 
-                // Store token in database
-                $this->storeToken($tokenData);
+                // Store token in database with user_id and tenant_id
+                if ($userId && $tenantId) {
+                    $this->storeToken($tokenData, $userId, $tenantId);
+                } else {
+                    // Fallback: try to get user from auth (for backward compatibility)
+                    $user = \Illuminate\Support\Facades\Auth::user();
+                    if ($user) {
+                        $this->storeToken($tokenData, $user->id, $user->tenant_id ?? $user->id);
+                    }
+                }
                 
                 return [
                     'success' => true,
                     'access_token' => $tokenData['access_token'],
                     'refresh_token' => $tokenData['refresh_token'] ?? null,
                     'expires_in' => $tokenData['expires_in'] ?? 3600,
+                    'email' => $tokenData['email'] ?? null,
                 ];
             }
 
@@ -109,6 +136,40 @@ class TeamsIntegrationService
                 'error' => 'Exception occurred',
                 'message' => $e->getMessage()
             ];
+        }
+    }
+
+    /**
+     * Refresh access token using refresh token.
+     * Returns full token data array or null on failure.
+     */
+    public function refreshAccessToken(string $refreshToken): ?array
+    {
+        try {
+            $response = Http::asForm()->post('https://login.microsoftonline.com/common/oauth2/v2.0/token', [
+                'client_id' => $this->clientId,
+                'client_secret' => $this->clientSecret,
+                'refresh_token' => $refreshToken,
+                'grant_type' => 'refresh_token',
+                'redirect_uri' => $this->redirectUri,
+            ]);
+
+            if ($response->successful()) {
+                return $response->json();
+            }
+
+            Log::error('Failed to refresh Teams access token', [
+                'status' => $response->status(),
+                'response' => $response->body()
+            ]);
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Exception refreshing Teams access token', [
+                'error' => $e->getMessage()
+            ]);
+
+            return null;
         }
     }
 
@@ -140,14 +201,49 @@ class TeamsIntegrationService
             return $this->generateMockTeamsData($data);
         }
 
-        $tenantId = $user->tenant_id;
+        $tenantId = $user->tenant_id ?? $user->id;
         $teamsToken = \App\Models\TeamsOAuthToken::getValidTokenForUser($user->id, $tenantId);
         if (!$teamsToken) {
-            Log::warning('User not authenticated with Teams, using mock data', [
+            Log::warning('User not authenticated with Teams, checking for expired token', [
                 'user_id' => $user->id,
+                'tenant_id' => $tenantId,
                 'title' => $data['title'] ?? 'Meeting'
             ]);
-            return $this->generateMockTeamsData($data);
+            
+            // Check for expired token that can be refreshed
+            $storedToken = \App\Models\TeamsOAuthToken::where('user_id', $user->id)
+                ->where('tenant_id', $tenantId)
+                ->first();
+            if ($storedToken && !empty($storedToken->access_token) && !empty($storedToken->refresh_token)) {
+                Log::info('Attempting to refresh expired Teams OAuth token', [
+                    'user_id' => $user->id,
+                    'tenant_id' => $tenantId
+                ]);
+                
+                $tokenData = $this->refreshAccessToken($storedToken->refresh_token);
+                if ($tokenData && isset($tokenData['access_token'])) {
+                    // Update the token in database
+                    $storedToken->update([
+                        'access_token' => $tokenData['access_token'],
+                        'expires_at' => now()->addSeconds($tokenData['expires_in'] ?? 3600)
+                    ]);
+                    
+                    try {
+                        return $this->createTeamsMeeting($data, $tokenData['access_token']);
+                    } catch (\Exception $e) {
+                        Log::error('Failed to create real Teams meeting with refreshed token', [
+                            'error' => $e->getMessage()
+                        ]);
+                        return $this->generateMockTeamsData($data);
+                    }
+                } else {
+                    Log::warning('Failed to refresh Teams token, user needs to re-authenticate');
+                    return $this->generateMockTeamsData($data);
+                }
+            } else {
+                Log::warning('No valid OAuth token found, user needs to authenticate');
+                return $this->generateMockTeamsData($data);
+            }
         }
 
         try {
@@ -291,15 +387,11 @@ class TeamsIntegrationService
     /**
      * Store OAuth token in database.
      */
-    private function storeToken(array $tokenData): void
+    public function storeToken(array $tokenData, int $userId, int $tenantId): void
     {
-        $user = \Illuminate\Support\Facades\Auth::user();
-        if (!$user) return;
-
-        $tenantId = $user->tenant_id;
         \App\Models\TeamsOAuthToken::updateOrCreate(
             [
-                'user_id' => $user->id,
+                'user_id' => $userId,
                 'tenant_id' => $tenantId,
             ],
             [

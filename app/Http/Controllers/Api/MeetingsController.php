@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
 
 class MeetingsController extends Controller
@@ -131,10 +132,24 @@ class MeetingsController extends Controller
             // Clear cache after creating meeting
             $this->clearMeetingsCache($tenantId, $user->id);
 
-            return response()->json([
+            // Check if integration requires authentication
+            $integrationData = $meeting->integration_data ?? [];
+            $authRequired = $integrationData['auth_required'] ?? false;
+            
+            $response = [
                 'data' => new MeetingResource($meeting->load(['contact', 'user'])),
                 'message' => 'Meeting created successfully'
-            ], 201);
+            ];
+            
+            // Add auth info if required
+            if ($authRequired) {
+                $provider = $meeting->integration_provider ?? 'outlook';
+                $response['auth_required'] = true;
+                $response['auth_url'] = url("/api/meetings/oauth/{$provider}");
+                $response['message'] = $integrationData['message'] ?? 'Authentication required for meeting integration';
+            }
+
+            return response()->json($response, 201);
 
         } catch (\Exception $e) {
             // Check if it's an authentication error for Google Meet
@@ -143,7 +158,17 @@ class MeetingsController extends Controller
                     'message' => 'Google Meet authentication required',
                     'error' => $e->getMessage(),
                     'auth_required' => true,
-                    'auth_url' => 'http://127.0.0.1:8000/api/meetings/oauth/google'
+                    'auth_url' => url('/api/meetings/oauth/google')
+                ], 400);
+            }
+            
+            // Check if it's an authentication error for Outlook
+            if (str_contains($e->getMessage(), 'Outlook') || str_contains($e->getMessage(), 'outlook')) {
+                return response()->json([
+                    'message' => 'Outlook authentication required',
+                    'error' => $e->getMessage(),
+                    'auth_required' => true,
+                    'auth_url' => url('/api/meetings/oauth/outlook')
                 ], 400);
             }
             
@@ -163,13 +188,24 @@ class MeetingsController extends Controller
         $tenantId = $user->tenant_id;
 
         $validated = $request->validate([
-            'meetings' => 'required|array',
+            'meetings' => 'present|array', // 'present' allows empty arrays, unlike 'required'
             'meetings.*.id' => 'required|string',
             'meetings.*.title' => 'required|string',
             'meetings.*.start_time' => 'required|date',
             'meetings.*.duration_minutes' => 'required|integer',
             'meetings.*.attendees' => 'nullable|array',
         ]);
+
+        // Handle empty meetings array gracefully
+        if (empty($validated['meetings'])) {
+            return response()->json([
+                'data' => [
+                    'synced' => [],
+                    'errors' => []
+                ],
+                'message' => 'No Google meetings to sync'
+            ]);
+        }
 
         try {
             $result = $this->meetingService->syncFromGoogle($user->id, $tenantId, $validated['meetings']);
@@ -196,31 +232,329 @@ class MeetingsController extends Controller
     public function syncOutlook(Request $request): JsonResponse
     {
         $user = Auth::user();
-        $tenantId = $user->tenant_id;
+        $tenantId = $user->tenant_id ?? $user->id;
 
-        $validated = $request->validate([
-            'meetings' => 'required|array',
-            'meetings.*.id' => 'required|string',
-            'meetings.*.subject' => 'required|string',
-            'meetings.*.start_time' => 'required|date',
-            'meetings.*.duration_minutes' => 'required|integer',
-            'meetings.*.attendees' => 'nullable|array',
-        ]);
+        // Check if meetings array is provided (for manual sync)
+        if ($request->has('meetings')) {
+            $meetings = $request->input('meetings', []);
+            
+            // Handle empty meetings array gracefully - trigger auto-fetch
+            if (empty($meetings)) {
+                // Fall through to auto-fetch logic below
+            } else {
+                // Transform Microsoft Graph API format to expected format
+                $formattedMeetings = [];
+                foreach ($meetings as $event) {
+                    // Check if it's Microsoft Graph API format
+                    if (isset($event['start']['dateTime'])) {
+                        // Microsoft Graph API format - transform it
+                        $startTime = \Carbon\Carbon::parse($event['start']['dateTime']);
+                        $endTime = isset($event['end']['dateTime']) 
+                            ? \Carbon\Carbon::parse($event['end']['dateTime'])
+                            : $startTime->copy()->addHours(1);
+                        $durationMinutes = $startTime->diffInMinutes($endTime);
+                        
+                        $formattedMeetings[] = [
+                            'id' => $event['id'] ?? uniqid('outlook_'),
+                            'subject' => $event['subject'] ?? 'Untitled Meeting',
+                            'start_time' => $startTime->toISOString(),
+                            'duration_minutes' => $durationMinutes,
+                            'attendees' => array_map(function($attendee) {
+                                return [
+                                    'emailAddress' => [
+                                        'address' => $attendee['emailAddress']['address'] ?? '',
+                                        'name' => $attendee['emailAddress']['name'] ?? ''
+                                    ]
+                                ];
+                            }, $event['attendees'] ?? []),
+                        ];
+                    } else {
+                        // Already in expected format - use as is
+                        $formattedMeetings[] = $event;
+                    }
+                }
+                
+                // Validate the formatted meetings
+                $validated = validator($formattedMeetings, [
+                    '*.id' => 'required|string',
+                    '*.subject' => 'required|string',
+                    '*.start_time' => 'required|date',
+                    '*.duration_minutes' => 'required|integer',
+                    '*.attendees' => 'nullable|array',
+                ])->validate();
 
+                try {
+                    $result = $this->meetingService->syncFromOutlook($user->id, $tenantId, $validated);
+
+                    // Clear cache after syncing Outlook meetings
+                    $this->clearMeetingsCache($tenantId, $user->id);
+
+                    return response()->json([
+                        'data' => $result,
+                        'message' => 'Outlook meetings synced successfully'
+                    ]);
+
+                } catch (\Exception $e) {
+                    return response()->json([
+                        'message' => 'Failed to sync Outlook meetings',
+                        'error' => $e->getMessage()
+                    ], 500);
+                }
+            }
+        }
+
+        // Auto-fetch from Microsoft Graph API
         try {
-            $result = $this->meetingService->syncFromOutlook($user->id, $tenantId, $validated['meetings']);
-
-            // Clear cache after syncing Outlook meetings
-            $this->clearMeetingsCache($tenantId, $user->id);
-
-            return response()->json([
-                'data' => $result,
-                'message' => 'Outlook meetings synced successfully'
+            $outlookService = app(\App\Services\OutlookIntegrationService::class);
+            
+            if (!$outlookService->isEnabled() || !$outlookService->isConfigured()) {
+                return response()->json([
+                    'message' => 'Outlook integration not configured',
+                    'auth_required' => false,
+                    'configured' => false
+                ], 400);
+            }
+            
+            // Get valid token
+            $token = \App\Models\OutlookOAuthToken::getValidTokenForUser($user->id, $tenantId);
+            
+            if (!$token) {
+                // Try to refresh expired token
+                $storedToken = \App\Models\OutlookOAuthToken::where('user_id', $user->id)
+                    ->where('tenant_id', $tenantId)
+                    ->first();
+                    
+                if ($storedToken && !empty($storedToken->refresh_token)) {
+                    Log::info('Attempting to refresh expired Outlook token for sync', [
+                        'user_id' => $user->id,
+                        'tenant_id' => $tenantId
+                    ]);
+                    
+                    $tokenData = $outlookService->refreshAccessToken($storedToken->refresh_token);
+                    if ($tokenData && isset($tokenData['access_token'])) {
+                        $storedToken->update([
+                            'access_token' => $tokenData['access_token'],
+                            'expires_at' => now()->addSeconds($tokenData['expires_in'] ?? 3600)
+                        ]);
+                        $token = $storedToken->fresh();
+                    }
+                }
+            }
+            
+            // If still no token, return auth_required with redirect URL
+            if (!$token) {
+                return response()->json([
+                    'message' => 'Outlook account not connected. Please connect your Outlook account first.',
+                    'auth_required' => true,
+                    'auth_url' => url('/api/meetings/oauth/outlook')
+                ], 401);
+            }
+            
+            // Fetch calendar events from Microsoft Graph API
+            $timeMin = $request->get('timeMin', now()->subDays(30)->toIso8601String());
+            $timeMax = $request->get('timeMax', now()->addDays(90)->toIso8601String());
+            
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $token->access_token,
+                'Content-Type' => 'application/json',
+            ])->get('https://graph.microsoft.com/v1.0/me/calendar/events', [
+                'startDateTime' => $timeMin,
+                'endDateTime' => $timeMax,
+                '$top' => 100,
+                '$orderby' => 'start/dateTime',
+                '$filter' => "isOnlineMeeting eq true or contains(subject,'meeting')"
             ]);
-
+            
+            if ($response->successful()) {
+                $events = $response->json();
+                $outlookMeetings = $events['value'] ?? [];
+                
+                // Convert to format expected by syncFromOutlook
+                $formattedMeetings = [];
+                foreach ($outlookMeetings as $event) {
+                    $startTime = \Carbon\Carbon::parse($event['start']['dateTime']);
+                    $endTime = \Carbon\Carbon::parse($event['end']['dateTime']);
+                    $durationMinutes = $startTime->diffInMinutes($endTime);
+                    
+                    $formattedMeetings[] = [
+                        'id' => $event['id'],
+                        'subject' => $event['subject'] ?? 'Untitled Meeting',
+                        'start_time' => $startTime->toISOString(),
+                        'duration_minutes' => $durationMinutes,
+                        'attendees' => array_map(function($attendee) {
+                            return [
+                                'emailAddress' => [
+                                    'address' => $attendee['emailAddress']['address'] ?? '',
+                                    'name' => $attendee['emailAddress']['name'] ?? ''
+                                ]
+                            ];
+                        }, $event['attendees'] ?? []),
+                        'body' => $event['body']['content'] ?? null,
+                        'location' => $event['location']['displayName'] ?? null,
+                        'link' => $event['onlineMeeting']['joinUrl'] ?? null,
+                    ];
+                }
+                
+                // Sync meetings to database
+                $result = $this->meetingService->syncFromOutlook($user->id, $tenantId, $formattedMeetings);
+                
+                // Clear cache
+                $this->clearMeetingsCache($tenantId, $user->id);
+                
+                return response()->json([
+                    'data' => $result,
+                    'message' => 'Outlook meetings synced successfully',
+                    'fetched_count' => count($formattedMeetings)
+                ]);
+            }
+            
+            // Handle API errors
+            $errorResponse = $response->json();
+            $errorCode = $errorResponse['error']['code'] ?? null;
+            $errorMessage = $errorResponse['error']['message'] ?? $response->body();
+            
+            // Check for account suspension or authentication errors
+            if ($errorCode === 'ErrorAccountSuspend' || $errorCode === 'ErrorInvalidGrant' || $errorCode === 'InvalidAuthenticationToken') {
+                Log::warning('Outlook account suspended or token invalid during sync', [
+                    'error_code' => $errorCode,
+                    'error_message' => $errorMessage,
+                    'user_id' => $user->id
+                ]);
+                
+                // Delete invalid token
+                $token->delete();
+                
+                return response()->json([
+                    'message' => $errorCode === 'ErrorAccountSuspend' 
+                        ? 'Your Microsoft account is suspended. Please verify your account and reconnect Outlook.'
+                        : 'Outlook authentication expired. Please reconnect your Outlook account.',
+                    'auth_required' => true,
+                    'auth_url' => url('/api/meetings/oauth/outlook'),
+                    'error_code' => $errorCode
+                ], 401);
+            }
+            
+            Log::error('Failed to fetch Outlook calendar events', [
+                'status' => $response->status(),
+                'error_code' => $errorCode,
+                'error_message' => $errorMessage,
+                'response' => $response->body(),
+                'user_id' => $user->id
+            ]);
+            
+            return response()->json([
+                'message' => 'Failed to fetch Outlook calendar events',
+                'error' => $errorMessage
+            ], $response->status());
+            
         } catch (\Exception $e) {
+            Log::error('Failed to sync Outlook meetings from API', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $user->id
+            ]);
+            
             return response()->json([
                 'message' => 'Failed to sync Outlook meetings',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get Outlook calendar events.
+     */
+    public function getOutlookCalendar(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id ?? $user->id;
+        
+        $timeMin = $request->get('timeMin', now()->toIso8601String());
+        $maxResults = $request->get('maxResults', 100);
+        
+        try {
+            $outlookService = app(\App\Services\OutlookIntegrationService::class);
+            
+            if (!$outlookService->isEnabled() || !$outlookService->isConfigured()) {
+                return response()->json([
+                    'message' => 'Outlook integration not configured',
+                    'connected' => false
+                ], 400);
+            }
+            
+            // Get valid token
+            $token = \App\Models\OutlookOAuthToken::getValidTokenForUser($user->id, $tenantId);
+            
+            if (!$token) {
+                // Try to refresh expired token
+                $storedToken = \App\Models\OutlookOAuthToken::where('user_id', $user->id)
+                    ->where('tenant_id', $tenantId)
+                    ->first();
+                    
+                if ($storedToken && !empty($storedToken->refresh_token)) {
+                    Log::info('Attempting to refresh expired Outlook token for calendar fetch', [
+                        'user_id' => $user->id,
+                        'tenant_id' => $tenantId
+                    ]);
+                    
+                    $tokenData = $outlookService->refreshAccessToken($storedToken->refresh_token);
+                    if ($tokenData && isset($tokenData['access_token'])) {
+                        $storedToken->update([
+                            'access_token' => $tokenData['access_token'],
+                            'expires_at' => now()->addSeconds($tokenData['expires_in'] ?? 3600)
+                        ]);
+                        $token = $storedToken->fresh();
+                    }
+                }
+            }
+            
+            if (!$token) {
+                return response()->json([
+                    'message' => 'Outlook not connected. Please connect your Outlook account first.',
+                    'connected' => false
+                ], 401);
+            }
+            
+            // Fetch calendar events from Microsoft Graph API
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $token->access_token,
+                'Content-Type' => 'application/json',
+            ])->get('https://graph.microsoft.com/v1.0/me/calendar/events', [
+                'startDateTime' => $timeMin,
+                'endDateTime' => now()->addMonths(6)->toIso8601String(),
+                '$top' => $maxResults,
+                '$orderby' => 'start/dateTime',
+            ]);
+            
+            if ($response->successful()) {
+                $events = $response->json();
+                
+                return response()->json([
+                    'data' => $events['value'] ?? [],
+                    'message' => 'Outlook calendar events retrieved successfully'
+                ]);
+            }
+            
+            Log::error('Failed to fetch Outlook calendar events', [
+                'status' => $response->status(),
+                'response' => $response->body(),
+                'user_id' => $user->id
+            ]);
+            
+            return response()->json([
+                'message' => 'Failed to fetch Outlook calendar events',
+                'error' => $response->body()
+            ], $response->status());
+            
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch Outlook calendar events', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $user->id
+            ]);
+            
+            return response()->json([
+                'message' => 'Failed to fetch Outlook calendar events',
                 'error' => $e->getMessage()
             ], 500);
         }
