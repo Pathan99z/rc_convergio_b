@@ -550,48 +550,47 @@ class MeetingService
      */
     private function generateZoomMeetingData(array $data): array
     {
+        // If service not injected, create it manually
         if (!$this->zoomService) {
-            Log::warning('ZoomIntegrationService not available, using mock data', [
-                'title' => $data['title'] ?? 'Meeting'
-            ]);
-            return $this->generateMockZoomMeetingData($data);
+            $this->zoomService = app(\App\Services\ZoomIntegrationService::class);
         }
 
         try {
-            // Create a temporary Event object for ZoomIntegrationService
-            $event = new \App\Models\Event([
-                'name' => $data['title'] ?? 'Meeting',
-                'description' => $data['description'] ?? '',
-                'scheduled_at' => \Carbon\Carbon::parse($data['scheduled_at']),
-                'settings' => [
-                    'duration' => $data['duration_minutes'] ?? 60,
-                    'waiting_room' => true,
-                    'recording_enabled' => false,
-                ]
-            ]);
-
-            $result = $this->zoomService->createMeeting($event);
+            $result = $this->zoomService->createMeeting($data);
             
-            // If Zoom integration succeeded, return real data
-            if ($result['success']) {
+            // If auth is required, return the result so frontend can handle OAuth redirect
+            if (isset($result['auth_required']) && $result['auth_required']) {
+                Log::info('Zoom authentication required', [
+                    'title' => $data['title'] ?? 'Meeting'
+                ]);
                 return $result;
             }
             
-            // If Zoom integration failed, generate mock data
-            Log::info('Zoom integration failed, generating mock data', [
-                'title' => $data['title'] ?? 'Meeting',
-                'error' => $result['error'] ?? 'Unknown error'
-            ]);
+            // If Zoom integration failed, throw an exception to prevent creating invalid meetings
+            if (!$result['success']) {
+                throw new \Exception($result['message'] ?? 'Zoom integration failed');
+            }
             
-            return $this->generateMockZoomMeetingData($data);
-            
+            return $result;
         } catch (\Exception $e) {
-            Log::warning('Zoom integration failed with exception, using mock data', [
+            Log::error('Zoom meeting creation failed with exception', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'title' => $data['title'] ?? 'Meeting'
             ]);
             
-            return $this->generateMockZoomMeetingData($data);
+            // If it's an auth_required error, return it instead of throwing
+            if (str_contains($e->getMessage(), 'auth_required') || str_contains($e->getMessage(), 'not connected')) {
+                return [
+                    'success' => false,
+                    'auth_required' => true,
+                    'message' => $e->getMessage(),
+                    'type' => 'zoom_meeting',
+                    'created_at' => now()->toISOString(),
+                ];
+            }
+            
+            throw $e;
         }
     }
 

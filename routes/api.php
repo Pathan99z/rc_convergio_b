@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\FacebookOAuthController;
 use App\Http\Controllers\Api\GoogleOAuthController;
 use App\Http\Controllers\Api\TeamsOAuthController;
 use App\Http\Controllers\Api\OutlookOAuthController;
+use App\Http\Controllers\Api\ZoomOAuthController;
 use App\Http\Controllers\Api\DocumentsController;
 use App\Http\Controllers\Api\IntegrationController;
 use Illuminate\Support\Facades\Route;
@@ -597,6 +598,11 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     Route::get('meetings/oauth/teams/status', [\App\Http\Controllers\Api\TeamsOAuthController::class, 'status']);
     Route::delete('meetings/oauth/teams', [\App\Http\Controllers\Api\TeamsOAuthController::class, 'disconnect']);
 
+    // Zoom OAuth for Meetings - Initial Redirect (requires auth)
+    Route::get('meetings/oauth/zoom', [\App\Http\Controllers\Api\ZoomOAuthController::class, 'redirect']);
+    Route::get('meetings/oauth/zoom/status', [\App\Http\Controllers\Api\ZoomOAuthController::class, 'status']);
+    Route::delete('meetings/oauth/zoom', [\App\Http\Controllers\Api\ZoomOAuthController::class, 'disconnect']);
+
     // Analytics Dashboard
     Route::get('analytics/dashboard', [\App\Http\Controllers\Api\AnalyticsController::class, 'dashboard']);
     Route::get('analytics/modules', [\App\Http\Controllers\Api\AnalyticsController::class, 'modules']);
@@ -904,6 +910,7 @@ Route::get('oauth/google/callback', [GoogleOAuthController::class, 'callback']);
 Route::get('meetings/oauth/google/callback', [\App\Http\Controllers\Api\MeetingOAuthController::class, 'callback']);
 Route::get('meetings/oauth/outlook/callback', [\App\Http\Controllers\Api\OutlookOAuthController::class, 'callback']);
 Route::get('meetings/oauth/teams/callback', [\App\Http\Controllers\Api\TeamsOAuthController::class, 'callback']);
+Route::get('meetings/oauth/zoom/callback', [\App\Http\Controllers\Api\ZoomOAuthController::class, 'callback']);
 
 // Public Quote Routes (No Authentication Required)
 Route::prefix('public/quotes')->group(function () {

@@ -84,6 +84,7 @@ return [
         'client_secret' => env('ZOOM_CLIENT_SECRET'),
         'account_id' => env('ZOOM_ACCOUNT_ID'),
         'webhook_secret' => env('ZOOM_WEBHOOK_SECRET'),
+        'redirect_uri' => env('ZOOM_REDIRECT_URI', env('APP_URL') . '/api/meetings/oauth/zoom/callback'),
         'enabled' => env('ZOOM_INTEGRATION_ENABLED', false),
     ],
 
