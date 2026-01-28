@@ -15,17 +15,32 @@ use Illuminate\Support\Str;
 class PaymentLinkService
 {
     /**
-     * Create a payment link for a quote (real Stripe or test mode).
+     * Create a payment link for a quote (real payment gateway or test mode).
      */
     public function createPaymentLink(Quote $quote, array $data = []): CommercePaymentLink
     {
-        $stripeService = new StripeService($quote->tenant_id);
+        $settings = \App\Models\Commerce\CommerceSetting::getForTenant($quote->tenant_id);
+        $gateway = $settings->getPaymentGateway();
         
-        // Check if Stripe is configured for this tenant
-        if ($stripeService->isConfigured()) {
-            return $this->createRealStripeLink($quote, $stripeService, $data);
+        if ($gateway === 'payfast') {
+            $payfastService = new PayFastService($quote->tenant_id);
+            
+            // Check if PayFast is configured for this tenant
+            if ($payfastService->isConfigured()) {
+                return $this->createPayFastLink($quote, $payfastService, $data);
+            } else {
+                return $this->createTestLink($quote, $data);
+            }
         } else {
-            return $this->createTestLink($quote, $data);
+            // Default to Stripe
+            $stripeService = new StripeService($quote->tenant_id);
+            
+            // Check if Stripe is configured for this tenant
+            if ($stripeService->isConfigured()) {
+                return $this->createRealStripeLink($quote, $stripeService, $data);
+            } else {
+                return $this->createTestLink($quote, $data);
+            }
         }
     }
 
@@ -128,7 +143,82 @@ class PaymentLinkService
     }
 
     /**
-     * Create a test payment link for a quote (fallback when Stripe not configured).
+     * Create a PayFast payment link for a quote.
+     */
+    private function createPayFastLink(Quote $quote, PayFastService $payfastService, array $data = []): CommercePaymentLink
+    {
+        try {
+            // Create payment link record first
+            $paymentLink = CommercePaymentLink::create([
+                'quote_id' => $quote->id,
+                'stripe_session_id' => 'payfast_' . Str::random(24), // Store PayFast identifier
+                'title' => $data['title'] ?? "Payment for Quote {$quote->quote_number}",
+                'description' => $data['description'] ?? 'Complete your payment',
+                'amount' => $quote->total ?? $quote->total_amount,
+                'currency' => $quote->currency ?? 'ZAR',
+                'status' => 'active',
+                'expires_at' => $data['expires_at'] ?? now()->addDays(30),
+                'tenant_id' => $quote->tenant_id,
+                'team_id' => $quote->team_id,
+                'created_by' => Auth::id() ?? 1,
+            ]);
+
+            // Generate PayFast payment URL
+            $contact = $quote->contact;
+            $payfastData = [
+                'payment_id' => (string) $paymentLink->id,
+                'amount' => $quote->total ?? $quote->total_amount,
+                'currency' => $quote->currency ?? 'ZAR', // Add currency from quote
+                'item_name' => "Payment for Quote {$quote->quote_number}",
+                'item_description' => $data['description'] ?? 'Quote payment',
+                'name_first' => $contact->first_name ?? '',
+                'name_last' => $contact->last_name ?? '',
+                'email_address' => $contact->email ?? '',
+                'cell_number' => $contact->phone ?? '',
+                'return_url' => env('COMMERCE_SUCCESS_URL', env('FRONTEND_URL', config('app.url')) . "/commerce/success?payment_link_id={$paymentLink->id}"),
+                'cancel_url' => env('COMMERCE_CANCEL_URL', env('FRONTEND_URL', config('app.url')) . "/commerce/cancel?payment_link_id={$paymentLink->id}"),
+                'notify_url' => env('COMMERCE_WEBHOOK_URL', url('/api/commerce/webhooks/payfast')),
+            ];
+
+            $payfastResult = $payfastService->createPaymentUrl($payfastData);
+
+            if (!$payfastResult['success']) {
+                throw new \Exception('Failed to create PayFast payment URL: ' . ($payfastResult['error'] ?? 'Unknown error'));
+            }
+
+            // Update payment link with PayFast data
+            $paymentLink->update([
+                'url' => $payfastResult['url'],
+                'public_url' => $payfastResult['url'],
+                'metadata' => [
+                    'payment_gateway' => 'payfast',
+                    'payment_data' => $payfastResult['payment_data'],
+                ],
+            ]);
+
+            Log::info('PayFast payment link created', [
+                'payment_link_id' => $paymentLink->id,
+                'quote_id' => $quote->id,
+                'tenant_id' => $quote->tenant_id,
+                'amount' => $paymentLink->amount,
+            ]);
+
+            return $paymentLink->fresh();
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create PayFast payment link', [
+                'quote_id' => $quote->id,
+                'tenant_id' => $quote->tenant_id,
+                'error' => $e->getMessage(),
+            ]);
+
+            // Fallback to test link if PayFast fails
+            return $this->createTestLink($quote, $data);
+        }
+    }
+
+    /**
+     * Create a test payment link for a quote (fallback when payment gateway not configured).
      */
     private function createTestLink(Quote $quote, array $data = []): CommercePaymentLink
     {

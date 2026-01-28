@@ -46,8 +46,13 @@ class CommerceSettingController extends Controller
     public function update(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
+            'payment_gateway' => 'nullable|string|in:stripe,payfast',
             'stripe_public_key' => 'nullable|string|max:255',
             'stripe_secret_key' => 'nullable|string|max:255',
+            'payfast_merchant_id' => 'nullable|string|max:255',
+            'payfast_merchant_key' => 'nullable|string|max:255',
+            'payfast_passphrase' => 'nullable|string|max:255',
+            'payfast_webhook_secret' => 'nullable|string|max:255',
             'mode' => 'string|in:test,live',
         ]);
 
@@ -82,16 +87,28 @@ class CommerceSettingController extends Controller
         }
 
         $settings = $this->settingService->updateKeys($tenantId, $request->all());
+        $gateway = $settings->getPaymentGateway();
+
+        $responseData = [
+            'payment_gateway' => $gateway,
+            'mode' => $settings->mode,
+        ];
+
+        if ($gateway === 'payfast') {
+            $responseData['payfast_merchant_id'] = $settings->getPayFastMerchantId();
+            $responseData['payfast_merchant_key'] = $settings->getPayFastMerchantKey() ? '***' . substr($settings->getPayFastMerchantKey(), -4) : null;
+            $responseData['payfast_passphrase'] = $settings->getPayFastPassphrase() ? '***' . substr($settings->getPayFastPassphrase(), -4) : null;
+            $responseData['has_keys'] = $settings->hasPayFastKeys();
+        } else {
+            $responseData['stripe_public_key'] = $settings->getStripePublicKey();
+            $responseData['stripe_secret_key'] = $settings->getStripeSecretKey() ? '***' . substr($settings->getStripeSecretKey(), -4) : null;
+            $responseData['has_keys'] = $settings->hasStripeKeys();
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Commerce settings updated successfully',
-            'data' => [
-                'stripe_public_key' => $settings->getStripePublicKey(),
-                'stripe_secret_key' => $settings->getStripeSecretKey() ? '***' . substr($settings->getStripeSecretKey(), -4) : null,
-                'mode' => $settings->mode,
-                'has_keys' => $settings->hasStripeKeys(),
-            ],
+            'data' => $responseData,
         ]);
     }
 
@@ -144,8 +161,12 @@ class CommerceSettingController extends Controller
             'success' => true,
             'message' => 'Commerce settings reset successfully',
             'data' => [
+                'payment_gateway' => 'stripe',
                 'stripe_public_key' => null,
                 'stripe_secret_key' => null,
+                'payfast_merchant_id' => null,
+                'payfast_merchant_key' => null,
+                'payfast_passphrase' => null,
                 'mode' => 'test',
                 'has_keys' => false,
             ],

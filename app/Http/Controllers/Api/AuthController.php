@@ -130,22 +130,8 @@ class AuthController extends Controller
 
         RateLimiter::clear($key);
 
-        // Validate license if enabled
-        if ($this->licenseService->isLicenseCheckEnabled()) {
-            $licenseValidation = $this->licenseService->validateLicense($user);
-            
-            if (!$licenseValidation['valid']) {
-                return $this->error($this->getLicenseErrorMessage($licenseValidation['reason']), 403, [
-                    'license_invalid' => true,
-                    'license_reason' => $licenseValidation['reason'],
-                    'license_info' => $licenseValidation['license'] ? [
-                        'status' => $licenseValidation['license']->status,
-                        'expires_at' => $licenseValidation['license']->expires_at->toIso8601String(),
-                        'days_remaining' => $licenseValidation['license']->daysRemaining(),
-                    ] : null,
-                ]);
-            }
-        }
+        // Note: License validation is now non-blocking - frontend will handle expired licenses
+        // License info is included in response for frontend to check and show pricing page if needed
 
         [$plainTextToken, $expiresAt] = $this->createTokenWithExpiry($user, 'login');
 
@@ -155,11 +141,15 @@ class AuthController extends Controller
             'user' => $this->transformUser($user),
         ];
 
-        // Include license information in response
+        // Include license information in response (non-blocking)
         $licenseInfo = $this->licenseService->getLicenseInfo($user);
         if ($licenseInfo) {
             $responseData['license'] = $licenseInfo;
         }
+
+        // Include flag to indicate if license check is enabled
+        // Frontend should check this flag before validating license status
+        $responseData['license_check_enabled'] = $this->licenseService->isLicenseCheckEnabled();
 
         return $this->success($responseData);
     }

@@ -191,8 +191,20 @@ class CommercePaymentLinkController extends Controller
                 ], 404);
             }
 
-            // Prepare public checkout data (no sensitive information)
+            // Prepare public checkout data
+            // Include metadata and public_url for frontend payment processing
             $checkoutData = [
+                // Top-level fields for frontend payment processing
+                'id' => $paymentLink->id,
+                'public_url' => $paymentLink->public_url,
+                'url' => $paymentLink->url,
+                'metadata' => $paymentLink->metadata,
+                'amount' => $paymentLink->amount,
+                'currency' => $paymentLink->currency ?? ($quote->currency ?? ($order->currency ?? 'USD')),
+                'status' => $paymentLink->status,
+                'expires_at' => $paymentLink->expires_at,
+                
+                // Keep existing structure for backward compatibility
                 'payment_link' => [
                     'id' => $paymentLink->id,
                     'status' => $paymentLink->status,

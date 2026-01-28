@@ -72,6 +72,7 @@ class PublicSubscriptionController extends Controller
                 'success' => true,
                 'data' => [
                     'session_url' => $result['session_url'],
+                    'payment_data' => $result['payment_data'] ?? null, // Include payment_data for PayFast POST form submission
                     'plan' => $result['plan'],
                     'customer_id' => $result['customer_id'] ?? null,
                     'demo_mode' => $result['demo_mode'] ?? false,

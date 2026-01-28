@@ -9,6 +9,7 @@ use App\Models\Commerce\SubscriptionInvoice;
 use App\Models\Commerce\SubscriptionPlan;
 use App\Models\User;
 use App\Services\ActivityService;
+use App\Services\Commerce\PayFastService;
 use Illuminate\Support\Facades\Log;
 
 class SubscriptionService
@@ -131,6 +132,108 @@ class SubscriptionService
     public function createSubscriptionFromPlan(int $tenantId, $user, int $planId, int $trialDays = null): array
     {
         $plan = SubscriptionPlan::where('tenant_id', $tenantId)->findOrFail($planId);
+        $settings = CommerceSetting::getForTenant($tenantId);
+        $gateway = $settings->getPaymentGateway();
+
+        if ($gateway === 'payfast') {
+            return $this->createPayFastSubscription($tenantId, $user, $plan, $planId, $trialDays);
+        } else {
+            return $this->createStripeSubscription($tenantId, $user, $plan, $planId, $trialDays);
+        }
+    }
+
+    /**
+     * Create PayFast subscription checkout.
+     */
+    private function createPayFastSubscription(int $tenantId, $user, $plan, int $planId, int $trialDays = null): array
+    {
+        $payfastService = new PayFastService($tenantId);
+
+        // Demo mode: Return demo checkout URL when PayFast is not configured
+        if (!$payfastService->isConfigured()) {
+            $sessionUrl = $this->createDemoCheckoutUrl($plan, $user, $trialDays);
+            
+            // Send demo subscription email
+            $this->sendDemoSubscriptionEmail($plan, $user, $sessionUrl, $trialDays);
+            
+            return [
+                'session_url' => $sessionUrl,
+                'plan' => $plan,
+                'customer_id' => 'demo_customer_' . time(),
+                'demo_mode' => true,
+            ];
+        }
+
+        // Map interval to PayFast frequency (INTEGER codes, not letters)
+        // PayFast requires: 1=Daily, 2=Weekly, 3=Monthly, 4=Quarterly, 5=Biannually, 6=Yearly
+        $frequencyMap = [
+            'monthly' => 3,      // Monthly = 3
+            'yearly' => 6,       // Yearly = 6
+            'weekly' => 2,       // Weekly = 2
+            'daily' => 1,        // Daily = 1
+            'quarterly' => 4,    // Quarterly = 4
+            'biannually' => 5,   // Biannually = 5
+        ];
+        $frequency = $frequencyMap[$plan->interval] ?? 3; // Default to Monthly (3)
+
+        // Calculate billing date (if trial, start after trial period)
+        $billingDate = $trialDays ? date('Y-m-d', strtotime("+{$trialDays} days")) : date('Y-m-d');
+
+        $payfastData = [
+            'payment_id' => 'subscription_' . $planId . '_' . time(),
+            'amount' => $plan->amount_dollars,
+            'currency' => 'ZAR', // PayFast subscriptions ONLY support ZAR (force it)
+            'item_name' => $plan->name . ' Subscription',
+            'item_description' => $plan->metadata['description'] ?? 'Subscription payment',
+            'name_first' => $user->first_name ?? '',
+            'name_last' => $user->last_name ?? '',
+            'email_address' => $user->email ?? '',
+            'cell_number' => $user->phone ?? '',
+            'return_url' => $user->success_url ?? env('COMMERCE_SUCCESS_URL', url('/subscription/success')),
+            'cancel_url' => $user->cancel_url ?? env('COMMERCE_CANCEL_URL', url('/subscription/cancel')),
+            'notify_url' => env('COMMERCE_WEBHOOK_URL', url('/api/commerce/webhooks/payfast')),
+            'subscription_type' => '1', // Recurring subscription
+            'billing_date' => $billingDate,
+            'recurring_amount' => $plan->amount_dollars,
+            'frequency' => $frequency,
+            'cycles' => '0', // 0 = infinite cycles
+        ];
+
+        $payfastResult = $payfastService->createPaymentUrl($payfastData);
+
+        if (!$payfastResult['success']) {
+            // Fallback to demo mode
+            $sessionUrl = $this->createDemoCheckoutUrl($plan, $user, $trialDays);
+            $this->sendDemoSubscriptionEmail($plan, $user, $sessionUrl, $trialDays);
+            
+            return [
+                'session_url' => $sessionUrl,
+                'plan' => $plan,
+                'customer_id' => 'demo_customer_' . time(),
+                'demo_mode' => true,
+            ];
+        }
+
+        // Generate frontend checkout URL for email (not direct PayFast URL)
+        $frontendCheckoutUrl = $this->createFrontendCheckoutUrl($planId, $user->email);
+        
+        // Send real subscription email with frontend URL
+        $this->sendRealSubscriptionEmail($plan, $user, $frontendCheckoutUrl, $trialDays);
+
+        return [
+            'session_url' => $payfastResult['url'],
+            'payment_data' => $payfastResult['payment_data'] ?? null, // Include payment_data for PayFast POST form submission
+            'plan' => $plan,
+            'customer_id' => $payfastData['payment_id'],
+            'demo_mode' => false,
+        ];
+    }
+
+    /**
+     * Create Stripe subscription checkout.
+     */
+    private function createStripeSubscription(int $tenantId, $user, $plan, int $planId, int $trialDays = null): array
+    {
         $stripeConfig = $this->getStripeConfig($tenantId);
 
         // Demo mode: Return demo checkout URL when Stripe is not configured
@@ -182,8 +285,11 @@ class SubscriptionService
 
         $sessionUrl = $stripeAdapter->createCheckoutSessionForSubscription($checkoutParams);
 
-        // Send real subscription email
-        $this->sendRealSubscriptionEmail($plan, $user, $sessionUrl, $trialDays);
+        // Generate frontend checkout URL for email (for consistency, though Stripe URLs work directly)
+        $frontendCheckoutUrl = $this->createFrontendCheckoutUrl($planId, $user->email);
+        
+        // Send real subscription email with frontend URL
+        $this->sendRealSubscriptionEmail($plan, $user, $frontendCheckoutUrl, $trialDays);
 
         return [
             'session_url' => $sessionUrl,
@@ -210,6 +316,23 @@ class SubscriptionService
         ];
 
         return url('/commerce/subscription-checkout/demo?' . http_build_query($params));
+    }
+
+    /**
+     * Create frontend checkout URL for email links.
+     * This URL points to the frontend subscription checkout page.
+     */
+    private function createFrontendCheckoutUrl(int $planId, string $email): string
+    {
+        $frontendUrl = env('FRONTEND_URL', config('app.url'));
+        $baseUrl = rtrim($frontendUrl, '/');
+        
+        $params = [
+            'plan_id' => $planId,
+            'email' => $email, // http_build_query() automatically URL-encodes values
+        ];
+        
+        return $baseUrl . '/subscription/checkout?' . http_build_query($params);
     }
 
     /**

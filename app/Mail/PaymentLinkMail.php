@@ -64,7 +64,7 @@ class PaymentLinkMail extends Mailable implements ShouldQueue
         return new Content(
             view: 'emails.payment-link',
             with: [
-                'paymentUrl' => $this->paymentLink->url,
+                'paymentUrl' => $this->getPaymentUrl(),
                 'amount' => $this->paymentLink->amount ?? ($this->quote->total ?? $this->quote->total_amount ?? 0),
                 'currency' => $this->paymentLink->currency ?? $this->quote->currency ?? 'USD',
                 'customerName' => $this->customerName,
@@ -74,6 +74,28 @@ class PaymentLinkMail extends Mailable implements ShouldQueue
                 'isTestMode' => $this->isTestMode,
             ]
         );
+    }
+
+    /**
+     * Get the payment URL based on payment gateway.
+     * 
+     * For PayFast: Returns frontend payment page URL (requires POST form submission)
+     * For Stripe/Others: Returns direct payment URL
+     */
+    private function getPaymentUrl(): string
+    {
+        // Check if this is a PayFast payment
+        $metadata = $this->paymentLink->metadata ?? [];
+        $paymentGateway = $metadata['payment_gateway'] ?? null;
+        
+        if ($paymentGateway === 'payfast') {
+            // PayFast requires POST form submission, so link to frontend payment page
+            $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', config('app.url')));
+            return rtrim($frontendUrl, '/') . '/commerce/payment/' . $this->paymentLink->id;
+        }
+        
+        // For Stripe or other gateways, use direct URL
+        return $this->paymentLink->url ?? $this->paymentLink->public_url ?? '#';
     }
 
     /**

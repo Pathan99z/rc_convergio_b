@@ -14,6 +14,7 @@ class CommerceTransaction extends Model
     protected $fillable = [
         'order_id',
         'payment_link_id',
+        'subscription_id',
         'payment_provider',
         'provider_event_id',
         'amount',
@@ -51,6 +52,14 @@ class CommerceTransaction extends Model
     public function paymentLink(): BelongsTo
     {
         return $this->belongsTo(CommercePaymentLink::class, 'payment_link_id');
+    }
+
+    /**
+     * Get the subscription that owns the transaction.
+     */
+    public function subscription(): BelongsTo
+    {
+        return $this->belongsTo(Subscription::class, 'subscription_id');
     }
 
     /**

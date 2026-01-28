@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\CampaignWebhookController;
 use App\Http\Controllers\Api\EnrichmentController;
 use App\Http\Controllers\Api\FormsController;
 use App\Http\Controllers\Api\PublicFormController;
+use App\Http\Controllers\Api\LicenseRenewalController;
+use App\Http\Controllers\Api\LicenseRenewalWebhookController;
 use App\Http\Controllers\Api\ListsController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\UsersController;
@@ -57,6 +59,13 @@ Route::prefix('auth')->group(function () {
     Route::post('forgot', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
     Route::post('reset', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
     Route::post('resend-verification', [AuthController::class, 'resendVerificationEmail'])->middleware('throttle:3,1');
+});
+
+// License Renewal Routes (Authenticated)
+Route::middleware(['auth:sanctum'])->prefix('license')->group(function () {
+    Route::get('/plans', [\App\Http\Controllers\Api\LicenseRenewalController::class, 'getPlans']);
+    Route::get('/status', [\App\Http\Controllers\Api\LicenseRenewalController::class, 'getStatus']);
+    Route::post('/renew', [\App\Http\Controllers\Api\LicenseRenewalController::class, 'renew']);
 });
 
 // SSO redirect (requires authentication)
@@ -1044,6 +1053,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::post('/invoices/{id}/send-email', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'sendEmail'])->whereNumber('id')->name('api.commerce.invoices.email');
 
         Route::post('/webhooks/stripe', [\App\Http\Controllers\Api\Commerce\CommerceWebhookController::class, 'stripe']);
+        Route::post('/webhooks/payfast', [\App\Http\Controllers\Api\Commerce\PayFastWebhookController::class, 'handle']);
     });
 
     // Service Platform - Ticketing Module
@@ -1234,5 +1244,10 @@ Route::get('/commerce/payment-links/{id}/checkout', [\App\Http\Controllers\Api\C
 // Public payment completion endpoint (no auth required for checkout)
 Route::post('/commerce/payment-links/{id}/complete', [\App\Http\Controllers\Api\Commerce\CommercePaymentLinkController::class, 'publicComplete'])
     ->whereNumber('id');
+
+// License Renewal Webhook (Public - No Auth Required)
+Route::prefix('license')->group(function () {
+    Route::post('/webhooks/payfast', [\App\Http\Controllers\Api\LicenseRenewalWebhookController::class, 'handle']);
+});
 
 

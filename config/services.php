@@ -104,4 +104,16 @@ return [
         'enabled' => env('TEAMS_ENABLED', false),
     ],
 
+    'payfast' => [
+        'merchant_id' => env('PAYFAST_MERCHANT_ID'),
+        'merchant_key' => env('PAYFAST_MERCHANT_KEY'),
+        'passphrase' => env('PAYFAST_PASSPHRASE'),
+        'webhook_secret' => env('PAYFAST_WEBHOOK_SECRET'),
+        'mode' => env('PAYFAST_MODE', 'test'),
+        'test_url' => env('PAYFAST_TEST_URL', 'https://sandbox.payfast.co.za/eng/process'),
+        'live_url' => env('PAYFAST_LIVE_URL', 'https://www.payfast.co.za/eng/process'),
+        'test_api_url' => env('PAYFAST_TEST_API_URL', 'https://sandbox.payfast.co.za'),
+        'live_api_url' => env('PAYFAST_LIVE_API_URL', 'https://api.payfast.co.za'),
+    ],
+
 ];
