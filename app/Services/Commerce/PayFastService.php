@@ -118,9 +118,28 @@ class PayFastService
             if (isset($data['subscription_type'])) {
                 // Force ZAR for subscriptions
                 $paymentData['currency'] = 'ZAR';
-            } elseif (isset($data['currency'])) {
+            } elseif (isset($data['currency']) && !empty($data['currency'])) {
                 // For one-time payments, use provided currency
-                $paymentData['currency'] = strtoupper($data['currency']);
+                // Trim whitespace and convert to uppercase
+                $currency = strtoupper(trim($data['currency']));
+                
+                // Validate: PayFast requires exactly 3 uppercase letters (ISO currency code)
+                // Supported currencies: ZAR, USD, EUR, GBP, AUD, etc.
+                if (preg_match('/^[A-Z]{3}$/', $currency)) {
+                    $paymentData['currency'] = $currency;
+                } else {
+                    // Invalid format (has spaces, special chars, or wrong length)
+                    // Default to ZAR and log warning
+                    Log::channel('commerce')->warning('Invalid currency format for PayFast, defaulting to ZAR', [
+                        'provided_currency' => $data['currency'],
+                        'trimmed_currency' => $currency,
+                        'tenant_id' => $this->tenantId,
+                    ]);
+                    $paymentData['currency'] = 'ZAR';
+                }
+            } else {
+                // No currency provided, default to ZAR
+                $paymentData['currency'] = 'ZAR';
             }
 
             // Add subscription-specific fields if provided

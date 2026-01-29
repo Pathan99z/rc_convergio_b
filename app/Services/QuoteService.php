@@ -704,7 +704,7 @@ class QuoteService
                 
                 // Get product price and currency
                 $productPrice = $itemData['unit_price'] ?? $product->unit_price;
-                $productCurrency = $product->currency ?? 'USD';
+                $productCurrency = $product->currency ?? 'ZAR';
                 
                 // Store original values
                 $originalPrice = $productPrice;
@@ -799,8 +799,8 @@ class QuoteService
             }
         }
 
-        // Default to USD
-        return 'USD';
+        // Default to ZAR (PayFast requirement)
+        return 'ZAR';
     }
 
     /**
@@ -928,7 +928,7 @@ class QuoteService
             }
 
             $productPrice = $product->unit_price;
-            $productCurrency = $product->currency ?? 'USD';
+            $productCurrency = $product->currency ?? 'ZAR';
             $originalPrice = $productPrice;
             $originalCurrency = $productCurrency;
             $exchangeRate = 1.0;

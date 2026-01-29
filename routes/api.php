@@ -1045,12 +1045,22 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::post('/branding', [\App\Http\Controllers\Api\Commerce\TenantBrandingController::class, 'update']); // For multipart form data
         Route::post('/branding/reset', [\App\Http\Controllers\Api\Commerce\TenantBrandingController::class, 'reset']);
 
-        // Invoice PDF Generation
+        // Subscription Invoice PDF Generation (existing)
         Route::get('/invoices/{id}', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'show'])->whereNumber('id');
         Route::get('/invoices/{id}/pdf', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'generatePdf'])->whereNumber('id')->name('api.commerce.invoices.pdf');
         Route::get('/invoices/{id}/preview', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'preview'])->whereNumber('id')->name('api.commerce.invoices.preview');
         Route::get('/invoices/{id}/download', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'downloadPdf'])->whereNumber('id')->name('api.commerce.invoices.download');
         Route::post('/invoices/{id}/send-email', [\App\Http\Controllers\Api\Commerce\InvoiceController::class, 'sendEmail'])->whereNumber('id')->name('api.commerce.invoices.email');
+
+        // Order Invoice Management (new - separate from subscription invoices)
+        Route::get('/order-invoices', [\App\Http\Controllers\Api\Commerce\OrderInvoiceController::class, 'index']);
+        Route::get('/order-invoices/{id}', [\App\Http\Controllers\Api\Commerce\OrderInvoiceController::class, 'show'])->whereNumber('id');
+        Route::get('/order-invoices/quote/{quoteId}', [\App\Http\Controllers\Api\Commerce\OrderInvoiceController::class, 'getByQuote'])->whereNumber('quoteId');
+        Route::get('/order-invoices/order/{orderId}', [\App\Http\Controllers\Api\Commerce\OrderInvoiceController::class, 'getByOrder'])->whereNumber('orderId');
+        Route::get('/order-invoices/{id}/pdf', [\App\Http\Controllers\Api\Commerce\OrderInvoiceController::class, 'generatePdf'])->whereNumber('id')->name('api.commerce.order-invoices.pdf');
+        Route::get('/order-invoices/{id}/preview', [\App\Http\Controllers\Api\Commerce\OrderInvoiceController::class, 'preview'])->whereNumber('id')->name('api.commerce.order-invoices.preview');
+        Route::get('/order-invoices/{id}/download', [\App\Http\Controllers\Api\Commerce\OrderInvoiceController::class, 'downloadPdf'])->whereNumber('id')->name('api.commerce.order-invoices.download');
+        Route::post('/order-invoices/{id}/send-email', [\App\Http\Controllers\Api\Commerce\OrderInvoiceController::class, 'sendEmail'])->whereNumber('id')->name('api.commerce.order-invoices.email');
 
         Route::post('/webhooks/stripe', [\App\Http\Controllers\Api\Commerce\CommerceWebhookController::class, 'stripe']);
         Route::post('/webhooks/payfast', [\App\Http\Controllers\Api\Commerce\PayFastWebhookController::class, 'handle']);

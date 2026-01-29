@@ -39,6 +39,7 @@ class LicenseRenewalController extends Controller
                         'description' => $plan->description,
                         'duration_days' => $plan->duration_days,
                         'price' => number_format($plan->price, 2, '.', ''),
+                        'currency' => 'ZAR', // PayFast requires ZAR for license renewals
                         'features' => $plan->features ?? [],
                         'is_active' => $plan->is_active,
                         'sort_order' => $plan->sort_order,

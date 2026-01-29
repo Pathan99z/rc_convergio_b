@@ -122,6 +122,14 @@ class CommerceOrder extends Model
     }
 
     /**
+     * Get the invoices for the order.
+     */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(\App\Models\Commerce\OrderInvoice::class, 'order_id');
+    }
+
+    /**
      * Scope a query to only include orders for a specific tenant.
      */
     public function scopeForTenant($query, $tenantId)

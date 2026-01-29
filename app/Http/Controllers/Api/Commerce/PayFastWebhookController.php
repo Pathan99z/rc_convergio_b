@@ -10,6 +10,7 @@ use App\Models\Commerce\Subscription;
 use App\Models\Commerce\SubscriptionInvoice;
 use App\Models\Commerce\SubscriptionPlan;
 use App\Services\Commerce\OrderService;
+use App\Services\Commerce\OrderInvoiceService;
 use App\Services\Commerce\PayFastService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -20,6 +21,7 @@ class PayFastWebhookController extends Controller
 {
     public function __construct(
         private OrderService $orderService,
+        private OrderInvoiceService $invoiceService,
         private PayFastService $payfastService
     ) {}
 
@@ -119,6 +121,25 @@ class PayFastWebhookController extends Controller
 
                     $paymentLink->update(['order_id' => $order->id]);
                     $transaction->update(['order_id' => $order->id]);
+
+                    // Create invoice from quote and order
+                    $invoice = $this->invoiceService->createFromQuoteAndOrder(
+                        $quote,
+                        $order,
+                        [
+                            'method' => 'payfast',
+                            'reference' => $pfPaymentId,
+                            'raw_payload' => $data,
+                        ]
+                    );
+
+                    Log::channel('commerce')->info('Invoice created for quote payment', [
+                        'invoice_id' => $invoice->id,
+                        'invoice_number' => $invoice->invoice_number,
+                        'quote_id' => $quote->id,
+                        'order_id' => $order->id,
+                        'payment_id' => $pfPaymentId,
+                    ]);
                 }
             } else {
                 // Payment failed or cancelled

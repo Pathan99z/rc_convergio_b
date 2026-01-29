@@ -83,6 +83,14 @@ class Quote extends Model
     }
 
     /**
+     * Get the invoices for the quote.
+     */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(\App\Models\Commerce\OrderInvoice::class, 'quote_id');
+    }
+
+    /**
      * Get the tenant that owns the quote.
      */
     public function tenant(): BelongsTo
