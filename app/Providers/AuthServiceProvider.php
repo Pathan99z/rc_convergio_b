@@ -22,6 +22,11 @@ use App\Models\Team;
 use App\Models\Commerce\CommerceOrder;
 use App\Models\Commerce\CommercePaymentLink;
 use App\Models\Commerce\CommerceSetting;
+use App\Models\Hr\Employee;
+use App\Models\Hr\LeaveRequest;
+use App\Models\Hr\Payslip;
+use App\Models\Hr\Department;
+use App\Models\Hr\Designation;
 use App\Policies\ContactPolicy;
 use App\Policies\CompanyPolicy;
 use App\Policies\DealPolicy;
@@ -42,6 +47,11 @@ use App\Policies\TeamPolicy;
 use App\Policies\Commerce\CommerceOrderPolicy;
 use App\Policies\Commerce\CommercePaymentLinkPolicy;
 use App\Policies\Commerce\CommerceSettingPolicy;
+use App\Policies\Hr\EmployeePolicy;
+use App\Policies\Hr\LeavePolicy;
+use App\Policies\Hr\PayslipPolicy;
+use App\Policies\Hr\DepartmentPolicy;
+use App\Policies\Hr\DesignationPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Auth\Notifications\ResetPassword;
 
@@ -68,6 +78,11 @@ class AuthServiceProvider extends ServiceProvider
         CommerceOrder::class => CommerceOrderPolicy::class,
         CommercePaymentLink::class => CommercePaymentLinkPolicy::class,
         CommerceSetting::class => CommerceSettingPolicy::class,
+        Employee::class => EmployeePolicy::class,
+        LeaveRequest::class => LeavePolicy::class,
+        Payslip::class => PayslipPolicy::class,
+        Department::class => DepartmentPolicy::class,
+        Designation::class => DesignationPolicy::class,
     ];
 
     public function boot(): void

@@ -17,6 +17,10 @@ class RoleSeeder extends Seeder
             'sales_rep' => 'Manage contacts, deals, and activities',
             'manager' => 'Team management and reporting access',
             'super_admin' => 'System-wide access across all tenants',
+            'hr_admin' => 'Full HR module access',
+            'line_manager' => 'Team management access',
+            'employee' => 'Employee self-service access',
+            'finance' => 'Finance read-only access',
         ];
 
         foreach ($roles as $name => $description) {

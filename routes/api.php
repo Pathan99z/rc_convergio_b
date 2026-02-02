@@ -727,6 +727,12 @@ Route::middleware(['auth:sanctum', 'license.check'])->group(function () {
     });
 });
 
+// Public profile picture route (signed URL, no auth required)
+Route::get('/documents/{id}/profile-picture', [\App\Http\Controllers\Api\DocumentsController::class, 'publicPreview'])
+    ->name('documents.profile-picture')
+    ->middleware('signed')
+    ->where('id', '[0-9]+');
+
 // Public routes (no auth required)
 Route::prefix('public')->group(function () {
     Route::get('forms/{id}', [PublicFormController::class, 'show'])->whereNumber('id');
@@ -1258,6 +1264,94 @@ Route::post('/commerce/payment-links/{id}/complete', [\App\Http\Controllers\Api\
 // License Renewal Webhook (Public - No Auth Required)
 Route::prefix('license')->group(function () {
     Route::post('/webhooks/payfast', [\App\Http\Controllers\Api\LicenseRenewalWebhookController::class, 'handle']);
+});
+
+// HR Management System Routes (Authenticated)
+Route::middleware(['auth:sanctum'])->prefix('hr')->group(function () {
+    // Employee Management
+    Route::get('employees', [\App\Http\Controllers\Api\Hr\EmployeeController::class, 'index']);
+    Route::post('employees', [\App\Http\Controllers\Api\Hr\EmployeeController::class, 'store']);
+    Route::get('employees/search', [\App\Http\Controllers\Api\Hr\EmployeeController::class, 'search']);
+    Route::get('employees/managers', [\App\Http\Controllers\Api\Hr\EmployeeController::class, 'managers']);
+    Route::get('employees/{id}', [\App\Http\Controllers\Api\Hr\EmployeeController::class, 'show'])->whereNumber('id');
+    Route::put('employees/{id}', [\App\Http\Controllers\Api\Hr\EmployeeController::class, 'update'])->whereNumber('id');
+    Route::delete('employees/{id}', [\App\Http\Controllers\Api\Hr\EmployeeController::class, 'destroy'])->whereNumber('id');
+    Route::post('employees/{id}/activate', [\App\Http\Controllers\Api\Hr\EmployeeController::class, 'activate'])->whereNumber('id');
+
+    // Onboarding Management
+    Route::get('onboarding/employees', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'index']);
+    Route::get('onboarding/my-tasks', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'myTasks']);
+    
+    // Onboarding Template Management
+    Route::get('onboarding/templates', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'getTemplates']);
+    Route::post('onboarding/templates', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'storeTemplate']);
+    Route::put('onboarding/templates/{id}', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'updateTemplate'])->whereNumber('id');
+    Route::delete('onboarding/templates/{id}', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'destroyTemplate'])->whereNumber('id');
+    
+    // Employee-specific Onboarding
+    Route::get('employees/{id}/onboarding', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'show'])->whereNumber('id');
+    Route::post('employees/{id}/onboarding/initialize', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'initialize'])->whereNumber('id');
+    Route::get('employees/{id}/onboarding/progress', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'progress'])->whereNumber('id');
+    Route::get('employees/{id}/onboarding/checklist', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'getChecklists'])->whereNumber('id');
+    Route::post('employees/{id}/onboarding/checklist/{checklistId}/complete', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'completeChecklist'])->whereNumber(['id', 'checklistId']);
+    Route::get('employees/{id}/onboarding/tasks', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'getTasks'])->whereNumber('id');
+    Route::post('employees/{id}/onboarding/tasks', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'createTask'])->whereNumber('id');
+    Route::put('employees/{id}/onboarding/tasks/{taskId}', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'updateTask'])->whereNumber(['id', 'taskId']);
+    Route::post('employees/{id}/onboarding/complete', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'completeOnboarding'])->whereNumber('id');
+
+    // Leave Management
+    Route::get('leave/balances', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'balances']);
+    Route::post('leave/balances/adjust', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'adjustBalance']);
+    Route::get('leave/requests', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'requests']);
+    Route::post('leave/requests', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'store']);
+    Route::get('leave/requests/{id}', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'show'])->whereNumber('id');
+    Route::post('leave/requests/{id}/cancel', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'cancel'])->whereNumber('id');
+    Route::get('leave/calendar', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'calendar']);
+    Route::get('leave/types', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'types']);
+
+    // Payslip Management
+    Route::get('payslips', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'index']);
+    Route::post('payslips', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'store']);
+    Route::get('payslips/{id}', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'show'])->whereNumber('id');
+    Route::get('payslips/{id}/download', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'download'])->whereNumber('id');
+    Route::delete('payslips/{id}', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'destroy'])->whereNumber('id');
+    Route::get('employees/{employeeId}/payslips', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'employeePayslips'])->whereNumber('employeeId');
+
+    // Document Management
+    Route::get('employees/{employeeId}/documents', [\App\Http\Controllers\Api\Hr\DocumentController::class, 'index'])->whereNumber('employeeId');
+    Route::post('employees/{employeeId}/documents', [\App\Http\Controllers\Api\Hr\DocumentController::class, 'store'])->whereNumber('employeeId');
+    Route::get('employees/{employeeId}/documents/{documentId}/download', [\App\Http\Controllers\Api\Hr\DocumentController::class, 'download'])->whereNumber(['employeeId', 'documentId']);
+    Route::get('employees/{employeeId}/documents/{documentId}/preview', [\App\Http\Controllers\Api\Hr\DocumentController::class, 'preview'])->whereNumber(['employeeId', 'documentId']);
+    Route::post('employees/{employeeId}/documents/{documentId}/verify', [\App\Http\Controllers\Api\Hr\DocumentController::class, 'verify'])->whereNumber(['employeeId', 'documentId']);
+    Route::post('employees/{employeeId}/documents/{documentId}/reject', [\App\Http\Controllers\Api\Hr\DocumentController::class, 'reject'])->whereNumber(['employeeId', 'documentId']);
+    Route::delete('employees/{employeeId}/documents/{documentId}', [\App\Http\Controllers\Api\Hr\DocumentController::class, 'destroy'])->whereNumber(['employeeId', 'documentId']);
+
+    // Performance Notes
+    Route::get('employees/{employeeId}/performance-notes', [\App\Http\Controllers\Api\Hr\PerformanceNoteController::class, 'index'])->whereNumber('employeeId');
+    Route::post('employees/{employeeId}/performance-notes', [\App\Http\Controllers\Api\Hr\PerformanceNoteController::class, 'store'])->whereNumber('employeeId');
+    Route::get('employees/{employeeId}/performance-notes/{id}', [\App\Http\Controllers\Api\Hr\PerformanceNoteController::class, 'show'])->whereNumber(['employeeId', 'id']);
+    Route::put('employees/{employeeId}/performance-notes/{id}', [\App\Http\Controllers\Api\Hr\PerformanceNoteController::class, 'update'])->whereNumber(['employeeId', 'id']);
+    Route::delete('employees/{employeeId}/performance-notes/{id}', [\App\Http\Controllers\Api\Hr\PerformanceNoteController::class, 'destroy'])->whereNumber(['employeeId', 'id']);
+
+    // Departments
+    Route::get('departments', [\App\Http\Controllers\Api\Hr\DepartmentController::class, 'index']);
+    Route::post('departments', [\App\Http\Controllers\Api\Hr\DepartmentController::class, 'store']);
+    Route::get('departments/{department}', [\App\Http\Controllers\Api\Hr\DepartmentController::class, 'show']);
+    Route::put('departments/{department}', [\App\Http\Controllers\Api\Hr\DepartmentController::class, 'update']);
+    Route::delete('departments/{department}', [\App\Http\Controllers\Api\Hr\DepartmentController::class, 'destroy']);
+
+    // Designations
+    Route::get('designations', [\App\Http\Controllers\Api\Hr\DesignationController::class, 'index']);
+    Route::get('designations/by-department/{departmentId}', [\App\Http\Controllers\Api\Hr\DesignationController::class, 'getByDepartment']);
+    Route::post('designations', [\App\Http\Controllers\Api\Hr\DesignationController::class, 'store']);
+    Route::get('designations/{designation}', [\App\Http\Controllers\Api\Hr\DesignationController::class, 'show']);
+    Route::put('designations/{designation}', [\App\Http\Controllers\Api\Hr\DesignationController::class, 'update']);
+    Route::delete('designations/{designation}', [\App\Http\Controllers\Api\Hr\DesignationController::class, 'destroy']);
+
+    // Dashboards
+    Route::get('dashboard', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'admin']);
+    Route::get('dashboard/manager', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'manager']);
+    Route::get('dashboard/employee', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'employee']);
 });
 
 

@@ -342,8 +342,48 @@ class DocumentsController extends Controller
 
         // For other file types, return as download
         return response($fileContent)
+            ->header('Content-Type', $mimeType);
+    }
+
+    /**
+     * Public preview for profile pictures (no auth required, uses signed URL).
+     */
+    public function publicPreview(Request $request, $id)
+    {
+        // Validate that ID is a valid integer
+        if (!is_numeric($id) || $id <= 0) {
+            abort(404, 'Document not found');
+        }
+
+        // Verify signed URL
+        if (!$request->hasValidSignature()) {
+            abort(403, 'Invalid or expired signature');
+        }
+
+        $document = Document::findOrFail((int) $id);
+
+        // Only allow profile pictures (documents linked to employees)
+        // Check if this document is used as a profile picture
+        $isProfilePicture = \App\Models\Hr\Employee::where('profile_picture_id', $document->id)->exists();
+        
+        if (!$isProfilePicture) {
+            abort(403, 'This document is not a profile picture');
+        }
+
+        // Check if file exists
+        if (!Storage::exists($document->file_path)) {
+            abort(404, 'File not found');
+        }
+
+        // Get file content and MIME type
+        $fileContent = Storage::get($document->file_path);
+        $mimeType = Storage::mimeType($document->file_path);
+
+        // Return image with proper headers
+        return response($fileContent)
             ->header('Content-Type', $mimeType)
-            ->header('Content-Disposition', 'attachment; filename="' . $document->title . '"');
+            ->header('Content-Disposition', 'inline; filename="' . $document->title . '"')
+            ->header('Cache-Control', 'public, max-age=3600');
     }
 
     /**
