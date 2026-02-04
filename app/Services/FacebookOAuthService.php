@@ -37,7 +37,7 @@ class FacebookOAuthService
         $params = [
             'client_id' => $this->clientId,
             'redirect_uri' => $this->redirectUri,
-            'scope' => 'email,public_profile',
+            'scope' => 'email,public_profile,ads_read,ads_management',
             'response_type' => 'code',
             'state' => $state,
         ];
@@ -161,14 +161,16 @@ class FacebookOAuthService
     /**
      * Get Facebook ad accounts for the user
      * 
-     * Note: This requires ads_read permission which must be granted through Facebook Business Manager,
-     * not through OAuth scope. The OAuth token can access Marketing API endpoints if the user has
-     * granted ad account access to your app in Business Manager.
+     * Note: This requires ads_read permission which is requested in the OAuth scope.
+     * The user will be prompted to grant these permissions during the OAuth flow.
      * 
-     * If no ad accounts are found, the user needs to:
-     * 1. Go to Facebook Business Manager
-     * 2. Grant your app access to their ad accounts
-     * 3. Reconnect or refresh the connection
+     * For production use, ads_read and ads_management permissions require Facebook App Review.
+     * In development mode, you can test with your own Facebook account.
+     * 
+     * If no ad accounts are found, possible reasons:
+     * 1. User didn't grant ads_read permission during OAuth
+     * 2. User doesn't have any ad accounts
+     * 3. App hasn't been granted access to ad accounts in Business Manager
      */
     public function getAdAccounts(string $accessToken): array
     {

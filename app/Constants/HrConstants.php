@@ -165,8 +165,72 @@ class HrConstants
 
     // Induction Target Audience Types
     const INDUCTION_TARGET_ALL_EMPLOYEES = 'all_employees';
+
+    // KPI Template Status
+    const KPI_TEMPLATE_STATUS_DRAFT = 'draft';
+    const KPI_TEMPLATE_STATUS_PUBLISHED = 'published';
+    const KPI_TEMPLATE_STATUS_ARCHIVED = 'archived';
+
+    // KPI Review Period
+    const KPI_REVIEW_PERIOD_MONTHLY = 'monthly';
+    const KPI_REVIEW_PERIOD_QUARTERLY = 'quarterly';
+    const KPI_REVIEW_PERIOD_YEARLY = 'yearly';
+    const KPI_REVIEW_PERIOD_ONCE = 'once';
+
+    // KPI Assignment Status
+    const KPI_ASSIGNMENT_STATUS_ASSIGNED = 'assigned';
+    const KPI_ASSIGNMENT_STATUS_SELF_REVIEW_PENDING = 'self_review_pending';
+    const KPI_ASSIGNMENT_STATUS_SELF_REVIEW_SUBMITTED = 'self_review_submitted';
+    const KPI_ASSIGNMENT_STATUS_MANAGER_REVIEW_PENDING = 'manager_review_pending';
+    const KPI_ASSIGNMENT_STATUS_COMPLETED = 'completed';
+    const KPI_ASSIGNMENT_STATUS_OVERDUE = 'overdue';
+
+    // KPI Review Type
+    const KPI_REVIEW_TYPE_SELF = 'self_review';
+    const KPI_REVIEW_TYPE_MANAGER = 'manager_review';
+
+    // KPI Grade
+    const KPI_GRADE_A = 'A';
+    const KPI_GRADE_B = 'B';
+    const KPI_GRADE_C = 'C';
+    const KPI_GRADE_D = 'D';
+
+    // KPI Error Messages
+    const ERROR_KPI_TEMPLATE_NOT_FOUND = 'KPI template not found';
+    const ERROR_KPI_TEMPLATE_WEIGHT_INVALID = 'Total weight of all KPI items must equal exactly 100%';
+    const ERROR_KPI_ASSIGNMENT_NOT_FOUND = 'KPI assignment not found';
+    const ERROR_KPI_REVIEW_ALREADY_SUBMITTED = 'Review already submitted for this assignment';
+    const ERROR_KPI_SELF_REVIEW_REQUIRED = 'Employee must submit self review before manager review';
+    const ERROR_KPI_TEMPLATE_HAS_ACTIVE_ASSIGNMENTS = 'Cannot delete template with active assignments';
+    const ERROR_KPI_SCORE_INVALID = 'Score must be between 0 and 10';
     const INDUCTION_TARGET_ONBOARDING_ONLY = 'onboarding_only';
     const INDUCTION_TARGET_DEPARTMENT_SPECIFIC = 'department_specific';
+
+    // Announcement Categories
+    const ANNOUNCEMENT_CATEGORY_BIRTHDAY = 'birthday';
+    const ANNOUNCEMENT_CATEGORY_WELCOME = 'welcome';
+    const ANNOUNCEMENT_CATEGORY_POLICY = 'policy';
+    const ANNOUNCEMENT_CATEGORY_EVENT = 'event';
+    const ANNOUNCEMENT_CATEGORY_GENERAL = 'general';
+
+    // Announcement Status
+    const ANNOUNCEMENT_STATUS_DRAFT = 'draft';
+    const ANNOUNCEMENT_STATUS_PUBLISHED = 'published';
+    const ANNOUNCEMENT_STATUS_ARCHIVED = 'archived';
+
+    // Announcement Target Audience Types
+    const ANNOUNCEMENT_TARGET_ALL = 'all_employees';
+    const ANNOUNCEMENT_TARGET_DEPARTMENT = 'department_specific';
+    const ANNOUNCEMENT_TARGET_INDIVIDUAL = 'individual';
+
+    // Announcement Priority
+    const ANNOUNCEMENT_PRIORITY_LOW = 'low';
+    const ANNOUNCEMENT_PRIORITY_MEDIUM = 'medium';
+    const ANNOUNCEMENT_PRIORITY_HIGH = 'high';
+
+    // Announcement Error Messages
+    const ERROR_ANNOUNCEMENT_NOT_FOUND = 'Announcement not found';
+    const ERROR_ANNOUNCEMENT_CANNOT_EDIT_PUBLISHED = 'Cannot edit published announcement';
 
     // Induction Assignment Status
     const INDUCTION_ASSIGNMENT_STATUS_PENDING = 'pending';

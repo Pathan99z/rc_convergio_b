@@ -1371,24 +1371,72 @@ Route::middleware(['auth:sanctum'])->prefix('hr')->group(function () {
     Route::put('designations/{designation}', [\App\Http\Controllers\Api\Hr\DesignationController::class, 'update']);
     Route::delete('designations/{designation}', [\App\Http\Controllers\Api\Hr\DesignationController::class, 'destroy']);
 
+    // KPI Management
+    Route::prefix('kpi')->group(function () {
+        // Template Management (HR Admin)
+        Route::get('templates', [\App\Http\Controllers\Api\Hr\KpiTemplateController::class, 'index']);
+        Route::post('templates', [\App\Http\Controllers\Api\Hr\KpiTemplateController::class, 'store']);
+        Route::get('templates/{id}', [\App\Http\Controllers\Api\Hr\KpiTemplateController::class, 'show'])->whereNumber('id');
+        Route::put('templates/{id}', [\App\Http\Controllers\Api\Hr\KpiTemplateController::class, 'update'])->whereNumber('id');
+        Route::delete('templates/{id}', [\App\Http\Controllers\Api\Hr\KpiTemplateController::class, 'destroy'])->whereNumber('id');
+        Route::post('templates/assign', [\App\Http\Controllers\Api\Hr\KpiTemplateController::class, 'assign']);
+        Route::get('analytics', [\App\Http\Controllers\Api\Hr\KpiTemplateController::class, 'analytics']);
+
+        // Manager Review
+        Route::get('reviews/my-team', [\App\Http\Controllers\Api\Hr\KpiReviewController::class, 'myTeam']);
+        Route::get('reviews/{id}', [\App\Http\Controllers\Api\Hr\KpiReviewController::class, 'show'])->whereNumber('id');
+        Route::post('reviews/{id}/manager-review', [\App\Http\Controllers\Api\Hr\KpiReviewController::class, 'submitManagerReview'])->whereNumber('id');
+    });
+
+    // Announcement Management (HR Admin)
+    Route::prefix('announcements')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'store']);
+        Route::get('{id}/attachment', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'attachment'])->whereNumber('id');
+        Route::get('{id}', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'show'])->whereNumber('id');
+        Route::put('{id}', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'update'])->whereNumber('id');
+        Route::delete('{id}', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'destroy'])->whereNumber('id');
+        Route::post('{id}/publish', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'publish'])->whereNumber('id');
+        Route::post('{id}/archive', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'archive'])->whereNumber('id');
+        Route::get('analytics', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'analytics']);
+        Route::post('{id}/remind', [\App\Http\Controllers\Api\Hr\AnnouncementController::class, 'sendReminders'])->whereNumber('id');
+    });
+
     // Dashboards
     Route::get('dashboard', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'admin']);
     Route::get('dashboard/manager', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'manager']);
     Route::get('dashboard/employee', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'employee']);
 });
 
-// Employee Induction Routes (Employee self-service)
+// Employee Routes (Employee self-service)
 Route::middleware(['auth:sanctum'])->prefix('employee')->group(function () {
+    // Induction Routes
     Route::get('induction', [\App\Http\Controllers\Api\EmployeeInductionController::class, 'index']);
     Route::get('induction/{assignmentId}/view', [\App\Http\Controllers\Api\EmployeeInductionController::class, 'view'])->whereNumber('assignmentId');
     Route::post('induction/{assignmentId}/start', [\App\Http\Controllers\Api\EmployeeInductionController::class, 'start'])->whereNumber('assignmentId');
     Route::post('induction/{assignmentId}/acknowledge', [\App\Http\Controllers\Api\EmployeeInductionController::class, 'acknowledge'])->whereNumber('assignmentId');
+
+    // Announcement Routes
+    Route::get('announcements', [\App\Http\Controllers\Api\EmployeeAnnouncementController::class, 'index']);
+    Route::get('announcements/{id}/attachment', [\App\Http\Controllers\Api\EmployeeAnnouncementController::class, 'attachment'])->whereNumber('id');
+    Route::get('announcements/{id}', [\App\Http\Controllers\Api\EmployeeAnnouncementController::class, 'show'])->whereNumber('id');
+    Route::post('announcements/{id}/view', [\App\Http\Controllers\Api\EmployeeAnnouncementController::class, 'view'])->whereNumber('id');
+    Route::post('announcements/{id}/acknowledge', [\App\Http\Controllers\Api\EmployeeAnnouncementController::class, 'acknowledge'])->whereNumber('id');
+    Route::post('announcements/{id}/like', [\App\Http\Controllers\Api\EmployeeAnnouncementController::class, 'like'])->whereNumber('id');
+    Route::post('announcements/{id}/comment', [\App\Http\Controllers\Api\EmployeeAnnouncementController::class, 'comment'])->whereNumber('id');
+    Route::delete('announcements/{id}/comment/{commentId}', [\App\Http\Controllers\Api\EmployeeAnnouncementController::class, 'deleteComment'])->whereNumber(['id', 'commentId']);
 
     // Employee Document Self-Service
     Route::get('documents', [\App\Http\Controllers\Api\EmployeeDocumentController::class, 'index']);
     Route::get('documents/document-types', [\App\Http\Controllers\Api\EmployeeDocumentController::class, 'getDocumentTypes']);
     Route::get('documents/missing-mandatory', [\App\Http\Controllers\Api\EmployeeDocumentController::class, 'getMissingMandatoryDocuments']);
     Route::post('documents', [\App\Http\Controllers\Api\EmployeeDocumentController::class, 'store']);
+
+    // Employee KPI Self-Service
+    Route::get('kpi', [\App\Http\Controllers\Api\EmployeeKpiController::class, 'index']);
+    Route::get('kpi/{id}', [\App\Http\Controllers\Api\EmployeeKpiController::class, 'show'])->whereNumber('id');
+    Route::post('kpi/{id}/self-review', [\App\Http\Controllers\Api\EmployeeKpiController::class, 'submitSelfReview'])->whereNumber('id');
+    Route::get('kpi/history', [\App\Http\Controllers\Api\EmployeeKpiController::class, 'history']);
 });
 
 
