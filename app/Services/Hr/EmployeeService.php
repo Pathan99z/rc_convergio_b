@@ -155,6 +155,26 @@ class EmployeeService
             $jobTitle = $jobTitle ?? '';
             $departmentName = $departmentName ?? '';
 
+            // Handle manager_id - ensure it's properly formatted and validated
+            $managerId = null;
+            if (isset($data['manager_id']) && $data['manager_id'] !== '' && $data['manager_id'] !== null) {
+                // Convert to integer if it's a string
+                $managerIdValue = is_numeric($data['manager_id']) ? (int) $data['manager_id'] : null;
+                
+                if ($managerIdValue !== null) {
+                    // Additional validation: ensure manager belongs to same tenant and is valid
+                    $manager = Employee::where('id', $managerIdValue)
+                        ->where('tenant_id', $tenantId)
+                        ->where('employment_status', '!=', HrConstants::STATUS_OFFBOARDED)
+                        ->whereNull('archived_at')
+                        ->first();
+                    
+                    if ($manager) {
+                        $managerId = $managerIdValue;
+                    }
+                }
+            }
+
             // Create employee
             $employee = Employee::create([
                 'tenant_id' => $tenantId,
@@ -192,7 +212,7 @@ class EmployeeService
                 'work_schedule' => $data['work_schedule'] ?? null,
                 'probation_end_date' => $data['probation_end_date'] ?? null,
                 'contract_end_date' => $data['contract_end_date'] ?? null,
-                'manager_id' => $data['manager_id'] ?? null,
+                'manager_id' => $managerId,
                 // Additional Fields
                 'salary' => $data['salary'] ?? null,
                 'bank_account' => $data['bank_account'] ?? null,
@@ -209,6 +229,10 @@ class EmployeeService
                 try {
                     $onboardingService = app(\App\Services\Hr\OnboardingService::class);
                     $onboardingService->initializeOnboarding($employee);
+                    
+                    // Assign all active induction contents to new onboarding employee
+                    $inductionService = app(\App\Services\Hr\InductionService::class);
+                    $inductionService->assignAllActiveContentsToEmployee($employee);
                 } catch (\Exception $e) {
                     // Log error but don't fail employee creation
                     Log::warning('Failed to initialize onboarding for employee', [
@@ -392,8 +416,91 @@ class EmployeeService
                 $data['department'] = '';
             }
 
+            // Handle manager_id - ensure it's properly formatted and validated
+            if (array_key_exists('manager_id', $data)) {
+                // Log what we received
+                Log::info('Manager ID processing started', [
+                    'raw_value' => $data['manager_id'],
+                    'type' => gettype($data['manager_id']),
+                    'employee_id' => $employee->id,
+                    'tenant_id' => $tenantId,
+                ]);
+                
+                if ($data['manager_id'] === '' || $data['manager_id'] === null) {
+                    $data['manager_id'] = null;
+                    Log::info('Manager ID set to null (empty string or null)');
+                } else {
+                    // Convert to integer if it's a string
+                    $managerId = is_numeric($data['manager_id']) ? (int) $data['manager_id'] : null;
+                    
+                    Log::info('Manager ID converted', [
+                        'original' => $data['manager_id'],
+                        'converted' => $managerId,
+                    ]);
+                    
+                    if ($managerId !== null && $managerId > 0) {
+                        // Bypass global scope to check if manager exists
+                        // Use withoutGlobalScope to avoid tenant scope interference
+                        $manager = Employee::withoutGlobalScope('tenant')
+                            ->where('id', $managerId)
+                            ->where('tenant_id', $tenantId)
+                            ->where('id', '!=', $employee->id) // Prevent self-reference
+                            ->where('employment_status', '!=', HrConstants::STATUS_OFFBOARDED)
+                            ->whereNull('archived_at')
+                            ->first();
+                        
+                        Log::info('Manager lookup result', [
+                            'manager_id' => $managerId,
+                            'found' => $manager ? true : false,
+                            'manager_tenant_id' => $manager ? $manager->tenant_id : null,
+                            'manager_status' => $manager ? $manager->employment_status : null,
+                            'manager_archived_at' => $manager ? $manager->archived_at : null,
+                        ]);
+                        
+                        if ($manager) {
+                            $data['manager_id'] = $managerId;
+                            Log::info('Manager ID set successfully', ['manager_id' => $managerId]);
+                        } else {
+                            // If manager doesn't exist or doesn't belong to tenant, set to null
+                            Log::warning('Manager not found or invalid', [
+                                'manager_id' => $managerId,
+                                'tenant_id' => $tenantId,
+                                'employee_id' => $employee->id,
+                            ]);
+                            $data['manager_id'] = null;
+                        }
+                    } else {
+                        Log::warning('Manager ID conversion failed', [
+                            'original_value' => $data['manager_id'],
+                            'converted_value' => $managerId,
+                        ]);
+                        $data['manager_id'] = null;
+                    }
+                }
+            } else {
+                Log::warning('manager_id not in data array', [
+                    'data_keys' => array_keys($data),
+                    'employee_id' => $employee->id,
+                ]);
+            }
+
+            // Log data before update
+            Log::info('Data before employee update', [
+                'employee_id' => $employee->id,
+                'manager_id_in_data' => $data['manager_id'] ?? 'NOT_SET',
+                'data_keys' => array_keys($data),
+                'current_manager_id' => $employee->manager_id,
+            ]);
+
             $employee->update($data);
             $employee->refresh();
+            
+            // Log data after update
+            Log::info('Data after employee update', [
+                'employee_id' => $employee->id,
+                'saved_manager_id' => $employee->manager_id,
+                'updated_at' => $employee->updated_at,
+            ]);
 
             // Log audit
             $this->auditService->logEmployeeUpdated($employee->id, $oldValues, $employee->toArray());

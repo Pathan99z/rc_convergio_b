@@ -22,6 +22,7 @@ class Payslip extends Model
         'pay_period_start',
         'pay_period_end',
         'document_id',
+        'document_type_id',
         'uploaded_by',
         'uploaded_at',
     ];
@@ -59,6 +60,14 @@ class Payslip extends Model
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class, 'document_id');
+    }
+
+    /**
+     * Get the document type.
+     */
+    public function documentType(): BelongsTo
+    {
+        return $this->belongsTo(DocumentType::class, 'document_type_id');
     }
 
     /**

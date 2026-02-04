@@ -20,6 +20,7 @@ class EmployeeDocument extends Model
         'employee_id',
         'document_id',
         'category',
+        'document_type_id',
         'is_hr_only',
         'verification_status',
         'rejection_reason',
@@ -63,6 +64,14 @@ class EmployeeDocument extends Model
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class, 'document_id');
+    }
+
+    /**
+     * Get the document type.
+     */
+    public function documentType(): BelongsTo
+    {
+        return $this->belongsTo(DocumentType::class, 'document_type_id');
     }
 
     /**

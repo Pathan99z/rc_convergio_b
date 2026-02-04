@@ -160,7 +160,15 @@ class FacebookOAuthService
 
     /**
      * Get Facebook ad accounts for the user
-     * Note: This requires ads_read permission which needs Facebook App Review
+     * 
+     * Note: This requires ads_read permission which must be granted through Facebook Business Manager,
+     * not through OAuth scope. The OAuth token can access Marketing API endpoints if the user has
+     * granted ad account access to your app in Business Manager.
+     * 
+     * If no ad accounts are found, the user needs to:
+     * 1. Go to Facebook Business Manager
+     * 2. Grant your app access to their ad accounts
+     * 3. Reconnect or refresh the connection
      */
     public function getAdAccounts(string $accessToken): array
     {
@@ -171,13 +179,14 @@ class FacebookOAuthService
                 ]);
 
             if (!$response->successful()) {
-                Log::warning('Facebook ad accounts request failed - likely due to missing ads_read permission', [
+                Log::warning('Facebook ad accounts request failed - user needs to grant ad account access in Business Manager', [
                     'status' => $response->status(),
                     'response' => $response->body()
                 ]);
                 
                 // Return empty array instead of throwing exception
                 // This allows the OAuth flow to complete successfully
+                // User can grant access later in Business Manager and reconnect
                 return [];
             }
 

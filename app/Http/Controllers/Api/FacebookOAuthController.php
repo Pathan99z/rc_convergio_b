@@ -96,7 +96,8 @@ class FacebookOAuthController extends Controller
                 // Get user information from Facebook
                 $userInfo = $this->facebookOAuthService->getUserInfo($accessToken);
 
-                // Get ad accounts (may be empty if ads_read permission not available)
+                // Get ad accounts (may be empty if user hasn't granted access in Business Manager)
+                // User needs to grant ad account access in Facebook Business Manager for this to work
                 $adAccounts = $this->facebookOAuthService->getAdAccounts($accessToken);
 
                 $storedAccounts = [];
@@ -130,7 +131,7 @@ class FacebookOAuthController extends Controller
 
                 $message = 'Facebook OAuth completed successfully';
                 if (empty($adAccounts)) {
-                    $message .= '. Note: No ad accounts found - this may be due to missing ads_read permission which requires Facebook App Review.';
+                    $message .= '. Note: No ad accounts found. Please grant ad account access in Facebook Business Manager, then reconnect your account.';
                 }
 
                 // Log success for debugging

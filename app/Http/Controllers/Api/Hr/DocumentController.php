@@ -35,7 +35,7 @@ class DocumentController extends Controller
         
         $query = EmployeeDocument::query()
             ->where('employee_id', $employeeId)
-            ->with(['document', 'creator', 'verifier', 'rejector']);
+            ->with(['document', 'documentType', 'creator', 'verifier', 'rejector']);
 
         // Filter by checklist_id if provided (for onboarding sections)
         // This ensures each checklist section only shows its own documents
@@ -130,6 +130,7 @@ class DocumentController extends Controller
                 HrConstants::DOC_CATEGORY_ONBOARDING,
                 HrConstants::DOC_CATEGORY_OTHER,
             ]),
+            'document_type_id' => 'nullable|integer|exists:hr_document_types,id',
             'file' => 'required|file|max:51200', // 50MB max
             'description' => 'nullable|string|max:1000',
             'is_hr_only' => 'nullable|boolean',
@@ -166,6 +167,7 @@ class DocumentController extends Controller
                 'employee_id' => $employeeId,
                 'document_id' => $document->id,
                 'category' => $data['category'],
+                'document_type_id' => $data['document_type_id'] ?? null, // Optional: link to document type
                 'is_hr_only' => $data['is_hr_only'] ?? false,
                 'verification_status' => HrConstants::DOC_VERIFICATION_STATUS_PENDING,
                 'created_by' => $request->user()->id,

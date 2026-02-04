@@ -172,6 +172,14 @@ class Employee extends Model
     }
 
     /**
+     * Get induction assignments for this employee.
+     */
+    public function inductionAssignments(): HasMany
+    {
+        return $this->hasMany(EmployeeInductionAssignment::class, 'employee_id');
+    }
+
+    /**
      * Get the creator of this employee record.
      */
     public function creator(): BelongsTo

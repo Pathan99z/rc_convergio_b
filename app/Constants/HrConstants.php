@@ -148,6 +148,32 @@ class HrConstants
     const PAYSLIP_PREFIX = 'PAY';
     const PAYSLIP_FORMAT = 'PAY-{year}-{month}-{sequence}';
 
+    // Induction Content Types
+    const INDUCTION_CONTENT_TYPE_DOCUMENT = 'document';
+    const INDUCTION_CONTENT_TYPE_VIDEO = 'video';
+    const INDUCTION_CONTENT_TYPE_BOTH = 'both';
+
+    // Induction Content Categories
+    const INDUCTION_CATEGORY_INDUCTION = 'induction';
+    const INDUCTION_CATEGORY_POLICY = 'policy';
+    const INDUCTION_CATEGORY_TRAINING = 'training';
+
+    // Induction Content Status
+    const INDUCTION_STATUS_DRAFT = 'draft';
+    const INDUCTION_STATUS_PUBLISHED = 'published';
+    const INDUCTION_STATUS_ARCHIVED = 'archived';
+
+    // Induction Target Audience Types
+    const INDUCTION_TARGET_ALL_EMPLOYEES = 'all_employees';
+    const INDUCTION_TARGET_ONBOARDING_ONLY = 'onboarding_only';
+    const INDUCTION_TARGET_DEPARTMENT_SPECIFIC = 'department_specific';
+
+    // Induction Assignment Status
+    const INDUCTION_ASSIGNMENT_STATUS_PENDING = 'pending';
+    const INDUCTION_ASSIGNMENT_STATUS_IN_PROGRESS = 'in_progress';
+    const INDUCTION_ASSIGNMENT_STATUS_COMPLETED = 'completed';
+    const INDUCTION_ASSIGNMENT_STATUS_OVERDUE = 'overdue';
+
     // Audit Actions
     const AUDIT_EMPLOYEE_CREATED = 'employee.created';
     const AUDIT_EMPLOYEE_UPDATED = 'employee.updated';

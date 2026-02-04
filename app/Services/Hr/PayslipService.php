@@ -109,6 +109,34 @@ class PayslipService
                 'created_by' => $currentUser->id,
             ]);
 
+            // Find or create "Payslip" document type
+            $documentType = \App\Models\Hr\DocumentType::withoutGlobalScope('tenant')
+                ->where('tenant_id', $tenantId)
+                ->where('category', 'payslip')
+                ->where(function($q) {
+                    $q->where('code', 'PAYSLIP')
+                      ->orWhere('name', 'Payslip');
+                })
+                ->first();
+
+            // If document type doesn't exist, create it
+            if (!$documentType) {
+                $documentType = \App\Models\Hr\DocumentType::create([
+                    'tenant_id' => $tenantId,
+                    'name' => 'Payslip',
+                    'code' => 'PAYSLIP',
+                    'description' => 'Employee payslip document',
+                    'category' => 'payslip',
+                    'is_mandatory' => false,
+                    'employee_can_upload' => false, // HR only uploads payslips
+                    'is_hr_only' => false, // Employees can view their payslips
+                    'allowed_file_types' => ['pdf'],
+                    'max_file_size_mb' => 10,
+                    'is_active' => true,
+                    'created_by' => $currentUser->id,
+                ]);
+            }
+
             // Create payslip record
             $payslip = Payslip::create([
                 'tenant_id' => $tenantId,
@@ -117,6 +145,7 @@ class PayslipService
                 'pay_period_start' => $data['pay_period_start'],
                 'pay_period_end' => $data['pay_period_end'],
                 'document_id' => $document->id,
+                'document_type_id' => $documentType->id,
                 'uploaded_by' => $currentUser->id,
                 'uploaded_at' => now(),
             ]);
@@ -125,7 +154,7 @@ class PayslipService
             $this->auditService->logPayslipUploaded($payslip->id, $employeeId);
 
             DB::commit();
-            return $payslip->load(['employee', 'document', 'uploadedBy']);
+            return $payslip->load(['employee', 'document', 'documentType', 'uploadedBy']);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to upload payslip', [
@@ -231,4 +260,5 @@ class PayslipService
         return "payslip_{$employeeId}_{$timestamp}." . $extension;
     }
 }
+
 

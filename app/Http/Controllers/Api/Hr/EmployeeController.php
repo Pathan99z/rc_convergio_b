@@ -18,6 +18,85 @@ class EmployeeController extends Controller
     ) {}
 
     /**
+     * Parse multipart/form-data from raw request body for PUT requests.
+     * PHP doesn't automatically parse multipart/form-data for PUT requests.
+     */
+    private function parseMultipartFormData(Request $request): array
+    {
+        $data = [];
+        $contentType = $request->header('Content-Type', '');
+        
+        // Only parse if it's multipart/form-data
+        if (strpos($contentType, 'multipart/form-data') === false) {
+            return $data;
+        }
+
+        // Get boundary from Content-Type header
+        preg_match('/boundary=(.*)$/i', $contentType, $matches);
+        if (!isset($matches[1])) {
+            return $data;
+        }
+        
+        $boundary = '--' . trim($matches[1]);
+        $rawBody = $request->getContent();
+        
+        if (empty($rawBody)) {
+            return $data;
+        }
+
+        // Split by boundary
+        $parts = explode($boundary, $rawBody);
+        
+        foreach ($parts as $part) {
+            // Skip empty parts and closing boundary
+            if (empty(trim($part)) || trim($part) === '--') {
+                continue;
+            }
+
+            // Parse the part header and body
+            if (preg_match('/Content-Disposition: form-data; name="([^"]+)"(?:; filename="([^"]+)")?/i', $part, $headerMatches)) {
+                $fieldName = $headerMatches[1];
+                
+                // Skip file uploads (we handle them separately via $request->file())
+                if (isset($headerMatches[2])) {
+                    continue;
+                }
+
+                // Extract the value (everything after the header)
+                // Find the double CRLF that separates header from body
+                $headerEnd = strpos($part, "\r\n\r\n");
+                if ($headerEnd === false) {
+                    $headerEnd = strpos($part, "\n\n");
+                }
+                
+                if ($headerEnd !== false) {
+                    $value = substr($part, $headerEnd + 4);
+                    // Remove trailing CRLF and boundary markers
+                    $value = rtrim($value, "\r\n");
+                    $value = rtrim($value, "\n");
+                    $value = rtrim($value, "--");
+                    $value = trim($value);
+                    
+                    // Handle nested arrays (e.g., address[street])
+                    if (preg_match('/^(.+)\[(.+)\]$/', $fieldName, $nestedMatches)) {
+                        $parentKey = $nestedMatches[1];
+                        $childKey = $nestedMatches[2];
+                        
+                        if (!isset($data[$parentKey])) {
+                            $data[$parentKey] = [];
+                        }
+                        $data[$parentKey][$childKey] = $value;
+                    } else {
+                        $data[$fieldName] = $value;
+                    }
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    /**
      * List employees with filters.
      */
     public function index(Request $request): JsonResponse
@@ -100,7 +179,33 @@ class EmployeeController extends Controller
             'work_schedule' => 'nullable|string|max:255',
             'probation_end_date' => 'nullable|date',
             'contract_end_date' => 'nullable|date',
-            'manager_id' => 'nullable|exists:hr_employees,id',
+            'manager_id' => [
+                'nullable',
+                function ($attribute, $value, $fail) {
+                    if ($value !== null && $value !== '') {
+                        // Convert string to integer if needed
+                        $managerId = is_numeric($value) ? (int) $value : null;
+                        
+                        if ($managerId === null) {
+                            return; // Let nullable handle it
+                        }
+                        
+                        // Check if manager exists and belongs to same tenant
+                        $currentUser = request()->user();
+                        $tenantId = $currentUser->tenant_id ?? $currentUser->id;
+                        
+                        $manager = Employee::where('id', $managerId)
+                            ->where('tenant_id', $tenantId)
+                            ->where('employment_status', '!=', HrConstants::STATUS_OFFBOARDED)
+                            ->whereNull('archived_at')
+                            ->first();
+                        
+                        if (!$manager) {
+                            $fail('The selected manager is invalid or does not belong to your organization.');
+                        }
+                    }
+                },
+            ],
             'team_id' => 'nullable|exists:teams,id',
             
             // Additional Fields
@@ -178,7 +283,82 @@ class EmployeeController extends Controller
         $employee = Employee::findOrFail($id);
         $this->authorize('update', $employee);
 
-        $validator = Validator::make($request->all(), [
+        // CRITICAL FIX: Laravel doesn't parse multipart/form-data for PUT requests automatically
+        // Try multiple methods to extract form data
+        $requestData = [];
+        $contentType = $request->header('Content-Type', '');
+        $isMultipart = strpos($contentType, 'multipart/form-data') !== false;
+
+        // Method 1: Try Laravel's input() method (works for POST, might work for PUT in some cases)
+        $allInput = $request->all();
+        if (!empty($allInput)) {
+            $requestData = $allInput;
+            \Log::info('Got data from $request->all()', ['keys' => array_keys($requestData)]);
+        }
+
+        // Method 2: For PUT requests with multipart/form-data, parse raw body manually
+        if (empty($requestData) && $isMultipart && $request->method() === 'PUT') {
+            $parsedData = $this->parseMultipartFormData($request);
+            if (!empty($parsedData)) {
+                $requestData = $parsedData;
+                \Log::info('Got data from manual multipart parser', ['keys' => array_keys($requestData)]);
+            }
+        }
+
+        // Method 3: Fallback - manually extract known fields using input()
+        if (empty($requestData)) {
+            // List of all possible fields that might be in the request
+            $possibleFields = [
+                'first_name', 'last_name', 'preferred_name', 'date_of_birth', 'gender', 'nationality',
+                'marital_status', 'id_number', 'passport_number', 'work_email', 'personal_email',
+                'phone_number', 'work_phone', 'office_address',
+                'job_title', 'department', 'department_id', 'designation_id', 'employment_type',
+                'employment_status', 'start_date', 'end_date', 'work_schedule', 'probation_end_date',
+                'contract_end_date', 'manager_id', 'team_id', 'salary', 'bank_account'
+            ];
+
+            // Manually extract each field using input()
+            foreach ($possibleFields as $field) {
+                $value = $request->input($field);
+                // Only add non-null values (null means field not present)
+                if ($value !== null && $value !== '') {
+                    $requestData[$field] = $value;
+                }
+            }
+
+            \Log::warning('Using fallback field extraction', [
+                'extracted_keys' => array_keys($requestData),
+                'content_type' => $contentType,
+                'method' => $request->method(),
+            ]);
+        }
+
+        // Handle nested arrays (address, emergency_contact) - ensure they're properly structured
+        // The parser should already handle address[street] format, but ensure it's an array
+        if (isset($requestData['address']) && is_string($requestData['address'])) {
+            // If address came as a string, try to parse it
+            parse_str($requestData['address'], $parsedAddress);
+            $requestData['address'] = $parsedAddress;
+        }
+
+        if (isset($requestData['emergency_contact']) && is_string($requestData['emergency_contact'])) {
+            // If emergency_contact came as a string, try to parse it
+            parse_str($requestData['emergency_contact'], $parsedEmergency);
+            $requestData['emergency_contact'] = $parsedEmergency;
+        }
+
+        // Debug: Log what we extracted
+        \Log::info('Extracted request data', [
+            'extracted_keys' => array_keys($requestData),
+            'has_manager_id' => isset($requestData['manager_id']),
+            'manager_id_value' => $requestData['manager_id'] ?? 'NOT_SET',
+            'manager_id_type' => isset($requestData['manager_id']) ? gettype($requestData['manager_id']) : 'N/A',
+            'content_type' => $contentType,
+            'method' => $request->method(),
+            'is_multipart' => $isMultipart,
+        ]);
+
+        $validator = Validator::make($requestData, [
             // Personal Information
             'first_name' => 'sometimes|required|string|max:255',
             'last_name' => 'sometimes|required|string|max:255',
@@ -222,7 +402,31 @@ class EmployeeController extends Controller
             'work_schedule' => 'nullable|string|max:255',
             'probation_end_date' => 'nullable|date',
             'contract_end_date' => 'nullable|date',
-            'manager_id' => 'nullable|exists:hr_employees,id',
+            'manager_id' => [
+                'nullable',
+                function ($attribute, $value, $fail) use ($id, $employee) {
+                    if ($value !== null && $value !== '') {
+                        // Convert string to integer if needed
+                        $managerId = is_numeric($value) ? (int) $value : null;
+                        
+                        if ($managerId === null) {
+                            return; // Let nullable handle it
+                        }
+                        
+                        // Check if manager exists and belongs to same tenant
+                        $manager = Employee::where('id', $managerId)
+                            ->where('tenant_id', $employee->tenant_id)
+                            ->where('id', '!=', $id) // Prevent self-reference
+                            ->where('employment_status', '!=', HrConstants::STATUS_OFFBOARDED)
+                            ->whereNull('archived_at')
+                            ->first();
+                        
+                        if (!$manager) {
+                            $fail('The selected manager is invalid or does not belong to your organization.');
+                        }
+                    }
+                },
+            ],
             'team_id' => 'nullable|exists:teams,id',
             
             // Additional Fields
@@ -239,7 +443,49 @@ class EmployeeController extends Controller
         }
 
         try {
-            $employee = $this->employeeService->updateEmployee($employee, $validator->validated());
+            $validated = $validator->validated();
+            
+            // CRITICAL FIX: Check $requestData instead of $request->has() for PUT requests
+            // For PUT requests with multipart/form-data, $request->has() doesn't work
+            if (isset($requestData['manager_id']) && !array_key_exists('manager_id', $validated)) {
+                $validated['manager_id'] = $requestData['manager_id'];
+                \Log::info('Added manager_id from requestData to validated data', [
+                    'manager_id' => $validated['manager_id'],
+                    'type' => gettype($validated['manager_id']),
+                ]);
+            }
+            
+            // Normalize manager_id: convert string to int, empty string to null
+            if (isset($validated['manager_id'])) {
+                if ($validated['manager_id'] === '' || $validated['manager_id'] === null) {
+                    $validated['manager_id'] = null;
+                } else {
+                    $validated['manager_id'] = is_numeric($validated['manager_id']) 
+                        ? (int) $validated['manager_id'] 
+                        : null;
+                }
+                
+                \Log::info('Manager ID normalized', [
+                    'normalized_value' => $validated['manager_id'],
+                    'type' => gettype($validated['manager_id']),
+                ]);
+            } else {
+                \Log::warning('Manager ID not in validated data', [
+                    'validated_keys' => array_keys($validated),
+                    'requestData_has_manager_id' => isset($requestData['manager_id']),
+                ]);
+            }
+            
+            // Debug logging to track manager_id through the flow
+            \Log::info('Employee update - validated data', [
+                'employee_id' => $employee->id,
+                'has_manager_id' => array_key_exists('manager_id', $validated),
+                'manager_id_value' => $validated['manager_id'] ?? 'NOT_SET',
+                'manager_id_type' => isset($validated['manager_id']) ? gettype($validated['manager_id']) : 'N/A',
+                'all_keys' => array_keys($validated),
+            ]);
+            
+            $employee = $this->employeeService->updateEmployee($employee, $validated);
 
             return response()->json([
                 'success' => true,
@@ -381,27 +627,42 @@ class EmployeeController extends Controller
             ->get();
 
         $formattedManagers = $managers->map(function ($employee) {
+            // Get the department relationship object (loaded via ->with())
+            $departmentRelation = $employee->relationLoaded('department') 
+                ? $employee->getRelation('department') 
+                : null;
+            
+            // Get the designation relationship object (loaded via ->with())
+            $designationRelation = $employee->relationLoaded('designation') 
+                ? $employee->getRelation('designation') 
+                : null;
+            
+            // Get department name for display (prefer relationship, fallback to string field)
+            $departmentName = $departmentRelation 
+                ? $departmentRelation->name 
+                : ($employee->department ?: 'N/A');
+            
             return [
                 'id' => $employee->id,
                 'employee_id' => $employee->employee_id,
                 'full_name' => $employee->full_name,
                 'job_title' => $employee->job_title,
-                'department' => $employee->department,
-                'department_detail' => $employee->department ? [
-                    'id' => $employee->department->id,
-                    'name' => $employee->department->name,
-                    'code' => $employee->department->code,
+                'department' => $employee->department, // Keep string field for backward compatibility
+                'department_detail' => $departmentRelation ? [
+                    'id' => $departmentRelation->id,
+                    'name' => $departmentRelation->name,
+                    'code' => $departmentRelation->code,
                 ] : null,
-                'designation_detail' => $employee->designation ? [
-                    'id' => $employee->designation->id,
-                    'name' => $employee->designation->name,
-                    'code' => $employee->designation->code,
+                'designation_detail' => $designationRelation ? [
+                    'id' => $designationRelation->id,
+                    'name' => $designationRelation->name,
+                    'code' => $designationRelation->code,
                 ] : null,
                 'display' => sprintf(
                     '%s - %s - %s',
                     $employee->full_name,
                     $employee->job_title ?: 'N/A',
-                    $employee->department ?: 'N/A'
+                    $departmentName
                 ),
             ];
         });

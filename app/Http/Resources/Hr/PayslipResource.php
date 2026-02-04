@@ -40,3 +40,4 @@ class PayslipResource extends JsonResource
     }
 }
 
+

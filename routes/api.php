@@ -1299,6 +1299,22 @@ Route::middleware(['auth:sanctum'])->prefix('hr')->group(function () {
     Route::put('employees/{id}/onboarding/tasks/{taskId}', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'updateTask'])->whereNumber(['id', 'taskId']);
     Route::post('employees/{id}/onboarding/complete', [\App\Http\Controllers\Api\Hr\OnboardingController::class, 'completeOnboarding'])->whereNumber('id');
 
+    // Induction & Training Management
+    Route::prefix('induction')->group(function () {
+        // Content Management (HR)
+        Route::get('contents', [\App\Http\Controllers\Api\Hr\InductionContentController::class, 'index']);
+        Route::post('contents', [\App\Http\Controllers\Api\Hr\InductionContentController::class, 'store']);
+        Route::get('contents/{id}', [\App\Http\Controllers\Api\Hr\InductionContentController::class, 'show'])->whereNumber('id');
+        Route::put('contents/{id}', [\App\Http\Controllers\Api\Hr\InductionContentController::class, 'update'])->whereNumber('id');
+        Route::post('contents/{id}/publish', [\App\Http\Controllers\Api\Hr\InductionContentController::class, 'publish'])->whereNumber('id');
+        Route::delete('contents/{id}', [\App\Http\Controllers\Api\Hr\InductionContentController::class, 'destroy'])->whereNumber('id');
+
+        // Tracking (HR)
+        Route::get('tracking', [\App\Http\Controllers\Api\Hr\InductionTrackingController::class, 'index']);
+        Route::get('employees/{employeeId}/progress', [\App\Http\Controllers\Api\Hr\InductionTrackingController::class, 'employeeProgress'])->whereNumber('employeeId');
+        Route::post('reminders', [\App\Http\Controllers\Api\Hr\InductionTrackingController::class, 'sendReminders']);
+    });
+
     // Leave Management
     Route::get('leave/balances', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'balances']);
     Route::post('leave/balances/adjust', [\App\Http\Controllers\Api\Hr\LeaveController::class, 'adjustBalance']);
@@ -1316,6 +1332,13 @@ Route::middleware(['auth:sanctum'])->prefix('hr')->group(function () {
     Route::get('payslips/{id}/download', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'download'])->whereNumber('id');
     Route::delete('payslips/{id}', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'destroy'])->whereNumber('id');
     Route::get('employees/{employeeId}/payslips', [\App\Http\Controllers\Api\Hr\PayslipController::class, 'employeePayslips'])->whereNumber('employeeId');
+
+    // Document Type Management (HR)
+    Route::get('document-types', [\App\Http\Controllers\Api\Hr\DocumentTypeController::class, 'index']);
+    Route::post('document-types', [\App\Http\Controllers\Api\Hr\DocumentTypeController::class, 'store']);
+    Route::get('document-types/{id}', [\App\Http\Controllers\Api\Hr\DocumentTypeController::class, 'show'])->whereNumber('id');
+    Route::put('document-types/{id}', [\App\Http\Controllers\Api\Hr\DocumentTypeController::class, 'update'])->whereNumber('id');
+    Route::delete('document-types/{id}', [\App\Http\Controllers\Api\Hr\DocumentTypeController::class, 'destroy'])->whereNumber('id');
 
     // Document Management
     Route::get('employees/{employeeId}/documents', [\App\Http\Controllers\Api\Hr\DocumentController::class, 'index'])->whereNumber('employeeId');
@@ -1352,6 +1375,20 @@ Route::middleware(['auth:sanctum'])->prefix('hr')->group(function () {
     Route::get('dashboard', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'admin']);
     Route::get('dashboard/manager', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'manager']);
     Route::get('dashboard/employee', [\App\Http\Controllers\Api\Hr\DashboardController::class, 'employee']);
+});
+
+// Employee Induction Routes (Employee self-service)
+Route::middleware(['auth:sanctum'])->prefix('employee')->group(function () {
+    Route::get('induction', [\App\Http\Controllers\Api\EmployeeInductionController::class, 'index']);
+    Route::get('induction/{assignmentId}/view', [\App\Http\Controllers\Api\EmployeeInductionController::class, 'view'])->whereNumber('assignmentId');
+    Route::post('induction/{assignmentId}/start', [\App\Http\Controllers\Api\EmployeeInductionController::class, 'start'])->whereNumber('assignmentId');
+    Route::post('induction/{assignmentId}/acknowledge', [\App\Http\Controllers\Api\EmployeeInductionController::class, 'acknowledge'])->whereNumber('assignmentId');
+
+    // Employee Document Self-Service
+    Route::get('documents', [\App\Http\Controllers\Api\EmployeeDocumentController::class, 'index']);
+    Route::get('documents/document-types', [\App\Http\Controllers\Api\EmployeeDocumentController::class, 'getDocumentTypes']);
+    Route::get('documents/missing-mandatory', [\App\Http\Controllers\Api\EmployeeDocumentController::class, 'getMissingMandatoryDocuments']);
+    Route::post('documents', [\App\Http\Controllers\Api\EmployeeDocumentController::class, 'store']);
 });
 
 

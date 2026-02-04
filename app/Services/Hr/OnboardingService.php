@@ -389,13 +389,34 @@ class OnboardingService
         $totalTasks = $tasks->count();
         $completedTasks = $tasks->where('status', HrConstants::TASK_STATUS_COMPLETED)->count();
 
-        $totalItems = $totalChecklists + $totalTasks;
-        $completedItems = $completedChecklists + $completedTasks;
+        // NEW: Get induction progress
+        $inductionService = app(\App\Services\Hr\InductionService::class);
+        $inductionProgress = $inductionService->getEmployeeInductionProgress($employee);
+
+        // Combine all items
+        $totalItems = $totalChecklists + $totalTasks + $inductionProgress['total'];
+        $completedItems = $completedChecklists + $completedTasks + $inductionProgress['completed'];
 
         $progressPercentage = $totalItems > 0 ? round(($completedItems / $totalItems) * 100, 2) : 0;
 
         // Check if onboarding can be completed
-        $canComplete = $completedRequiredChecklists === $requiredChecklists && $requiredChecklists > 0;
+        // Must have: All required checklists + All tasks + All mandatory induction
+        $checklistsComplete = $completedRequiredChecklists === $requiredChecklists && $requiredChecklists > 0;
+        $tasksComplete = $completedTasks === $totalTasks && $totalTasks > 0;
+        $inductionComplete = $inductionProgress['mandatory']['all_completed'];
+
+        // If no items exist in a category, consider it complete
+        if ($requiredChecklists === 0) {
+            $checklistsComplete = true;
+        }
+        if ($totalTasks === 0) {
+            $tasksComplete = true;
+        }
+        if ($inductionProgress['mandatory']['total'] === 0) {
+            $inductionComplete = true;
+        }
+
+        $canComplete = $checklistsComplete && $tasksComplete && $inductionComplete;
 
         return [
             'progress_percentage' => $progressPercentage,
@@ -406,11 +427,14 @@ class OnboardingService
                 'completed' => $completedChecklists,
                 'required' => $requiredChecklists,
                 'completed_required' => $completedRequiredChecklists,
+                'can_complete' => $checklistsComplete,
             ],
             'tasks' => [
                 'total' => $totalTasks,
                 'completed' => $completedTasks,
+                'all_completed' => $tasksComplete,
             ],
+            'induction' => $inductionProgress, // NEW
             'can_complete' => $canComplete,
         ];
     }
@@ -423,7 +447,21 @@ class OnboardingService
         $progress = $this->getOnboardingProgress($employee);
 
         if (!$progress['can_complete']) {
-            throw new \Exception(HrConstants::ERROR_ONBOARDING_NOT_COMPLETE);
+            // Enhanced error message with details
+            $missing = [];
+            if (!$progress['checklists']['can_complete']) {
+                $missing[] = 'required checklist items';
+            }
+            if (!$progress['tasks']['all_completed']) {
+                $missing[] = 'internal tasks';
+            }
+            if (!$progress['induction']['mandatory']['all_completed']) {
+                $missing[] = 'mandatory induction/training content';
+            }
+
+            throw new \Exception(
+                'Onboarding is not complete. Please complete: ' . implode(', ', $missing) . '.'
+            );
         }
 
         if ($employee->employment_status !== HrConstants::STATUS_ONBOARDING) {
